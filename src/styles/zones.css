@@ -1979,3 +1979,22 @@ input[type='checkbox'] {
   flex-basis: 100%;
   justify-content: center;
 }
+
+/* Horizontal rows own the full width; side bars sit between the rows. */
+.table-360 .edge-bottom:not(.zone--focused),
+.table-360 .edge-top:not(.zone--focused) {
+  left: 4px;
+  right: 4px;
+}
+
+.table-360 .edge-left:not(.zone--focused),
+.table-360 .edge-right:not(.zone--focused) {
+  width: calc(100dvh - 128px);
+  top: 50%;
+}
+
+.players-3.table-360 .edge-left:not(.zone--focused),
+.players-3.table-360 .edge-right:not(.zone--focused) {
+  width: calc(100dvh - 70px);
+  top: calc(50% - 29px);
+}
