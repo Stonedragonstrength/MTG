@@ -1998,3 +1998,23 @@ input[type='checkbox'] {
   width: calc(100dvh - 70px);
   top: calc(50% - 29px);
 }
+
+/* Side bars stretch into whichever row the active player vacated. */
+.table-360:has(.zone--focused.edge-bottom) .edge-left:not(.zone--focused),
+.table-360:has(.zone--focused.edge-bottom) .edge-right:not(.zone--focused) {
+  width: calc(100dvh - 66px);
+  top: calc(50% + 29px);
+}
+
+.table-360:has(.zone--focused.edge-top) .edge-left:not(.zone--focused),
+.table-360:has(.zone--focused.edge-top) .edge-right:not(.zone--focused) {
+  width: calc(100dvh - 66px);
+  top: calc(50% - 29px);
+}
+
+/* Three players, bottom active: no rows at all — sides run full height. */
+.players-3.table-360:has(.zone--focused.edge-bottom) .edge-left:not(.zone--focused),
+.players-3.table-360:has(.zone--focused.edge-bottom) .edge-right:not(.zone--focused) {
+  width: calc(100dvh - 8px);
+  top: 50%;
+}
