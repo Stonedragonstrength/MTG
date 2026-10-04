@@ -2018,3 +2018,9 @@ input[type='checkbox'] {
   width: calc(100dvh - 8px);
   top: 50%;
 }
+
+/* Collapsed bars drop commander-damage gauges entirely — the data lives
+   in each player's sheet and shows when they take the board. */
+.focus-mode .zone:not(.zone--focused) .cmd-gauges {
+  display: none;
+}
