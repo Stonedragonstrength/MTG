@@ -643,8 +643,39 @@ button.term {
   flex: 0 0 auto;
 }
 
-.focus-mode .zone:not(.zone--focused) .board-strip,
 .focus-mode .zone:not(.zone--focused) .lands-stacks {
+  display: none;
+}
+
+/* Collapsed players keep a read-only mini token line, like their lands line. */
+.focus-mode .zone:not(.zone--focused) .board-strip {
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-height: 0;
+  padding: 2px 6px;
+  gap: 6px;
+}
+
+.focus-mode .zone:not(.zone--focused) .thumb {
+  width: 30px;
+  height: 42px;
+}
+
+.focus-mode .zone:not(.zone--focused) .pt-badge {
+  font-size: 0.55rem;
+  padding: 0 2px;
+}
+
+.focus-mode .zone:not(.zone--focused) .count-badge {
+  font-size: 0.65rem;
+  min-width: auto;
+}
+
+.focus-mode .zone:not(.zone--focused) .count-controls button,
+.focus-mode .zone:not(.zone--focused) .stack-remove,
+.focus-mode .zone:not(.zone--focused) .add-tile {
   display: none;
 }
 

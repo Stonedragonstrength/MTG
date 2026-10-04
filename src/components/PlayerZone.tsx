@@ -21,15 +21,9 @@ interface Props {
   playerIdx: number;
   focused?: boolean;
   showHub?: boolean;
-  onToggleFocus?: () => void;
 }
 
-export default function PlayerZone({
-  playerIdx,
-  focused = false,
-  showHub = false,
-  onToggleFocus,
-}: Props) {
+export default function PlayerZone({ playerIdx, focused = false, showHub = false }: Props) {
   const game = useAppStore((s) => s.game);
   const adjustLife = useAppStore((s) => s.adjustLife);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -64,7 +58,7 @@ export default function PlayerZone({
 
   return (
     <section className={classes} style={accent ? { borderColor: accent } : undefined}>
-      <header className="zone-header" onClick={onToggleFocus}>
+      <header className="zone-header">
         <span className="zone-id">
           {profile.avatarUrl ? (
             <img className="avatar avatar--small" src={profile.avatarUrl} alt="" />

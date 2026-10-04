@@ -74,26 +74,10 @@ test('tapping a commander damage bubble applies damage from that commander', asy
   expect(spy).toHaveBeenCalledWith(0, 'p1', 1);
 });
 
-test('tapping a zone header focuses that zone, tapping again releases it', async () => {
-  const { container } = render(<GameScreen />);
-  const { default: userEvent } = await import('@testing-library/user-event');
-  const user = userEvent.setup();
-
-  const header = container.querySelector('.zone.seat-1 .zone-header') as HTMLElement;
-  await user.click(header);
-  expect(container.querySelector('.game-screen')!.className).toContain('focus-mode');
-  expect(container.querySelector('.zone.seat-1')!.className).toContain('zone--focused');
-  expect(container.querySelector('.zone.seat-0')!.className).not.toContain('zone--focused');
-
-  await user.click(header);
-  expect(container.querySelector('.game-screen')!.className).not.toContain('focus-mode');
-});
-
-test('auto-focus follows the active player when enabled', async () => {
+test('the active player always holds the big board; the turn moves it', async () => {
   const { act } = await import('@testing-library/react');
-  const settings = useAppStore.getState().settings;
-  useAppStore.setState({ settings: { ...settings, autoFocusOn: true } });
   const { container } = render(<GameScreen />);
+  expect(container.querySelector('.game-screen')!.className).toContain('focus-mode');
   expect(container.querySelector('.zone.seat-0')!.className).toContain('zone--focused');
 
   const game = useAppStore.getState().game!;
@@ -104,14 +88,8 @@ test('auto-focus follows the active player when enabled', async () => {
   expect(container.querySelector('.zone.seat-0')!.className).not.toContain('zone--focused');
 });
 
-test('the hub overlays normally, but docks as a row inside the focused zone', async () => {
+test('the hub always rides inside the active zone', () => {
   const { container } = render(<GameScreen />);
-  expect(container.querySelector('.game-screen > .center-hub')).not.toBeNull();
-
-  const { default: userEvent } = await import('@testing-library/user-event');
-  const user = userEvent.setup();
-  await user.click(container.querySelector('.zone.seat-1 .zone-header') as HTMLElement);
-
   expect(container.querySelector('.game-screen > .center-hub')).toBeNull();
   const docked = container.querySelector('.zone--focused .center-hub');
   expect(docked).not.toBeNull();
