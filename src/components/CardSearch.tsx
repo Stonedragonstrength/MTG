@@ -6,6 +6,7 @@ import { normalize, searchNames } from '../lib/fuzzy';
 import { useAppStore } from '../state/store';
 import CustomTokenForm from './CustomTokenForm';
 import { getNameIndex } from './nameIndexCache';
+import Sheet from './Sheet';
 
 export const COMMON_TOKENS = [
   'Treasure',
@@ -60,13 +61,37 @@ export default function CardSearch({ playerIdx, onClose }: Props) {
     if (target) void pickId(target.id);
   }
 
+  if (customOpen) {
+    return (
+      <Sheet title="Custom token" onClose={onClose}>
+        <CustomTokenForm playerIdx={playerIdx} onDone={onClose} />
+      </Sheet>
+    );
+  }
+
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal card-search" onClick={(e) => e.stopPropagation()}>
-        {customOpen ? (
-          <CustomTokenForm playerIdx={playerIdx} onDone={onClose} />
-        ) : (
-          <>
+    <Sheet
+      title="Add a card"
+      onClose={onClose}
+      size="wide"
+      footer={
+        <button className="ghost" onClick={() => setCustomOpen(true)}>
+          Custom token…
+        </button>
+      }
+    >
+      <input
+        autoFocus
+        type="search"
+        placeholder="Search any card…"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+      />
+
+      {query.trim() === '' ? (
+        <>
+          <div className="chip-group">
+            <span className="chip-group-label">Quick tokens</span>
             <div className="chip-row" aria-label="common tokens">
               {COMMON_TOKENS.map((name) => (
                 <button
@@ -79,7 +104,10 @@ export default function CardSearch({ playerIdx, onClose }: Props) {
                 </button>
               ))}
             </div>
-            {recent.length > 0 && (
+          </div>
+          {recent.length > 0 && (
+            <div className="chip-group">
+              <span className="chip-group-label">Recent</span>
               <div className="chip-row" aria-label="recently used">
                 {recent.map((r) => (
                   <button key={r.id} className="chip chip--recent" onClick={() => pickId(r.id)}>
@@ -87,32 +115,18 @@ export default function CardSearch({ playerIdx, onClose }: Props) {
                   </button>
                 ))}
               </div>
-            )}
-            <input
-              autoFocus
-              type="search"
-              placeholder="Search any card…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-            <ul className="search-results">
-              {results.map((r) => (
-                <li key={r.id}>
-                  <button onClick={() => pickId(r.id)}>{r.name}</button>
-                </li>
-              ))}
-            </ul>
-            <div className="modal-actions">
-              <button className="ghost" onClick={() => setCustomOpen(true)}>
-                Custom token…
-              </button>
-              <button className="ghost" onClick={onClose}>
-                Cancel
-              </button>
             </div>
-          </>
-        )}
-      </div>
-    </div>
+          )}
+        </>
+      ) : (
+        <ul className="search-results">
+          {results.map((r) => (
+            <li key={r.id}>
+              <button onClick={() => pickId(r.id)}>{r.name}</button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Sheet>
   );
 }

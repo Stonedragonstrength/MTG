@@ -4,6 +4,7 @@ import HomeScreen from './components/HomeScreen';
 import SetupGate from './components/SetupGate';
 import { useAppStore } from './state/store';
 import './styles/screens.css';
+import './styles/sheets.css';
 
 export default function App() {
   const setupDone = useAppStore((s) => s.setupDone);

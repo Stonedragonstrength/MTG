@@ -16,6 +16,7 @@ interface Props {
   onDone: () => void;
 }
 
+/** Body of the custom-token sheet; the host Sheet provides title and close. */
 export default function CustomTokenForm({ playerIdx, onDone }: Props) {
   const addItem = useAppStore((s) => s.addItem);
   const [name, setName] = useState('');
@@ -38,7 +39,6 @@ export default function CustomTokenForm({ playerIdx, onDone }: Props) {
 
   return (
     <div className="custom-token-form">
-      <h3>Custom token</h3>
       <label>
         Name
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Token name" />
@@ -76,14 +76,9 @@ export default function CustomTokenForm({ playerIdx, onDone }: Props) {
           />
         ))}
       </div>
-      <div className="modal-actions">
-        <button disabled={!name.trim()} onClick={create}>
-          Create
-        </button>
-        <button className="ghost" onClick={onDone}>
-          Back
-        </button>
-      </div>
+      <button className="primary" disabled={!name.trim()} onClick={create}>
+        Create
+      </button>
     </div>
   );
 }

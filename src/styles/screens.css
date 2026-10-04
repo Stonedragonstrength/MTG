@@ -91,19 +91,6 @@ label {
   z-index: 50;
 }
 
-.modal {
-  background: #1b1b21;
-  border: 1px solid #3a3a44;
-  border-radius: 14px;
-  padding: 20px;
-  width: min(440px, 92vw);
-  max-height: 86vh;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
 .modal-actions {
   display: flex;
   gap: 10px;

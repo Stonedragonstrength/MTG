@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAppStore } from '../state/store';
+import Sheet from './Sheet';
 
 interface Props {
   onClose: () => void;
@@ -19,30 +20,28 @@ export default function DiceRoller({ onClose }: Props) {
 
   function whoGoesFirst() {
     if (!game) return;
-    const alive = game.config.profiles;
-    const pick = alive[Math.floor(Math.random() * alive.length)];
+    const profiles = game.config.profiles;
+    const pick = profiles[Math.floor(Math.random() * profiles.length)];
     setResult(`${pick.name} goes first!`);
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal dice-roller" onClick={(e) => e.stopPropagation()}>
-        <h2>Dice</h2>
-        {result !== null && (
+    <Sheet title="Dice" onClose={onClose}>
+      <div className="dice-result-slot">
+        {result !== null ? (
           <div className="dice-result" data-testid="dice-result">
             {result}
           </div>
+        ) : (
+          <p className="hint">Roll something.</p>
         )}
-        <div className="modal-actions">
-          <button onClick={() => roll(6)}>d6</button>
-          <button onClick={() => roll(20)}>d20</button>
-          <button onClick={coin}>Coin</button>
-        </div>
-        <button onClick={whoGoesFirst}>Who goes first?</button>
-        <button className="ghost" onClick={onClose}>
-          Close
-        </button>
       </div>
-    </div>
+      <div className="dice-grid">
+        <button onClick={() => roll(6)}>d6</button>
+        <button onClick={() => roll(20)}>d20</button>
+        <button onClick={coin}>Coin flip</button>
+        <button onClick={whoGoesFirst}>Who goes first?</button>
+      </div>
+    </Sheet>
   );
 }

@@ -7,6 +7,7 @@ import {
   type Settings,
 } from '../data/settings';
 import { useAppStore } from '../state/store';
+import Sheet from './Sheet';
 
 const MODES: { value: BackgroundMode; label: string }[] = [
   { value: 'all', label: 'All five lands' },
@@ -51,37 +52,44 @@ export default function SettingsSheet({ onClose }: Props) {
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal settings-sheet" onClick={(e) => e.stopPropagation()}>
-        <h2>Settings</h2>
-        <label>
-          Background
-          <select
-            value={settings?.backgroundMode ?? 'all'}
-            onChange={(e) => update(e.target.value as BackgroundMode)}
-          >
-            {MODES.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        {game && (
-          <p className="hint">
-            Commander damage threshold this game: {game.config.commanderDamageThreshold}
-          </p>
-        )}
-        <div>
-          <button disabled={refreshing} onClick={refreshCards}>
-            {refreshing ? 'Updating…' : 'Re-download card data'}
-          </button>
-          {refreshMsg && <p className="hint">{refreshMsg}</p>}
+    <Sheet title="Settings" onClose={onClose}>
+      <div className="settings-row">
+        <div className="settings-row-text">
+          <span>Land background</span>
+          <small>Artwork behind the table, changes each turn</small>
         </div>
-        <button className="ghost" onClick={onClose}>
-          Close
+        <select
+          aria-label="land background"
+          value={settings?.backgroundMode ?? 'all'}
+          onChange={(e) => update(e.target.value as BackgroundMode)}
+        >
+          {MODES.map((m) => (
+            <option key={m.value} value={m.value}>
+              {m.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {game && (
+        <div className="settings-row">
+          <div className="settings-row-text">
+            <span>Commander damage threshold</span>
+            <small>Set per game on the New Game screen</small>
+          </div>
+          <span className="settings-value">{game.config.commanderDamageThreshold}</span>
+        </div>
+      )}
+
+      <div className="settings-row">
+        <div className="settings-row-text">
+          <span>Card database</span>
+          <small>{refreshMsg || 'Re-download when new sets come out (needs wifi)'}</small>
+        </div>
+        <button disabled={refreshing} onClick={refreshCards}>
+          {refreshing ? 'Updating…' : 'Update'}
         </button>
       </div>
-    </div>
+    </Sheet>
   );
 }

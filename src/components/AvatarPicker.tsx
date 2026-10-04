@@ -3,6 +3,7 @@ import { getCardById } from '../data/scryfall';
 import { searchNames } from '../lib/fuzzy';
 import type { CardRecord } from '../lib/types';
 import { getNameIndex } from './nameIndexCache';
+import Sheet from './Sheet';
 
 interface Props {
   title: string;
@@ -32,27 +33,21 @@ export default function AvatarPicker({ title, onPick, onClose }: Props) {
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>{title}</h2>
-        <input
-          autoFocus
-          type="search"
-          placeholder="Search card names…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        <ul className="search-results">
-          {results.map((r) => (
-            <li key={r.id}>
-              <button onClick={() => pick(r.id)}>{r.name}</button>
-            </li>
-          ))}
-        </ul>
-        <button className="ghost" onClick={onClose}>
-          Cancel
-        </button>
-      </div>
-    </div>
+    <Sheet title={title} onClose={onClose}>
+      <input
+        autoFocus
+        type="search"
+        placeholder="Search card names…"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+      />
+      <ul className="search-results">
+        {results.map((r) => (
+          <li key={r.id}>
+            <button onClick={() => pick(r.id)}>{r.name}</button>
+          </li>
+        ))}
+      </ul>
+    </Sheet>
   );
 }

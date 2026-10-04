@@ -50,11 +50,17 @@ test('ending the game requires an inline confirmation', async () => {
   useAppStore.setState({ endGame });
   const user = userEvent.setup();
   render(<CenterHub />);
-  await user.click(screen.getByRole('button', { name: /menu/i }));
   await user.click(screen.getByRole('button', { name: /end game/i }));
   expect(endGame).not.toHaveBeenCalled();
   await user.click(screen.getByRole('button', { name: /yes, end it/i }));
   expect(endGame).toHaveBeenCalled();
+});
+
+test('hub actions carry visible labels', () => {
+  render(<CenterHub />);
+  for (const label of ['Dice', 'Rules', 'Settings', 'End']) {
+    expect(screen.getByText(label)).toBeInTheDocument();
+  }
 });
 
 test('dice roller produces a result in range', async () => {

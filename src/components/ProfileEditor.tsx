@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { PlayerProfile } from '../lib/types';
 import { useAppStore } from '../state/store';
 import AvatarPicker from './AvatarPicker';
+import Sheet from './Sheet';
 
 interface Props {
   profile: PlayerProfile | null; // null = create new
@@ -29,27 +30,12 @@ export default function ProfileEditor({ profile, onDone }: Props) {
   }
 
   return (
-    <div className="modal-backdrop">
-      <div className="modal profile-editor">
-        <h2>{profile ? 'Edit player' : 'New player'}</h2>
-        <label>
-          Name
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Player name" />
-        </label>
-        <div className="avatar-row">
-          {avatarUrl ? (
-            <img className="avatar" src={avatarUrl} alt="avatar" />
-          ) : (
-            <div className="avatar avatar--empty" />
-          )}
-          <button onClick={() => setPicking('avatar')}>Choose card art…</button>
-        </div>
-        <div className="commander-row">
-          <span>Commander: {commanderName ?? 'none'}</span>
-          <button onClick={() => setPicking('commander')}>Pick…</button>
-        </div>
-        <div className="modal-actions">
-          <button disabled={!name.trim()} onClick={save}>
+    <Sheet
+      title={profile ? 'Edit player' : 'New player'}
+      onClose={onDone}
+      footer={
+        <>
+          <button className="primary" disabled={!name.trim()} onClick={save}>
             Save
           </button>
           {profile && (
@@ -63,22 +49,42 @@ export default function ProfileEditor({ profile, onDone }: Props) {
               Delete
             </button>
           )}
-          <button className="ghost" onClick={onDone}>
-            Cancel
-          </button>
+        </>
+      }
+    >
+      <label>
+        Name
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Player name" />
+      </label>
+      <div className="settings-row">
+        <div className="avatar-row">
+          {avatarUrl ? (
+            <img className="avatar" src={avatarUrl} alt="avatar" />
+          ) : (
+            <div className="avatar avatar--empty" />
+          )}
+          <span>Avatar</span>
         </div>
-        {picking && (
-          <AvatarPicker
-            title={picking === 'avatar' ? 'Pick avatar art' : 'Pick commander'}
-            onPick={(card) => {
-              if (picking === 'avatar') setAvatarUrl(card.imageArtCrop ?? card.imageNormal);
-              else setCommanderName(card.name);
-              setPicking(null);
-            }}
-            onClose={() => setPicking(null)}
-          />
-        )}
+        <button onClick={() => setPicking('avatar')}>Choose card art…</button>
       </div>
-    </div>
+      <div className="settings-row">
+        <div className="settings-row-text">
+          <span>Commander</span>
+          <small>{commanderName ?? 'None set'}</small>
+        </div>
+        <button onClick={() => setPicking('commander')}>Pick…</button>
+      </div>
+      {picking && (
+        <AvatarPicker
+          title={picking === 'avatar' ? 'Pick avatar art' : 'Pick commander'}
+          onPick={(card) => {
+            if (picking === 'avatar') setAvatarUrl(card.imageArtCrop ?? card.imageNormal);
+            else setCommanderName(card.name);
+            setPicking(null);
+          }}
+          onClose={() => setPicking(null)}
+        />
+      )}
+    </Sheet>
   );
 }

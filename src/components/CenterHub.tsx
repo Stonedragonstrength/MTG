@@ -3,15 +3,15 @@ import { useAppStore } from '../state/store';
 import DiceRoller from './DiceRoller';
 import RulesViewer from './RulesViewer';
 import SettingsSheet from './SettingsSheet';
+import Sheet from './Sheet';
 
-type Sheet = 'dice' | 'rules' | 'settings' | 'menu' | null;
+type SheetName = 'dice' | 'rules' | 'settings' | 'end' | null;
 
 export default function CenterHub() {
   const game = useAppStore((s) => s.game);
   const passTurn = useAppStore((s) => s.passTurn);
   const endGame = useAppStore((s) => s.endGame);
-  const [sheet, setSheet] = useState<Sheet>(null);
-  const [confirmEnd, setConfirmEnd] = useState(false);
+  const [sheet, setSheet] = useState<SheetName>(null);
 
   if (!game) return null;
   const active = game.config.profiles[game.activePlayerIndex];
@@ -25,50 +25,45 @@ export default function CenterHub() {
       <button className="hub-pass" onClick={passTurn}>
         Pass turn
       </button>
-      <div className="hub-icons">
-        <button aria-label="dice" title="Dice" onClick={() => setSheet('dice')}>
-          🎲
+      <div className="hub-actions">
+        <button aria-label="dice" onClick={() => setSheet('dice')}>
+          <span className="hub-icon">🎲</span>
+          <span className="hub-label">Dice</span>
         </button>
-        <button aria-label="rules" title="Rules" onClick={() => setSheet('rules')}>
-          📖
+        <button aria-label="rules" onClick={() => setSheet('rules')}>
+          <span className="hub-icon">📖</span>
+          <span className="hub-label">Rules</span>
         </button>
-        <button aria-label="settings" title="Settings" onClick={() => setSheet('settings')}>
-          ⚙️
+        <button aria-label="settings" onClick={() => setSheet('settings')}>
+          <span className="hub-icon">⚙️</span>
+          <span className="hub-label">Settings</span>
         </button>
-        <button aria-label="menu" title="Menu" onClick={() => setSheet('menu')}>
-          ☰
+        <button aria-label="end game" onClick={() => setSheet('end')}>
+          <span className="hub-icon">🏳️</span>
+          <span className="hub-label">End</span>
         </button>
       </div>
 
       {sheet === 'dice' && <DiceRoller onClose={() => setSheet(null)} />}
       {sheet === 'rules' && <RulesViewer onClose={() => setSheet(null)} />}
       {sheet === 'settings' && <SettingsSheet onClose={() => setSheet(null)} />}
-      {sheet === 'menu' && (
-        <div className="modal-backdrop" onClick={() => setSheet(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>Menu</h2>
-            {confirmEnd ? (
-              <>
-                <p>End this game for everyone?</p>
-                <div className="modal-actions">
-                  <button className="danger" onClick={endGame}>
-                    Yes, end it
-                  </button>
-                  <button className="ghost" onClick={() => setConfirmEnd(false)}>
-                    Keep playing
-                  </button>
-                </div>
-              </>
-            ) : (
-              <div className="modal-actions">
-                <button onClick={() => setConfirmEnd(true)}>End game</button>
-                <button className="ghost" onClick={() => setSheet(null)}>
-                  Close
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
+      {sheet === 'end' && (
+        <Sheet
+          title="End this game?"
+          onClose={() => setSheet(null)}
+          footer={
+            <>
+              <button className="danger" onClick={endGame}>
+                Yes, end it
+              </button>
+              <button className="ghost" onClick={() => setSheet(null)}>
+                Keep playing
+              </button>
+            </>
+          }
+        >
+          <p>The game ends for everyone. Player profiles are kept.</p>
+        </Sheet>
       )}
     </div>
   );

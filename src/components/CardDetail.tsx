@@ -3,6 +3,7 @@ import { getGlossary } from '../data/rules';
 import { computedPT } from '../lib/board';
 import { findGlossaryTerms, type GlossaryEntry } from '../lib/rulesParser';
 import { useAppStore } from '../state/store';
+import Sheet from './Sheet';
 
 interface Props {
   playerIdx: number;
@@ -60,10 +61,23 @@ export default function CardDetail({ playerIdx, itemId, onClose }: Props) {
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal card-detail" onClick={(e) => e.stopPropagation()}>
+    <Sheet
+      title={item.name}
+      onClose={onClose}
+      footer={
+        <button
+          className="danger"
+          onClick={() => {
+            removeItemAction(playerIdx, itemId);
+            onClose();
+          }}
+        >
+          Remove from board
+        </button>
+      }
+    >
+      <div className="card-hero">
         {item.imageNormal && <img className="card-image" src={item.imageNormal} alt={item.name} />}
-        <h2>{item.name}</h2>
         <p className="type-line">
           {item.typeLine}
           {pt && (
@@ -95,7 +109,10 @@ export default function CardDetail({ playerIdx, itemId, onClose }: Props) {
             </button>
           </div>
         )}
+      </div>
 
+      <div className="detail-section">
+        <span className="section-label">Stack</span>
         <div className="detail-row">
           <span>Copies</span>
           <div className="stepper">
@@ -108,64 +125,6 @@ export default function CardDetail({ playerIdx, itemId, onClose }: Props) {
             </button>
           </div>
         </div>
-
-        <div className="detail-row">
-          <span>+1/+1 counters</span>
-          <div className="stepper">
-            <button
-              aria-label="fewer +1/+1 counters"
-              onClick={() => setCounter(playerIdx, itemId, 'p1p1', p1p1 - 1)}
-            >
-              −
-            </button>
-            <span>{p1p1}</span>
-            <button
-              aria-label="add +1/+1 counter"
-              onClick={() => setCounter(playerIdx, itemId, 'p1p1', p1p1 + 1)}
-            >
-              +
-            </button>
-          </div>
-        </div>
-
-        {namedCounters.map(([name, value]) => (
-          <div className="detail-row" key={name}>
-            <span>{name} counters</span>
-            <div className="stepper">
-              <button
-                aria-label={`fewer ${name} counters`}
-                onClick={() => setCounter(playerIdx, itemId, name, value - 1)}
-              >
-                −
-              </button>
-              <span>{value}</span>
-              <button
-                aria-label={`more ${name} counters`}
-                onClick={() => setCounter(playerIdx, itemId, name, value + 1)}
-              >
-                +
-              </button>
-            </div>
-          </div>
-        ))}
-
-        <div className="detail-row">
-          <input
-            placeholder="counter name (oil, charge…)"
-            value={newCounterName}
-            onChange={(e) => setNewCounterName(e.target.value)}
-          />
-          <button
-            disabled={!newCounterName.trim()}
-            onClick={() => {
-              setCounter(playerIdx, itemId, newCounterName.trim().toLowerCase(), 1);
-              setNewCounterName('');
-            }}
-          >
-            Add counter
-          </button>
-        </div>
-
         {item.count > 1 && (
           <div className="detail-row">
             <label className="split-label">
@@ -183,22 +142,65 @@ export default function CardDetail({ playerIdx, itemId, onClose }: Props) {
             </button>
           </div>
         )}
+      </div>
 
-        <div className="modal-actions">
+      <div className="detail-section">
+        <span className="section-label">Counters</span>
+        <div className="detail-row">
+          <span>+1/+1</span>
+          <div className="stepper">
+            <button
+              aria-label="fewer +1/+1 counters"
+              onClick={() => setCounter(playerIdx, itemId, 'p1p1', p1p1 - 1)}
+            >
+              −
+            </button>
+            <span>{p1p1}</span>
+            <button
+              aria-label="add +1/+1 counter"
+              onClick={() => setCounter(playerIdx, itemId, 'p1p1', p1p1 + 1)}
+            >
+              +
+            </button>
+          </div>
+        </div>
+        {namedCounters.map(([name, value]) => (
+          <div className="detail-row" key={name}>
+            <span>{name}</span>
+            <div className="stepper">
+              <button
+                aria-label={`fewer ${name} counters`}
+                onClick={() => setCounter(playerIdx, itemId, name, value - 1)}
+              >
+                −
+              </button>
+              <span>{value}</span>
+              <button
+                aria-label={`more ${name} counters`}
+                onClick={() => setCounter(playerIdx, itemId, name, value + 1)}
+              >
+                +
+              </button>
+            </div>
+          </div>
+        ))}
+        <div className="detail-row">
+          <input
+            placeholder="counter name (oil, charge…)"
+            value={newCounterName}
+            onChange={(e) => setNewCounterName(e.target.value)}
+          />
           <button
-            className="danger"
+            disabled={!newCounterName.trim()}
             onClick={() => {
-              removeItemAction(playerIdx, itemId);
-              onClose();
+              setCounter(playerIdx, itemId, newCounterName.trim().toLowerCase(), 1);
+              setNewCounterName('');
             }}
           >
-            Remove
-          </button>
-          <button className="ghost" onClick={onClose}>
-            Done
+            Add counter
           </button>
         </div>
       </div>
-    </div>
+    </Sheet>
   );
 }
