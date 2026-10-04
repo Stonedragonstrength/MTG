@@ -85,6 +85,28 @@ test('holding the ✕ removes the whole stack; a short tap does not', async () =
   expect(removeItem).toHaveBeenCalledWith(0, 'item-1');
 });
 
+test('token size scales down as the board fills up', () => {
+  const game = useAppStore.getState().game!;
+
+  const { container, rerender, unmount } = render(<BoardStrip playerIdx={0} />);
+  expect(container.querySelector('.board-strip')!.className).toContain('board-strip--lg');
+
+  const many = Array.from({ length: 5 }, (_, i) => ({ ...soldiers, id: `it-${i}` }));
+  useAppStore.setState({
+    game: { ...game, players: [{ ...game.players[0], board: many }, game.players[1]] },
+  });
+  rerender(<BoardStrip playerIdx={0} />);
+  expect(container.querySelector('.board-strip')!.className).toContain('board-strip--md');
+
+  const lots = Array.from({ length: 10 }, (_, i) => ({ ...soldiers, id: `lot-${i}` }));
+  useAppStore.setState({
+    game: { ...game, players: [{ ...game.players[0], board: lots }, game.players[1]] },
+  });
+  rerender(<BoardStrip playerIdx={0} />);
+  expect(container.querySelector('.board-strip')!.className).toContain('board-strip--sm');
+  unmount();
+});
+
 test('lands-zone items stay out of the battlefield grid', () => {
   const game = useAppStore.getState().game!;
   const forest = { ...soldiers, id: 'land-1', name: 'Forest', zone: 'lands' as const };

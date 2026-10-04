@@ -38,9 +38,11 @@ export default function BoardStrip({ playerIdx }: Props) {
 
   if (!game) return null;
   const board = game.players[playerIdx].board.filter((item) => item.zone !== 'lands');
+  // Few cards get the big treatment; a wide board shrinks to fit.
+  const size = board.length <= 3 ? 'lg' : board.length <= 8 ? 'md' : 'sm';
 
   return (
-    <div className="board-strip">
+    <div className={`board-strip board-strip--${size}`}>
       {board.map((item) => {
         const pt = computedPT(item);
         return (

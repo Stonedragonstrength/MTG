@@ -1184,3 +1184,131 @@ input[type='checkbox'] {
   height: 100px;
   font-size: 2.4rem;
 }
+
+/* ---- adaptive token sizing on the big board ---- */
+.board-strip--lg .thumb {
+  width: 116px;
+  height: 162px;
+  border-radius: 9px;
+}
+
+.board-strip--lg .pt-badge {
+  font-size: 0.95rem;
+  padding: 2px 6px;
+}
+
+.board-strip--lg .count-badge {
+  font-size: 1rem;
+}
+
+.board-strip--lg .count-controls button {
+  padding: 4px 12px;
+}
+
+.board-strip--lg .add-tile:not(.add-tile--centered) {
+  width: 116px;
+  height: 162px;
+  font-size: 2.6rem;
+  border-radius: 9px;
+}
+
+.board-strip--md .thumb {
+  width: 84px;
+  height: 117px;
+  border-radius: 7px;
+}
+
+.board-strip--md .pt-badge {
+  font-size: 0.8rem;
+}
+
+.board-strip--md .count-badge {
+  font-size: 0.9rem;
+}
+
+.board-strip--md .add-tile:not(.add-tile--centered) {
+  width: 84px;
+  height: 117px;
+  font-size: 2.2rem;
+}
+
+.board-strip--lg .thumb-placeholder,
+.board-strip--md .thumb-placeholder {
+  font-size: 0.8rem;
+}
+
+/* ---- collapsed zones compress to one slim info line ---- */
+.focus-mode .zone:not(.zone--focused) {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  padding: 4px 10px;
+}
+
+.focus-mode .zone:not(.zone--focused) .zone-header {
+  width: auto;
+  flex: 0 0 auto;
+  padding: 0;
+  gap: 8px;
+}
+
+.focus-mode .zone:not(.zone--focused) .board-strip {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 110px;
+  padding: 0;
+}
+
+.focus-mode .zone:not(.zone--focused) .lands-row {
+  width: auto;
+  flex: 0 0 auto;
+  padding: 0;
+}
+
+.focus-mode .zone:not(.zone--focused) .avatar--small {
+  width: 26px;
+  height: 26px;
+}
+
+.focus-mode .zone:not(.zone--focused) .life-btn {
+  width: 36px;
+  height: 36px;
+  font-size: 1.05rem;
+}
+
+.focus-mode .zone:not(.zone--focused) .life-total {
+  font-size: 1.45rem;
+}
+
+.focus-mode .zone:not(.zone--focused) .cmd-bubble {
+  padding: 2px 8px;
+}
+
+.focus-mode .zone:not(.zone--focused) .zone-dice {
+  display: none; /* the big board's dice is always a turn away */
+}
+
+/* Landscape: the collapsed line stays one row and the token strip gets
+   the lion's share of the width, with slightly larger minis. */
+@media (orientation: landscape) {
+  .focus-mode .zone:not(.zone--focused) {
+    flex-wrap: nowrap;
+  }
+
+  .focus-mode .zone:not(.zone--focused) .board-strip {
+    min-width: 38vw;
+  }
+
+  .focus-mode .zone:not(.zone--focused) .thumb {
+    width: 38px;
+    height: 53px;
+  }
+
+  .focus-mode .zone:not(.zone--focused) .zone-name {
+    max-width: 16vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
