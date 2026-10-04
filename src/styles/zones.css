@@ -1887,37 +1887,29 @@ input[type='checkbox'] {
    keep it screen-upright (their edge bar still faces them) and the board
    claims their empty edge strip. Only the top seat flips it 180. */
 .table-360 .zone--focused.edge-left {
-  inset: 62px 62px 62px 4px;
   width: auto;
   height: auto;
-  top: auto;
-  left: auto;
   transform: none;
+  inset: 62px 62px 62px 4px;
 }
 
 .table-360 .zone--focused.edge-right {
-  inset: 62px 4px 62px 62px;
   width: auto;
   height: auto;
-  top: auto;
-  left: auto;
   transform: none;
+  inset: 62px 4px 62px 62px;
 }
 
 .players-3.table-360 .zone--focused.edge-left {
-  inset: 4px 62px 62px 4px;
   width: auto;
   height: auto;
-  top: auto;
-  left: auto;
   transform: none;
+  inset: 4px 62px 62px 4px;
 }
 
 .players-3.table-360 .zone--focused.edge-right {
-  inset: 4px 4px 62px 62px;
   width: auto;
   height: auto;
-  top: auto;
-  left: auto;
   transform: none;
+  inset: 4px 4px 62px 62px;
 }
