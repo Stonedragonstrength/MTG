@@ -472,3 +472,69 @@ button.term {
   font-weight: 800;
   color: var(--accent);
 }
+
+/* ---- land background ---- */
+.land-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  border-radius: 12px;
+}
+
+.land-layer {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  filter: brightness(0.35) saturate(0.9);
+  opacity: 0;
+  transition: opacity 2s ease-in-out;
+}
+
+.land-layer--current {
+  opacity: 1;
+}
+
+.zone,
+.center-hub {
+  position: relative;
+}
+
+.center-hub {
+  position: absolute;
+}
+
+/* phone-width sanity: stack zones vertically, no rotation */
+@media (max-width: 520px) {
+  .players-2,
+  .players-3,
+  .players-4 {
+    grid-template-columns: 1fr;
+    grid-template-rows: none;
+    grid-auto-rows: minmax(180px, auto);
+    grid-template-areas: none;
+  }
+
+  .players-2 .zone,
+  .players-3 .zone,
+  .players-4 .zone {
+    grid-area: auto;
+    transform: none;
+  }
+
+  .game-screen {
+    height: auto;
+    min-height: 100dvh;
+  }
+
+  .center-hub {
+    position: sticky;
+    bottom: 8px;
+    top: auto;
+    left: auto;
+    transform: none;
+    align-self: center;
+    order: 99;
+  }
+}

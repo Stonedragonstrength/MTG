@@ -15,6 +15,10 @@ vi.mock('../data/rules', () => ({
   ensureRulesLoaded: vi.fn(async () => {}),
 }));
 
+vi.mock('../data/images', () => ({
+  prepareArtwork: vi.fn(async () => {}),
+}));
+
 beforeEach(() => {
   useAppStore.setState({ setupDone: false });
 });

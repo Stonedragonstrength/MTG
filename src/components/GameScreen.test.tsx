@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { createGame } from '../lib/game';
 import type { GameConfig } from '../lib/types';

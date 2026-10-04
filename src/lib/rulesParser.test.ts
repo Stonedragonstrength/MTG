@@ -89,7 +89,7 @@ describe('findGlossaryTerms', () => {
 describe('real comprehensive rules file', () => {
   test('parses thousands of rules and hundreds of glossary entries', () => {
     const text = readFileSync(
-      resolve(__dirname, '../../public/rules/comprehensive-rules.txt'),
+      resolve(process.cwd(), 'public/rules/comprehensive-rules.txt'),
       'utf8',
     );
     const { rules, glossary } = parseRules(text);

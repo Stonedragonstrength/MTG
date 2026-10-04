@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { prepareArtwork } from '../data/images';
 import { ensureRulesLoaded } from '../data/rules';
 import { importBulkData } from '../data/scryfall';
 import { useAppStore } from '../state/store';
@@ -20,6 +21,10 @@ export default function SetupGate() {
         setMsg(m);
       });
       await ensureRulesLoaded();
+      setMsg('Preparing artwork…');
+      await prepareArtwork((done, total) => {
+        setMsg(`Preparing artwork… ${done} / ${total}`);
+      });
       useAppStore.getState().completeSetup();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
