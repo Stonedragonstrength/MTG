@@ -1913,3 +1913,24 @@ input[type='checkbox'] {
   transform: none;
   inset: 4px 4px 62px 62px;
 }
+
+/* Collapsed bars: damage gauges compress to one line with initials,
+   and imageless token minis show color + P/T only. */
+.focus-mode .zone:not(.zone--focused) .cmd-gauges {
+  flex-direction: row;
+  gap: 6px;
+}
+
+.focus-mode .zone:not(.zone--focused) .cmd-gauge {
+  grid-template-columns: 11px 24px 12px;
+  gap: 3px;
+  padding: 0 2px;
+}
+
+.focus-mode .zone:not(.zone--focused) .cmd-gauge-name {
+  max-width: 11px;
+}
+
+.focus-mode .zone:not(.zone--focused) .thumb-placeholder {
+  font-size: 0;
+}
