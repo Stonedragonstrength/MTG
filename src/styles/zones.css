@@ -1114,3 +1114,21 @@ input[type='checkbox'] {
   font-weight: 700;
   color: var(--accent);
 }
+
+/* Per-player dice, tucked under their life counter with room to breathe. */
+.zone-dice {
+  position: absolute;
+  top: 58px;
+  right: 10px;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  font-size: 1.1rem;
+  padding: 0;
+  z-index: 5;
+  background: rgba(23, 23, 28, 0.88);
+}
+
+.fab-dice {
+  display: none;
+}

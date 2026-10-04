@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { createGame } from '../lib/game';
 import type { GameConfig } from '../lib/types';
@@ -116,6 +116,15 @@ test('the hub overlays normally, but docks as a row inside the focused zone', as
   const docked = container.querySelector('.zone--focused .center-hub');
   expect(docked).not.toBeNull();
   expect(docked!.className).toContain('center-hub--row');
+});
+
+test('every player has their own dice button beneath their life counter', async () => {
+  render(<GameScreen />);
+  const diceButtons = screen.getAllByRole('button', { name: /dice roller/i });
+  expect(diceButtons).toHaveLength(4);
+  const { default: userEvent } = await import('@testing-library/user-event');
+  await userEvent.setup().click(diceButtons[0]);
+  expect(await screen.findByRole('button', { name: /who goes first/i })).toBeInTheDocument();
 });
 
 test('the monarch wears the crown in their zone', () => {

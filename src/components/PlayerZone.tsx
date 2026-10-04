@@ -4,6 +4,7 @@ import { useAppStore } from '../state/store';
 import BoardStrip from './BoardStrip';
 import CenterHub from './CenterHub';
 import CommanderDamage from './CommanderDamage';
+import DiceRoller from './DiceRoller';
 import LandsRow from './LandsRow';
 import LifeCounter from './LifeCounter';
 import PlayerSheet from './PlayerSheet';
@@ -32,6 +33,7 @@ export default function PlayerZone({
   const game = useAppStore((s) => s.game);
   const adjustLife = useAppStore((s) => s.adjustLife);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [diceOpen, setDiceOpen] = useState(false);
   if (!game) return null;
 
   const player = game.players[playerIdx];
@@ -110,10 +112,21 @@ export default function PlayerZone({
         )}
         <LifeCounter life={player.life} onAdjust={(delta) => adjustLife(playerIdx, delta)} />
       </header>
+      <button
+        className="zone-dice"
+        aria-label="dice roller"
+        onClick={(e) => {
+          e.stopPropagation();
+          setDiceOpen(true);
+        }}
+      >
+        🎲
+      </button>
       <BoardStrip playerIdx={playerIdx} />
       <LandsRow playerIdx={playerIdx} />
       {player.eliminated && <div className="dead-overlay">DEFEATED</div>}
       {sheetOpen && <PlayerSheet playerIdx={playerIdx} onClose={() => setSheetOpen(false)} />}
+      {diceOpen && <DiceRoller onClose={() => setDiceOpen(false)} />}
     </section>
   );
 }
