@@ -1722,3 +1722,34 @@ input[type='checkbox'] {
   font-weight: 700;
   color: var(--accent);
 }
+
+/* Landscape has less vertical room: battlefield cards use the moderate
+   sizes there; the big treatment stays for portrait. */
+@media (orientation: landscape) {
+  .zone--focused .board-strip--sm .thumb,
+  .zone--focused .board-strip--sm .add-tile:not(.add-tile--centered) {
+    width: 58px;
+    height: 80px;
+  }
+
+  .zone--focused .board-strip--md .thumb,
+  .zone--focused .board-strip--md .add-tile:not(.add-tile--centered) {
+    width: 84px;
+    height: 117px;
+  }
+
+  .zone--focused .board-strip--lg .thumb,
+  .zone--focused .board-strip--lg .add-tile:not(.add-tile--centered) {
+    width: 116px;
+    height: 162px;
+  }
+
+  .zone--focused .add-tile--centered {
+    width: 74px;
+    height: 100px;
+  }
+
+  .zone--focused .board-strip--lg .pt-badge {
+    font-size: 0.95rem;
+  }
+}
