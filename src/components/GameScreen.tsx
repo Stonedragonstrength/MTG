@@ -29,10 +29,11 @@ export default function GameScreen() {
           key={p.profileId}
           playerIdx={i}
           focused={focusedIdx === i}
+          showHub={focusedIdx === i}
           onToggleFocus={() => setFocusedIdx((f) => (f === i ? null : i))}
         />
       ))}
-      <CenterHub />
+      {focusedIdx === null && <CenterHub />}
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { ManaColor } from '../lib/mana';
 import { useAppStore } from '../state/store';
 import BoardStrip from './BoardStrip';
+import CenterHub from './CenterHub';
 import CommanderDamage from './CommanderDamage';
 import LandsRow from './LandsRow';
 import LifeCounter from './LifeCounter';
@@ -18,10 +19,16 @@ const ACCENTS: Record<string, string> = {
 interface Props {
   playerIdx: number;
   focused?: boolean;
+  showHub?: boolean;
   onToggleFocus?: () => void;
 }
 
-export default function PlayerZone({ playerIdx, focused = false, onToggleFocus }: Props) {
+export default function PlayerZone({
+  playerIdx,
+  focused = false,
+  showHub = false,
+  onToggleFocus,
+}: Props) {
   const game = useAppStore((s) => s.game);
   const adjustLife = useAppStore((s) => s.adjustLife);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -91,6 +98,11 @@ export default function PlayerZone({ playerIdx, focused = false, onToggleFocus }
             ☰
           </button>
         </span>
+        {showHub && (
+          <span className="header-hub" onClick={(e) => e.stopPropagation()}>
+            <CenterHub variant="row" />
+          </span>
+        )}
         {game.config.format === 'commander' && (
           <span onClick={(e) => e.stopPropagation()}>
             <CommanderDamage playerIdx={playerIdx} />

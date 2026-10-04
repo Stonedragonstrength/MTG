@@ -26,7 +26,12 @@ function TurnClock({ since }: { since: number }) {
   );
 }
 
-export default function CenterHub() {
+interface Props {
+  /** 'overlay' floats centered over the table; 'row' docks inside a zone. */
+  variant?: 'overlay' | 'row';
+}
+
+export default function CenterHub({ variant = 'overlay' }: Props) {
   const game = useAppStore((s) => s.game);
   const passTurn = useAppStore((s) => s.passTurn);
   const endGame = useAppStore((s) => s.endGame);
@@ -45,35 +50,37 @@ export default function CenterHub() {
   }
 
   return (
-    <div className="center-hub">
-      <div className="hub-turn">
-        <span className="hub-turn-number">
-          Turn {game.turnNumber}
-          {turnTimerOn && (
-            <>
-              {' · '}
-              <TurnClock since={game.turnStartedAt} />
-            </>
-          )}
-        </span>
-        <span className="hub-active">{active.name}</span>
-      </div>
-      <button className="hub-pass" onClick={passTurn}>
-        Pass turn
-      </button>
-      <div className="hub-actions">
-        <button aria-label="undo" disabled={!canUndo()} onClick={undo}>
-          <span className="hub-icon">↩️</span>
-          <span className="hub-label">Undo</span>
+    <div className={`center-hub${variant === 'row' ? ' center-hub--row' : ''}`}>
+      <div className="hub-main">
+        <div className="hub-turn">
+          <span className="hub-turn-number">
+            Turn {game.turnNumber}
+            {turnTimerOn && (
+              <>
+                {' · '}
+                <TurnClock since={game.turnStartedAt} />
+              </>
+            )}
+          </span>
+          <span className="hub-active">{active.name}</span>
+        </div>
+        <button className="hub-pass" onClick={passTurn}>
+          Pass turn
         </button>
-        <button
-          aria-label="more options"
-          aria-expanded={trayOpen}
-          onClick={() => setTrayOpen((o) => !o)}
-        >
-          <span className="hub-icon">{trayOpen ? '✕' : '⋯'}</span>
-          <span className="hub-label">{trayOpen ? 'Close' : 'More'}</span>
-        </button>
+        <div className="hub-actions">
+          <button aria-label="undo" disabled={!canUndo()} onClick={undo}>
+            <span className="hub-icon">↩️</span>
+            <span className="hub-label">Undo</span>
+          </button>
+          <button
+            aria-label="more options"
+            aria-expanded={trayOpen}
+            onClick={() => setTrayOpen((o) => !o)}
+          >
+            <span className="hub-icon">{trayOpen ? '✕' : '⋯'}</span>
+            <span className="hub-label">{trayOpen ? 'Close' : 'More'}</span>
+          </button>
+        </div>
       </div>
 
       {trayOpen && (

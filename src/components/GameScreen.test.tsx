@@ -20,7 +20,11 @@ function config(playerCount: number, format: 'commander' | 'standard' = 'command
 }
 
 beforeEach(() => {
-  useAppStore.setState({ game: createGame(config(4)) });
+  const settings = useAppStore.getState().settings;
+  useAppStore.setState({
+    game: createGame(config(4)),
+    settings: { ...settings, autoFocusOn: false },
+  });
 });
 
 test('renders a rotated zone per player with seat classes', () => {
@@ -98,6 +102,20 @@ test('auto-focus follows the active player when enabled', async () => {
   });
   expect(container.querySelector('.zone.seat-2')!.className).toContain('zone--focused');
   expect(container.querySelector('.zone.seat-0')!.className).not.toContain('zone--focused');
+});
+
+test('the hub overlays normally, but docks as a row inside the focused zone', async () => {
+  const { container } = render(<GameScreen />);
+  expect(container.querySelector('.game-screen > .center-hub')).not.toBeNull();
+
+  const { default: userEvent } = await import('@testing-library/user-event');
+  const user = userEvent.setup();
+  await user.click(container.querySelector('.zone.seat-1 .zone-header') as HTMLElement);
+
+  expect(container.querySelector('.game-screen > .center-hub')).toBeNull();
+  const docked = container.querySelector('.zone--focused .center-hub');
+  expect(docked).not.toBeNull();
+  expect(docked!.className).toContain('center-hub--row');
 });
 
 test('the monarch wears the crown in their zone', () => {

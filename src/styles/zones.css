@@ -644,12 +644,14 @@ button.term {
 }
 
 .focus-mode .zone:not(.zone--focused) .board-strip,
-.focus-mode .zone:not(.zone--focused) .lands-row {
+.focus-mode .zone:not(.zone--focused) .lands-stacks {
   display: none;
 }
 
-.focus-mode .center-hub {
-  display: none;
+/* Collapsed players keep a thin lands line: count + color pips. */
+.focus-mode .zone:not(.zone--focused) .lands-row {
+  border-top: none;
+  padding-top: 0;
 }
 
 /* ---- quick stack remove (hold) ---- */
@@ -998,7 +1000,6 @@ input[type='checkbox'] {
 .players-4.focus-mode .seat-1 { order: 4; }
 
 .focus-mode .land-bg { order: 0; }
-.focus-mode .center-hub { order: 99; }
 
 .cmd-caption {
   font-size: 0.6rem;
@@ -1006,4 +1007,74 @@ input[type='checkbox'] {
   letter-spacing: 0.08em;
   color: #8c8c99;
   align-self: center;
+}
+
+/* ---- thin-row hub (both overlay and docked) ---- */
+.center-hub {
+  flex-direction: column;
+  gap: 4px;
+  border-radius: 16px;
+  padding: 6px 14px;
+  max-width: 96vw;
+}
+
+.hub-main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.center-hub .hub-turn {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.center-hub .hub-pass {
+  padding: 6px 16px;
+}
+
+.center-hub--row {
+  position: static;
+  transform: none;
+  width: 100%;
+  max-width: none;
+  border-radius: 12px;
+  flex: 0 0 auto;
+}
+
+.center-hub--row .hub-main {
+  justify-content: space-between;
+  width: 100%;
+}
+
+.hub-tray {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 2px;
+  gap: 2px;
+}
+
+/* Docked hub lives inside the focused zone's header line. */
+.header-hub {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+}
+
+.header-hub .center-hub--row {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0 8px;
+  width: auto;
+}
+
+.header-hub .hub-main {
+  width: auto;
+  gap: 10px;
 }
