@@ -1886,32 +1886,42 @@ input[type='checkbox'] {
 /* Stable view: the center board never spins sideways. Side-seat turns
    keep it screen-upright (their edge bar still faces them) and the board
    claims their empty edge strip. Only the top seat flips it 180. */
+/* Side-seat turns: the board rotates to face that player's edge and
+   claims their empty strip. */
 .table-360 .zone--focused.edge-left {
-  width: auto;
-  height: auto;
-  transform: none;
-  inset: 62px 62px 62px 4px;
+  inset: auto;
+  width: calc(100dvh - 124px);
+  height: calc(100dvw - 66px);
+  top: 50%;
+  left: calc(50% - 29px);
+  transform: translate(-50%, -50%) rotate(90deg);
 }
 
 .table-360 .zone--focused.edge-right {
-  width: auto;
-  height: auto;
-  transform: none;
-  inset: 62px 4px 62px 62px;
+  inset: auto;
+  width: calc(100dvh - 124px);
+  height: calc(100dvw - 66px);
+  top: 50%;
+  left: calc(50% + 29px);
+  transform: translate(-50%, -50%) rotate(-90deg);
 }
 
 .players-3.table-360 .zone--focused.edge-left {
-  width: auto;
-  height: auto;
-  transform: none;
-  inset: 4px 62px 62px 4px;
+  inset: auto;
+  width: calc(100dvh - 66px);
+  height: calc(100dvw - 66px);
+  top: calc(50% - 29px);
+  left: calc(50% - 29px);
+  transform: translate(-50%, -50%) rotate(90deg);
 }
 
 .players-3.table-360 .zone--focused.edge-right {
-  width: auto;
-  height: auto;
-  transform: none;
-  inset: 4px 4px 62px 62px;
+  inset: auto;
+  width: calc(100dvh - 66px);
+  height: calc(100dvw - 66px);
+  top: calc(50% - 29px);
+  left: calc(50% + 29px);
+  transform: translate(-50%, -50%) rotate(-90deg);
 }
 
 /* Collapsed bars: damage gauges compress to one line with initials,
@@ -1933,4 +1943,39 @@ input[type='checkbox'] {
 
 .focus-mode .zone:not(.zone--focused) .thumb-placeholder {
   font-size: 0;
+}
+
+/* Edge bars never let their lands line escape the card. */
+.table-360 .zone:not(.zone--focused) {
+  overflow: hidden;
+  flex-wrap: nowrap;
+}
+
+.table-360 .zone:not(.zone--focused) .board-strip {
+  min-width: 60px;
+  flex: 1 1 auto;
+}
+
+.table-360 .zone:not(.zone--focused) .lands-row {
+  flex: 0 0 auto;
+  max-width: 45%;
+}
+
+.table-360 .zone:not(.zone--focused) .mana-summary {
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+/* Side-facing boards are narrower: the hub takes its own header line. */
+.table-360 .zone--focused.edge-left .zone-header,
+.table-360 .zone--focused.edge-right .zone-header {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
+.table-360 .zone--focused.edge-left .header-hub,
+.table-360 .zone--focused.edge-right .header-hub {
+  order: 10;
+  flex-basis: 100%;
+  justify-content: center;
 }
