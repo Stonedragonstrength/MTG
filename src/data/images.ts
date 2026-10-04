@@ -5,7 +5,7 @@ export type LandType = (typeof LAND_TYPES)[number];
 
 export type LandArtPack = Record<LandType, string[]>;
 
-const PER_TYPE = 10;
+const PER_TYPE = 20; // ×5 land types ≈ a 100-art loop
 // Must match the service worker's runtime cache (vite.config.ts) so
 // pre-cached art is found offline even if the SW wasn't controlling
 // the page during setup.

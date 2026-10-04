@@ -24,14 +24,21 @@ const pack = {
   forest: ['https://art.example/forest.jpg'],
 };
 
+const baseSettings = {
+  backgroundMode: 'all' as const,
+  backgroundIntensity: 35,
+  cycleSeconds: 0,
+  fadeSeconds: 2,
+};
+
 beforeEach(async () => {
   await getDb().kv.clear();
   await kvSet('landArtPack', pack);
-  useAppStore.setState({ game: createGame(config), settings: { backgroundMode: 'all' } });
+  useAppStore.setState({ game: createGame(config), settings: baseSettings });
 });
 
 test('mode off renders no art layer', async () => {
-  useAppStore.setState({ settings: { backgroundMode: 'off' } });
+  useAppStore.setState({ settings: { ...baseSettings, backgroundMode: 'off' } });
   const { container } = render(<LandBackground />);
   await waitFor(() => expect(container.querySelector('[data-mode="off"]')).not.toBeNull());
   expect(container.querySelector('.land-layer')).toBeNull();
@@ -59,7 +66,39 @@ test('turning the background off mid-game takes effect immediately', async () =>
   const { container } = render(<LandBackground />);
   await waitFor(() => expect(container.querySelector('.land-layer')).not.toBeNull());
 
-  useAppStore.setState({ settings: { backgroundMode: 'off' } });
+  useAppStore.setState({ settings: { ...baseSettings, backgroundMode: 'off' } });
 
   await waitFor(() => expect(container.querySelector('.land-layer')).toBeNull());
+});
+
+test('intensity and fade settings drive the layer style', async () => {
+  useAppStore.setState({
+    settings: { ...baseSettings, backgroundIntensity: 60, fadeSeconds: 5 },
+  });
+  const { container } = render(<LandBackground />);
+  await waitFor(() => {
+    const layer = container.querySelector('.land-layer') as HTMLElement;
+    expect(layer).not.toBeNull();
+    expect(layer.style.filter).toContain('brightness(0.6)');
+    expect(layer.style.transitionDuration).toBe('5s');
+  });
+});
+
+test('timed cycling advances the art without turn passes', async () => {
+  useAppStore.setState({ settings: { ...baseSettings, cycleSeconds: 0.1 } });
+  const { container } = render(<LandBackground />);
+
+  await waitFor(() => {
+    const layer = container.querySelector('.land-layer') as HTMLElement;
+    expect(layer?.style.backgroundImage).toContain('plains.jpg');
+  });
+
+  await waitFor(
+    () => {
+      const layers = container.querySelectorAll('.land-layer');
+      const current = layers[layers.length - 1] as HTMLElement;
+      expect(current.style.backgroundImage).not.toContain('plains.jpg');
+    },
+    { timeout: 2000 },
+  );
 });

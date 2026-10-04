@@ -44,7 +44,7 @@ export default function SettingsSheet({ onClose }: Props) {
       <div className="settings-row">
         <div className="settings-row-text">
           <span>Land background</span>
-          <small>Artwork behind the table, changes each turn</small>
+          <small>Artwork behind the table</small>
         </div>
         <select
           aria-label="land background"
@@ -59,6 +59,56 @@ export default function SettingsSheet({ onClose }: Props) {
             </option>
           ))}
         </select>
+      </div>
+
+      <div className="settings-row">
+        <div className="settings-row-text">
+          <span>Background intensity</span>
+          <small>How bright the art shows through</small>
+        </div>
+        <input
+          type="range"
+          min={10}
+          max={100}
+          step={5}
+          aria-label="background intensity"
+          value={settings.backgroundIntensity}
+          onChange={(e) =>
+            updateSettings({ ...settings, backgroundIntensity: Number(e.target.value) })
+          }
+        />
+      </div>
+
+      <div className="settings-row">
+        <div className="settings-row-text">
+          <span>Art changes</span>
+          <small>Loops through ~100 land paintings</small>
+        </div>
+        <select
+          aria-label="art cycle"
+          value={settings.cycleSeconds}
+          onChange={(e) => updateSettings({ ...settings, cycleSeconds: Number(e.target.value) })}
+        >
+          <option value={0}>On turn pass</option>
+          <option value={30}>Every 30 seconds</option>
+          <option value={60}>Every minute</option>
+          <option value={180}>Every 3 minutes</option>
+        </select>
+      </div>
+
+      <div className="settings-row">
+        <div className="settings-row-text">
+          <span>Fade speed</span>
+          <small>{settings.fadeSeconds}s crossfade</small>
+        </div>
+        <input
+          type="range"
+          min={1}
+          max={8}
+          aria-label="fade speed"
+          value={settings.fadeSeconds}
+          onChange={(e) => updateSettings({ ...settings, fadeSeconds: Number(e.target.value) })}
+        />
       </div>
 
       {game && (

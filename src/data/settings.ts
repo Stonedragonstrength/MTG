@@ -11,9 +11,17 @@ export type BackgroundMode =
 
 export interface Settings {
   backgroundMode: BackgroundMode;
+  backgroundIntensity: number; // 10–100, % brightness of the art
+  cycleSeconds: number; // 0 = art changes on turn pass; otherwise a timed loop
+  fadeSeconds: number; // crossfade duration
 }
 
-export const DEFAULT_SETTINGS: Settings = { backgroundMode: 'all' };
+export const DEFAULT_SETTINGS: Settings = {
+  backgroundMode: 'all',
+  backgroundIntensity: 35,
+  cycleSeconds: 0,
+  fadeSeconds: 2,
+};
 
 export async function getSettings(): Promise<Settings> {
   const stored = await kvGet<Partial<Settings>>('settings');

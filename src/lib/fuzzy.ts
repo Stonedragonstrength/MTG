@@ -17,6 +17,18 @@ function wordPrefixesInOrder(queryWords: string[], targetWords: string[]): boole
   return true;
 }
 
+// "bone wall" should find "Wall of Bone": each query word claims a
+// distinct target word, in any order.
+function wordPrefixesAnyOrder(queryWords: string[], targetWords: string[]): boolean {
+  const used = new Array<boolean>(targetWords.length).fill(false);
+  for (const qw of queryWords) {
+    const idx = targetWords.findIndex((tw, i) => !used[i] && tw.startsWith(qw));
+    if (idx === -1) return false;
+    used[idx] = true;
+  }
+  return true;
+}
+
 function isSubsequence(needle: string, haystack: string): boolean {
   let i = 0;
   for (const ch of haystack) {
@@ -35,6 +47,7 @@ export function fuzzyScore(query: string, target: string): number {
   if (t === q) base = 1000;
   else if (t.startsWith(q)) base = 800;
   else if (wordPrefixesInOrder(q.split(' '), t.split(' '))) base = 600;
+  else if (wordPrefixesAnyOrder(q.split(' '), t.split(' '))) base = 500;
   else if (isSubsequence(q.replace(/ /g, ''), t.replace(/ /g, ''))) base = 300;
   else return 0;
 

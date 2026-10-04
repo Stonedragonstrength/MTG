@@ -8,6 +8,8 @@ const names = [
   { id: '4', name: 'Lim-Dûl the Necromancer' },
   { id: '5', name: 'Soldier' },
   { id: '6', name: 'Treasure' },
+  { id: '7', name: 'Wall of Bone' },
+  { id: '8', name: 'Bone Saw' },
 ];
 
 describe('normalize', () => {
@@ -57,5 +59,15 @@ describe('searchNames', () => {
   test('exact name ranks first', () => {
     const results = searchNames('soldier', names);
     expect(results[0].name).toBe('Soldier');
+  });
+
+  test('words out of order still match: "bone wall" finds Wall of Bone', () => {
+    const results = searchNames('bone wall', names);
+    expect(results.map((r) => r.name)).toContain('Wall of Bone');
+  });
+
+  test('in-order matches outrank out-of-order ones', () => {
+    const results = searchNames('bone s', names);
+    expect(results[0].name).toBe('Bone Saw');
   });
 });

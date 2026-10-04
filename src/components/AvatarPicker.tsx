@@ -11,10 +11,11 @@ interface Props {
   onClose: () => void;
 }
 
-/** Search any Magic card; used for avatars (art crop) and commander names. */
+/** Card search with art previews; used for avatars and commander picks. */
 export default function AvatarPicker({ title, onPick, onClose }: Props) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<{ id: string; name: string }[]>([]);
+  const [previews, setPreviews] = useState<Record<string, CardRecord>>({});
   const names = useRef<{ id: string; name: string }[]>([]);
 
   useEffect(() => {
@@ -27,13 +28,30 @@ export default function AvatarPicker({ title, onPick, onClose }: Props) {
     setResults(searchNames(query, names.current, 12));
   }, [query]);
 
-  async function pick(id: string) {
-    const card = await getCardById(id);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const loaded: Record<string, CardRecord> = {};
+      for (const r of results) {
+        const card = await getCardById(r.id);
+        if (card) loaded[r.id] = card;
+        if (cancelled) return;
+      }
+      if (!cancelled) setPreviews(loaded);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [results]);
+
+  function pick(id: string) {
+    const card = previews[id];
     if (card) onPick(card);
+    else void getCardById(id).then((c) => c && onPick(c));
   }
 
   return (
-    <Sheet title={title} onClose={onClose}>
+    <Sheet title={title} onClose={onClose} size="wide">
       <input
         autoFocus
         type="search"
@@ -41,13 +59,22 @@ export default function AvatarPicker({ title, onPick, onClose }: Props) {
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
-      <ul className="search-results">
-        {results.map((r) => (
-          <li key={r.id}>
-            <button onClick={() => pick(r.id)}>{r.name}</button>
-          </li>
-        ))}
-      </ul>
+      <div className="preview-grid">
+        {results.map((r) => {
+          const card = previews[r.id];
+          const art = card?.imageArtCrop ?? card?.imageNormal ?? null;
+          return (
+            <button key={r.id} className="preview-card" onClick={() => pick(r.id)}>
+              {art ? (
+                <img src={art} alt={r.name} loading="lazy" />
+              ) : (
+                <span className="preview-placeholder" />
+              )}
+              <span className="preview-name">{r.name}</span>
+            </button>
+          );
+        })}
+      </div>
     </Sheet>
   );
 }

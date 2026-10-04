@@ -28,10 +28,10 @@ beforeEach(async () => {
 });
 
 describe('pickLandArtPack', () => {
-  test('returns up to 10 art crops per land type and persists the pack', async () => {
+  test('returns up to 20 art crops per land type (a ~100-art loop) and persists the pack', async () => {
     const db = getDb();
     const seed: CardRecord[] = [];
-    for (let i = 0; i < 14; i++) {
+    for (let i = 0; i < 25; i++) {
       seed.push(basic(`plains-${i}`, 'Plains', `https://cards.scryfall.io/art_crop/plains-${i}.jpg`));
     }
     seed.push(basic('island-0', 'Island', 'https://cards.scryfall.io/art_crop/island-0.jpg'));
@@ -40,7 +40,7 @@ describe('pickLandArtPack', () => {
     await db.cards.bulkPut(seed);
 
     const pack = await pickLandArtPack();
-    expect(pack.plains).toHaveLength(10);
+    expect(pack.plains).toHaveLength(20);
     expect(pack.island).toEqual(['https://cards.scryfall.io/art_crop/island-0.jpg']);
     expect(pack.swamp).toEqual([]);
     for (const url of pack.plains) expect(url).toContain('art_crop');

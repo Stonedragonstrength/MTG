@@ -651,3 +651,67 @@ button.term {
 .focus-mode .center-hub {
   display: none;
 }
+
+/* ---- quick stack remove (hold) ---- */
+.stack-remove {
+  position: relative;
+  padding: 2px 7px;
+  border-radius: 6px;
+  color: #b06a60;
+  border-color: #4a2d28;
+  line-height: 1.2;
+}
+
+.stack-remove.show-hint::after {
+  content: 'Hold to remove';
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.9);
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 0.65rem;
+  white-space: nowrap;
+  z-index: 5;
+}
+
+/* ---- card art preview grid (avatar / commander picks) ---- */
+.preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+  overflow-y: auto;
+}
+
+.preview-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  align-items: stretch;
+}
+
+.preview-card img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.preview-placeholder {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 8px;
+  background: #26262e;
+}
+
+.preview-name {
+  font-size: 0.8rem;
+  line-height: 1.25;
+}
+
+input[type='range'] {
+  width: 150px;
+  accent-color: var(--accent);
+}

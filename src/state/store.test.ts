@@ -121,7 +121,12 @@ describe('profiles', () => {
 describe('settings', () => {
   test('updateSettings persists and restores into a fresh store', async () => {
     const storeA = createAppStore();
-    storeA.getState().updateSettings({ backgroundMode: 'swamp' });
+    storeA.getState().updateSettings({
+      backgroundMode: 'swamp',
+      backgroundIntensity: 35,
+      cycleSeconds: 0,
+      fadeSeconds: 2,
+    });
     await flushPersistence();
 
     const storeB = createAppStore();
@@ -129,9 +134,13 @@ describe('settings', () => {
     expect(storeB.getState().settings.backgroundMode).toBe('swamp');
   });
 
-  test('settings default to all-lands background', () => {
+  test('settings default to all-lands background with sane visual knobs', () => {
     const store = createAppStore();
-    expect(store.getState().settings.backgroundMode).toBe('all');
+    const settings = store.getState().settings;
+    expect(settings.backgroundMode).toBe('all');
+    expect(settings.backgroundIntensity).toBe(35);
+    expect(settings.cycleSeconds).toBe(0);
+    expect(settings.fadeSeconds).toBe(2);
   });
 });
 

@@ -68,6 +68,23 @@ test('has an add-card tile', () => {
   expect(screen.getByRole('button', { name: /add a card/i })).toBeInTheDocument();
 });
 
+test('holding the ✕ removes the whole stack; a short tap does not', async () => {
+  const removeItem = vi.fn();
+  useAppStore.setState({ removeItem });
+  const { fireEvent } = await import('@testing-library/react');
+  render(<BoardStrip playerIdx={0} />);
+  const del = screen.getByRole('button', { name: /remove soldier stack/i });
+
+  fireEvent.pointerDown(del);
+  fireEvent.pointerUp(del);
+  expect(removeItem).not.toHaveBeenCalled();
+
+  fireEvent.pointerDown(del);
+  await new Promise((r) => setTimeout(r, 650));
+  fireEvent.pointerUp(del);
+  expect(removeItem).toHaveBeenCalledWith(0, 'item-1');
+});
+
 test('lands-zone items stay out of the battlefield grid', () => {
   const game = useAppStore.getState().game!;
   const forest = { ...soldiers, id: 'land-1', name: 'Forest', zone: 'lands' as const };

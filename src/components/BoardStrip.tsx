@@ -1,8 +1,29 @@
 import { useState } from 'react';
 import { computedPT } from '../lib/board';
+import type { BoardItem } from '../lib/types';
 import { useAppStore } from '../state/store';
 import CardDetail from './CardDetail';
 import CardSearch from './CardSearch';
+import { useLongPress } from './useLongPress';
+
+/** Hold-to-remove: a stray tap must never vaporize a whole stack. */
+function RemoveStackButton({ item, onRemove }: { item: BoardItem; onRemove: () => void }) {
+  const [hint, setHint] = useState(false);
+  const press = useLongPress(() => {
+    setHint(true);
+    window.setTimeout(() => setHint(false), 1200);
+  }, onRemove);
+  return (
+    <button
+      className={`stack-remove${hint ? ' show-hint' : ''}`}
+      aria-label={`remove ${item.name} stack (hold)`}
+      title="Hold to remove"
+      {...press}
+    >
+      ✕
+    </button>
+  );
+}
 
 interface Props {
   playerIdx: number;
@@ -11,6 +32,7 @@ interface Props {
 export default function BoardStrip({ playerIdx }: Props) {
   const game = useAppStore((s) => s.game);
   const changeCount = useAppStore((s) => s.changeCount);
+  const removeItem = useAppStore((s) => s.removeItem);
   const [searchOpen, setSearchOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
 
@@ -53,6 +75,7 @@ export default function BoardStrip({ playerIdx }: Props) {
               >
                 +
               </button>
+              <RemoveStackButton item={item} onRemove={() => removeItem(playerIdx, item.id)} />
             </div>
           </div>
         );
