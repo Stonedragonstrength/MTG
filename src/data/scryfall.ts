@@ -165,6 +165,11 @@ export async function getCardById(id: string): Promise<CardRecord | undefined> {
   return getDb().cards.get(id);
 }
 
+export async function findCardByName(name: string): Promise<CardRecord | undefined> {
+  const matches = await getDb().cards.where('nameLower').equals(name.toLowerCase()).toArray();
+  return matches.find((c) => c.imageNormal) ?? matches[0];
+}
+
 export async function findBasicLand(name: string): Promise<CardRecord | undefined> {
   const matches = await getDb().cards.where('nameLower').equals(name.toLowerCase()).toArray();
   const basics = matches.filter((c) => c.isBasicLand);

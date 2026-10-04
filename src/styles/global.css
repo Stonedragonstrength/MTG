@@ -12,16 +12,23 @@
   --danger: #c0392b;
   --gain: #27ae60;
   --font-display: 'Cinzel', Georgia, 'Times New Roman', serif;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-body: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-display);
 }
 
-h1,
-h2,
-h3,
-.zone-name,
-.hub-active,
-.big-button {
-  font-family: var(--font-display);
+/* Long-form reading and typing stay on the body font: Cinzel's small-caps
+   lowercase is great for chrome, rough for paragraphs. */
+.oracle-text,
+.definition-text,
+.rule-results,
+.log-list,
+.search-results,
+.hint,
+small,
+input,
+select,
+textarea {
+  font-family: var(--font-body);
 }
 
 * {

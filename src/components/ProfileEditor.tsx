@@ -20,6 +20,9 @@ export default function ProfileEditor({ profile, onDone }: Props) {
   const [commanderColors, setCommanderColors] = useState<string[] | null>(
     profile?.commanderColors ?? null,
   );
+  const [commanderImage, setCommanderImage] = useState<string | null>(
+    profile?.commanderImage ?? null,
+  );
   const [picking, setPicking] = useState<'avatar' | 'commander' | null>(null);
 
   async function save() {
@@ -29,6 +32,7 @@ export default function ProfileEditor({ profile, onDone }: Props) {
       avatarUrl,
       commanderName,
       commanderColors,
+      commanderImage,
     });
     onDone();
   }
@@ -86,6 +90,7 @@ export default function ProfileEditor({ profile, onDone }: Props) {
             else {
               setCommanderName(card.name);
               setCommanderColors(card.colorIdentity ?? card.colors);
+              setCommanderImage(card.imageNormal);
             }
             setPicking(null);
           }}

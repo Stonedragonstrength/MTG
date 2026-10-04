@@ -274,3 +274,9 @@ label {
   color: #8c8c99;
   line-height: 1;
 }
+
+.profile-commander-card {
+  width: 110px;
+  border-radius: 7px;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.5);
+}

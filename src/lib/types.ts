@@ -6,6 +6,7 @@ export interface PlayerProfile {
   avatarUrl: string | null;
   commanderName: string | null;
   commanderColors?: string[] | null; // WUBRG identity, for zone theming
+  commanderImage?: string | null; // card image for the home-screen tile
 }
 
 export interface GameConfig {
