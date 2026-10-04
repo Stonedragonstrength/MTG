@@ -1435,3 +1435,59 @@ input[type='checkbox'] {
     font-size: 0.8rem;
   }
 }
+
+/* Round two: bigger still on tablets. */
+@media (min-width: 700px) {
+  .zone--focused .board-strip--sm .thumb,
+  .zone--focused .board-strip--sm .add-tile:not(.add-tile--centered) {
+    width: 80px;
+    height: 112px;
+  }
+
+  .zone--focused .board-strip--md .thumb,
+  .zone--focused .board-strip--md .add-tile:not(.add-tile--centered) {
+    width: 116px;
+    height: 162px;
+  }
+
+  .zone--focused .board-strip--lg .thumb,
+  .zone--focused .board-strip--lg .add-tile:not(.add-tile--centered) {
+    width: 160px;
+    height: 224px;
+    border-radius: 11px;
+  }
+
+  .zone--focused .add-tile--centered {
+    width: 104px;
+    height: 144px;
+  }
+
+  .zone--focused .board-strip--lg .pt-badge {
+    font-size: 1.15rem;
+  }
+
+  .zone--focused .land-stack {
+    width: 53px;
+    height: 74px;
+  }
+
+  .zone--focused .land-stack .count-badge {
+    font-size: 0.9rem;
+  }
+
+  .zone--focused .basic-add {
+    width: 46px;
+    height: 46px;
+    font-size: 1.2rem;
+  }
+
+  .zone--focused .mana-summary {
+    font-size: 0.9rem;
+  }
+
+  .zone--focused .mana-pip {
+    min-width: 26px;
+    height: 26px;
+    font-size: 0.88rem;
+  }
+}
