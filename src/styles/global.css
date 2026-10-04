@@ -1,0 +1,24 @@
+:root {
+  --bg: #101014;
+  --fg: #e8e6e0;
+  --accent: #c8a84b;
+  --danger: #c0392b;
+  --gain: #27ae60;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  overscroll-behavior: none;
+  user-select: none;
+}

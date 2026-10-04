@@ -1,0 +1,174 @@
+.screen {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px;
+  text-align: center;
+}
+
+.screen h1 {
+  font-size: 2rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+button {
+  font: inherit;
+  color: var(--fg);
+  background: #26262e;
+  border: 1px solid #3a3a44;
+  border-radius: 10px;
+  padding: 12px 20px;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+button.ghost {
+  background: transparent;
+}
+
+button.danger {
+  background: #3a1612;
+  border-color: var(--danger);
+}
+
+.big-button {
+  font-size: 1.3rem;
+  padding: 16px 48px;
+  background: var(--accent);
+  color: #141410;
+  font-weight: 700;
+}
+
+.hint {
+  opacity: 0.6;
+}
+
+.progress {
+  width: min(420px, 90vw);
+}
+
+.progress progress {
+  width: 100%;
+}
+
+.error {
+  color: #ff8a80;
+}
+
+input,
+select {
+  font: inherit;
+  color: var(--fg);
+  background: #1b1b21;
+  border: 1px solid #3a3a44;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.search-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+}
+
+.search-results button {
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+}
+
+.profile-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+}
+
+.profile-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 120px;
+  padding: 14px;
+}
+
+.profile-chip.selected {
+  border-color: var(--accent);
+  background: #332b14;
+}
+
+.avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #2c2c35;
+}
+
+.avatar--empty {
+  border: 1px dashed #4a4a55;
+}
+
+.avatar-row,
+.commander-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: center;
+}
+
+.format-toggle {
+  border: 1px solid #3a3a44;
+  border-radius: 10px;
+  display: flex;
+  gap: 16px;
+  padding: 12px 16px;
+}
+
+.format-toggle label {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.threshold input {
+  width: 80px;
+  text-align: center;
+}
