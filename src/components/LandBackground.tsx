@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { kvGet } from '../data/db';
-import { LAND_TYPES, pickLandArtPack, type LandArtPack } from '../data/images';
+import { pickLandArtPack, shuffleArray, type LandArtPack } from '../data/images';
 import { useAppStore } from '../state/store';
 
 interface Layer {
@@ -8,7 +8,7 @@ interface Layer {
   key: number;
 }
 
-const TARGET_PACK_SIZE = 100;
+const TARGET_PACK_SIZE = 400;
 
 export default function LandBackground() {
   const turnNumber = useAppStore((s) => s.game?.turnNumber ?? 1);
@@ -46,14 +46,16 @@ export default function LandBackground() {
 
   const step = cycleSeconds > 0 ? tick : turnNumber - 1;
 
+  // A freshly shuffled playlist per session (and per mode change).
+  const playlist = useMemo(() => {
+    if (!pack || mode === 'off') return [];
+    const urls = mode === 'all' ? Object.values(pack).flat() : (pack[mode] ?? []);
+    return shuffleArray(urls);
+  }, [pack, mode]);
+
   useEffect(() => {
-    if (!pack || mode === 'off') return;
-    const types = mode === 'all' ? [...LAND_TYPES] : [mode];
-    const typesWithArt = types.filter((t) => (pack[t] ?? []).length > 0);
-    if (typesWithArt.length === 0) return;
-    const type = typesWithArt[step % typesWithArt.length];
-    const urls = pack[type];
-    const url = urls[Math.floor(step / typesWithArt.length) % urls.length];
+    if (playlist.length === 0 || mode === 'off') return;
+    const url = playlist[step % playlist.length];
 
     setLayers((prev) => {
       if (prev.length > 0 && prev[prev.length - 1].url === url) return prev;
@@ -61,7 +63,7 @@ export default function LandBackground() {
       // Keep at most two layers: the one fading out and the one fading in.
       return [...prev.slice(-1), { url, key: keyRef.current }];
     });
-  }, [step, pack, mode]);
+  }, [step, playlist, mode]);
 
   return (
     <div className="land-bg" data-mode={mode}>

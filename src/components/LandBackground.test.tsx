@@ -22,6 +22,7 @@ const pack = {
   swamp: ['https://art.example/swamp.jpg'],
   mountain: ['https://art.example/mountain.jpg'],
   forest: ['https://art.example/forest.jpg'],
+  special: ['https://art.example/temple-garden.jpg'],
 };
 
 const baseSettings = {
@@ -47,12 +48,14 @@ test('mode off renders no art layer', async () => {
   expect(container.querySelector('.land-layer')).toBeNull();
 });
 
-test('turn passes advance the art through the land cycle', async () => {
+test('turn passes advance to a different art from the shuffled pool', async () => {
   const { container } = render(<LandBackground />);
 
+  let firstUrl = '';
   await waitFor(() => {
     const layer = container.querySelector('.land-layer') as HTMLElement;
-    expect(layer?.style.backgroundImage).toContain('plains.jpg');
+    expect(layer?.style.backgroundImage).toContain('art.example');
+    firstUrl = layer.style.backgroundImage;
   });
 
   const game = useAppStore.getState().game!;
@@ -61,7 +64,8 @@ test('turn passes advance the art through the land cycle', async () => {
   await waitFor(() => {
     const layers = container.querySelectorAll('.land-layer');
     const current = layers[layers.length - 1] as HTMLElement;
-    expect(current.style.backgroundImage).toContain('island.jpg');
+    expect(current.style.backgroundImage).toContain('art.example');
+    expect(current.style.backgroundImage).not.toBe(firstUrl);
   });
 });
 
@@ -91,16 +95,18 @@ test('timed cycling advances the art without turn passes', async () => {
   useAppStore.setState({ settings: { ...baseSettings, cycleSeconds: 0.1 } });
   const { container } = render(<LandBackground />);
 
+  let firstUrl = '';
   await waitFor(() => {
     const layer = container.querySelector('.land-layer') as HTMLElement;
-    expect(layer?.style.backgroundImage).toContain('plains.jpg');
+    expect(layer?.style.backgroundImage).toContain('art.example');
+    firstUrl = layer.style.backgroundImage;
   });
 
   await waitFor(
     () => {
       const layers = container.querySelectorAll('.land-layer');
       const current = layers[layers.length - 1] as HTMLElement;
-      expect(current.style.backgroundImage).not.toContain('plains.jpg');
+      expect(current.style.backgroundImage).not.toBe(firstUrl);
     },
     { timeout: 2000 },
   );

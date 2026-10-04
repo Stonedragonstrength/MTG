@@ -80,7 +80,11 @@ export default function BoardStrip({ playerIdx }: Props) {
           </div>
         );
       })}
-      <button className="add-tile" aria-label="add a card" onClick={() => setSearchOpen(true)}>
+      <button
+        className={board.length === 0 ? 'add-tile add-tile--centered' : 'add-tile'}
+        aria-label="add a card"
+        onClick={() => setSearchOpen(true)}
+      >
         +
       </button>
       {searchOpen && <CardSearch playerIdx={playerIdx} onClose={() => setSearchOpen(false)} />}

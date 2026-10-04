@@ -3,9 +3,20 @@ import { getDb, kvSet } from './db';
 export const LAND_TYPES = ['plains', 'island', 'swamp', 'mountain', 'forest'] as const;
 export type LandType = (typeof LAND_TYPES)[number];
 
-export type LandArtPack = Record<LandType, string[]>;
+/** 'special' holds multicolor and utility land art — shocks, duals, Maze of Ith… */
+export type LandArtPack = Record<LandType | 'special', string[]>;
 
-const PER_TYPE = 20; // ×5 land types ≈ a 100-art loop
+const PER_TYPE = 40;
+const SPECIAL_COUNT = 300; // ~500 arts total: outlasts the longest game night
+
+export function shuffleArray<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
 // Must match the service worker's runtime cache (vite.config.ts) so
 // pre-cached art is found offline even if the SW wasn't controlling
 // the page during setup.
@@ -28,18 +39,22 @@ const COMMON_TOKEN_NAMES = [
 ];
 
 export async function pickLandArtPack(): Promise<LandArtPack> {
-  const basics = await getDb()
-    .cards.filter((c) => c.isBasicLand && c.imageArtCrop !== null)
+  const lands = await getDb()
+    .cards.filter((c) => !c.isToken && c.imageArtCrop !== null && /\bLand\b/.test(c.typeLine))
     .toArray();
 
   const pack = {} as LandArtPack;
   for (const type of LAND_TYPES) {
     const typeName = type[0].toUpperCase() + type.slice(1);
-    pack[type] = basics
-      .filter((c) => c.typeLine.includes(typeName))
+    pack[type] = shuffleArray(
+      lands.filter((c) => c.isBasicLand && c.typeLine.includes(typeName)),
+    )
       .slice(0, PER_TYPE)
       .map((c) => c.imageArtCrop!);
   }
+  pack.special = shuffleArray(lands.filter((c) => !c.isBasicLand))
+    .slice(0, SPECIAL_COUNT)
+    .map((c) => c.imageArtCrop!);
 
   await kvSet('landArtPack', pack);
   return pack;
@@ -88,7 +103,8 @@ export async function prepareArtwork(
 ): Promise<void> {
   try {
     const pack = await pickLandArtPack();
-    await precacheUrls(Object.values(pack).flat(), onProgress);
+    // Pre-cache a fast subset; the rest cache lazily as they appear on screen.
+    await precacheUrls(shuffleArray(Object.values(pack).flat()).slice(0, 120), onProgress);
     await precacheCommonTokens();
   } catch (err) {
     console.warn('Artwork preparation failed; art will load lazily instead.', err);
