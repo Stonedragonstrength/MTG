@@ -982,3 +982,28 @@ input[type='checkbox'] {
 .center-hub {
   padding: 10px 16px;
 }
+
+/* Focus mode must keep the table's physical arrangement: top-edge seats
+   stay above, bottom-edge seats below, rotations untouched. */
+.players-2.focus-mode .seat-1 { order: 1; }
+.players-2.focus-mode .seat-0 { order: 2; }
+
+.players-3.focus-mode .seat-2 { order: 1; }
+.players-3.focus-mode .seat-1 { order: 2; }
+.players-3.focus-mode .seat-0 { order: 3; }
+
+.players-4.focus-mode .seat-3 { order: 1; }
+.players-4.focus-mode .seat-2 { order: 2; }
+.players-4.focus-mode .seat-0 { order: 3; }
+.players-4.focus-mode .seat-1 { order: 4; }
+
+.focus-mode .land-bg { order: 0; }
+.focus-mode .center-hub { order: 99; }
+
+.cmd-caption {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #8c8c99;
+  align-self: center;
+}

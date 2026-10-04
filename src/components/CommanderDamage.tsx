@@ -26,6 +26,7 @@ function Bubble({
       type="button"
       className="cmd-bubble"
       aria-label={`commander damage from ${attackerName}`}
+      title={`Combat damage taken from ${attackerName}'s commander — 21 total eliminates you. Tap +1, hold −1. Also lowers life.`}
       {...press}
     >
       <span className="cmd-name">{attackerName.slice(0, 3)}</span>
@@ -41,7 +42,8 @@ export default function CommanderDamage({ playerIdx }: Props) {
   const player = game.players[playerIdx];
 
   return (
-    <div className="cmd-strip">
+    <div className="cmd-strip" title="Commander damage taken from each enemy commander">
+      <span className="cmd-caption">⚔ cmdr</span>
       {game.config.profiles.map((profile, j) => {
         if (j === playerIdx) return null;
         return (

@@ -65,6 +65,10 @@ export default function NewGameScreen({ onBack }: Props) {
         </label>
       )}
       <p>Who's playing? (2–4, in seat order)</p>
+      <p className="hint">
+        Tap in seating order: the first player gets the tablet's bottom edge, then clockwise
+        around the table.
+      </p>
       <div className="profile-grid">
         {profiles.map((p) => (
           <button
