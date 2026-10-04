@@ -1836,3 +1836,88 @@ input[type='checkbox'] {
   height: calc(100dvw - 124px);
   transform: translate(-50%, -50%) rotate(-90deg);
 }
+
+/* The focused zone claims its own (empty) edge strip. */
+.table-360 .zone--focused.edge-bottom {
+  inset: 62px 62px 4px 62px;
+}
+
+.table-360 .zone--focused.edge-top {
+  inset: 4px 62px 62px 62px;
+}
+
+.table-360 .zone--focused.edge-left {
+  height: calc(100dvw - 66px);
+  left: calc(50% - 29px);
+}
+
+.table-360 .zone--focused.edge-right {
+  height: calc(100dvw - 66px);
+  left: calc(50% + 29px);
+}
+
+/* Three players have no top seat: that edge is free space too. */
+.players-3.table-360 .zone--focused.edge-bottom {
+  inset: 4px 62px 4px 62px;
+}
+
+.players-3.table-360 .edge-left:not(.zone--focused),
+.players-3.table-360 .edge-right:not(.zone--focused) {
+  width: calc(100dvh - 70px);
+  top: calc(50% - 29px);
+}
+
+.players-3.table-360 .zone--focused.edge-left,
+.players-3.table-360 .zone--focused.edge-right {
+  width: calc(100dvh - 66px);
+  top: calc(50% - 29px);
+}
+
+/* Side bars run nearly full height — the corners are theirs, since the
+   top/bottom bars start 62px in. Relieves cramped side players. */
+.table-360 .edge-left:not(.zone--focused),
+.table-360 .edge-right:not(.zone--focused),
+.players-3.table-360 .edge-left:not(.zone--focused),
+.players-3.table-360 .edge-right:not(.zone--focused) {
+  width: calc(100dvh - 12px);
+  top: 50%;
+}
+
+/* Stable view: the center board never spins sideways. Side-seat turns
+   keep it screen-upright (their edge bar still faces them) and the board
+   claims their empty edge strip. Only the top seat flips it 180. */
+.table-360 .zone--focused.edge-left {
+  inset: 62px 62px 62px 4px;
+  width: auto;
+  height: auto;
+  top: auto;
+  left: auto;
+  transform: none;
+}
+
+.table-360 .zone--focused.edge-right {
+  inset: 62px 4px 62px 62px;
+  width: auto;
+  height: auto;
+  top: auto;
+  left: auto;
+  transform: none;
+}
+
+.players-3.table-360 .zone--focused.edge-left {
+  inset: 4px 62px 62px 4px;
+  width: auto;
+  height: auto;
+  top: auto;
+  left: auto;
+  transform: none;
+}
+
+.players-3.table-360 .zone--focused.edge-right {
+  inset: 4px 4px 62px 62px;
+  width: auto;
+  height: auto;
+  top: auto;
+  left: auto;
+  transform: none;
+}
