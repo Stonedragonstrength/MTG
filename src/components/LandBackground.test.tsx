@@ -29,6 +29,8 @@ const baseSettings = {
   backgroundIntensity: 35,
   cycleSeconds: 0,
   fadeSeconds: 2,
+  soundOn: false,
+  turnTimerOn: true,
 };
 
 beforeEach(async () => {
