@@ -28,6 +28,15 @@ vi.mock('../data/scryfall', () => ({
   loadNameIndex: vi.fn(async () => []),
 }));
 
+vi.mock('../data/images', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../data/images')>()),
+  randomBasicArt: vi.fn(async (name: string) =>
+    name === 'Forest'
+      ? { normal: 'https://img.example/forest-variant.jpg', artCrop: 'https://img.example/forest-variant-art.jpg' }
+      : undefined,
+  ),
+}));
+
 const config: GameConfig = {
   format: 'commander',
   startingLife: 40,
@@ -60,7 +69,7 @@ beforeEach(() => {
   useAppStore.setState({ game: createGame(config) });
 });
 
-test('quick-adding a basic creates a lands-zone stack', async () => {
+test('quick-adding a basic creates a lands-zone stack with a random art variant', async () => {
   const added: BoardItem[] = [];
   useAppStore.setState({ addItem: vi.fn((_i: number, item: BoardItem) => added.push(item)) });
   const user = userEvent.setup();
@@ -69,6 +78,7 @@ test('quick-adding a basic creates a lands-zone stack', async () => {
   expect(added).toHaveLength(1);
   expect(added[0].name).toBe('Forest');
   expect(added[0].zone).toBe('lands');
+  expect(added[0].imageNormal).toBe('https://img.example/forest-variant.jpg');
 });
 
 test('quick-adding a basic you already have bumps the stack instead', async () => {

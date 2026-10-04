@@ -92,7 +92,9 @@ export default function SettingsSheet({ onClose }: Props) {
           <option value={0}>On turn pass</option>
           <option value={30}>Every 30 seconds</option>
           <option value={60}>Every minute</option>
+          <option value={120}>Every 2 minutes</option>
           <option value={180}>Every 3 minutes</option>
+          <option value={300}>Every 5 minutes</option>
         </select>
       </div>
 
@@ -104,7 +106,7 @@ export default function SettingsSheet({ onClose }: Props) {
         <input
           type="range"
           min={1}
-          max={8}
+          max={30}
           aria-label="fade speed"
           value={settings.fadeSeconds}
           onChange={(e) => updateSettings({ ...settings, fadeSeconds: Number(e.target.value) })}

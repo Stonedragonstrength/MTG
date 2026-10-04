@@ -1,4 +1,4 @@
-import { getDb, kvSet } from './db';
+import { getDb, kvGet, kvSet } from './db';
 
 export const LAND_TYPES = ['plains', 'island', 'swamp', 'mountain', 'forest'] as const;
 export type LandType = (typeof LAND_TYPES)[number];
@@ -38,6 +38,51 @@ const COMMON_TOKEN_NAMES = [
   'Saproling',
 ];
 
+export interface BasicArtVariant {
+  normal: string;
+  artCrop: string | null;
+}
+
+/** The card database stores one printing per name, so distinct basic-land
+ * artworks come from Scryfall's unique-art search (stored for offline use). */
+export async function fetchBasicArtVariants(): Promise<void> {
+  const variants: Record<string, BasicArtVariant[]> = {};
+  for (const type of LAND_TYPES) {
+    const typeName = type[0].toUpperCase() + type.slice(1);
+    try {
+      const resp = await fetch(
+        `https://api.scryfall.com/cards/search?q=${encodeURIComponent(`!"${typeName}" unique:art`)}`,
+        { headers: { Accept: 'application/json' } },
+      );
+      if (!resp.ok) continue;
+      const json = (await resp.json()) as {
+        data?: { image_uris?: { normal?: string; art_crop?: string } }[];
+      };
+      const list = (json.data ?? [])
+        .map((c) => ({ normal: c.image_uris?.normal ?? '', artCrop: c.image_uris?.art_crop ?? null }))
+        .filter((v): v is BasicArtVariant => v.normal !== '');
+      if (list.length > 0) variants[type] = list;
+      await sleep(REQUEST_GAP_MS);
+    } catch {
+      // Offline or blocked: variants stay unavailable, defaults still work.
+    }
+  }
+  if (Object.keys(variants).length > 0) await kvSet('basicArtVariants', variants);
+}
+
+/** A random artwork for a basic land name; fetches the variant list once if
+ * it's missing and the network allows. */
+export async function randomBasicArt(name: string): Promise<BasicArtVariant | undefined> {
+  let stored = await kvGet<Record<string, BasicArtVariant[]>>('basicArtVariants');
+  if (!stored) {
+    await fetchBasicArtVariants();
+    stored = await kvGet<Record<string, BasicArtVariant[]>>('basicArtVariants');
+  }
+  const list = stored?.[name.toLowerCase()];
+  if (!list || list.length === 0) return undefined;
+  return list[Math.floor(Math.random() * list.length)];
+}
+
 export async function pickLandArtPack(): Promise<LandArtPack> {
   const lands = await getDb()
     .cards.filter((c) => !c.isToken && c.imageArtCrop !== null && /\bLand\b/.test(c.typeLine))
@@ -55,6 +100,15 @@ export async function pickLandArtPack(): Promise<LandArtPack> {
   pack.special = shuffleArray(lands.filter((c) => !c.isBasicLand))
     .slice(0, SPECIAL_COUNT)
     .map((c) => c.imageArtCrop!);
+
+  // Unique-art variants multiply the basic buckets beyond one-per-name.
+  const variants = await kvGet<Record<string, BasicArtVariant[]>>('basicArtVariants');
+  if (variants) {
+    for (const type of LAND_TYPES) {
+      const extra = (variants[type] ?? []).map((v) => v.artCrop).filter((a): a is string => !!a);
+      pack[type] = [...new Set([...pack[type], ...extra])].slice(0, PER_TYPE);
+    }
+  }
 
   await kvSet('landArtPack', pack);
   return pack;
@@ -102,6 +156,7 @@ export async function prepareArtwork(
   onProgress?: (done: number, total: number) => void,
 ): Promise<void> {
   try {
+    await fetchBasicArtVariants();
     const pack = await pickLandArtPack();
     // Pre-cache a fast subset; the rest cache lazily as they appear on screen.
     await precacheUrls(shuffleArray(Object.values(pack).flat()).slice(0, 120), onProgress);

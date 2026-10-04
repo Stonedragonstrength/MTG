@@ -62,6 +62,43 @@ describe('pickLandArtPack', () => {
   });
 });
 
+describe('basic art variants', () => {
+  test('fetches unique artworks per basic type and serves random picks', async () => {
+    const { fetchBasicArtVariants, randomBasicArt } = await import('./images');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL) => {
+        const type = decodeURIComponent(String(url)).match(/!"(\w+)"/)?.[1] ?? 'X';
+        return new Response(
+          JSON.stringify({
+            data: [
+              { image_uris: { normal: `https://img/${type}-1.jpg`, art_crop: `https://img/${type}-1-art.jpg` } },
+              { image_uris: { normal: `https://img/${type}-2.jpg`, art_crop: `https://img/${type}-2-art.jpg` } },
+            ],
+          }),
+        );
+      }),
+    );
+
+    await fetchBasicArtVariants();
+
+    const rand = vi.spyOn(Math, 'random');
+    rand.mockReturnValue(0);
+    expect((await randomBasicArt('Forest'))?.normal).toBe('https://img/Forest-1.jpg');
+    rand.mockReturnValue(0.99);
+    expect((await randomBasicArt('Forest'))?.normal).toBe('https://img/Forest-2.jpg');
+    rand.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  test('randomBasicArt without stored variants and offline returns undefined', async () => {
+    const { randomBasicArt } = await import('./images');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('nope', { status: 503 })));
+    expect(await randomBasicArt('Island')).toBeUndefined();
+    vi.unstubAllGlobals();
+  });
+});
+
 describe('precacheUrls', () => {
   test('stores into the same cache the service worker serves images from', async () => {
     const added: string[] = [];

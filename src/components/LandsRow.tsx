@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { randomBasicArt } from '../data/images';
 import { findBasicLand } from '../data/scryfall';
 import { createBoardItem } from '../lib/board';
 import { isOneShotSource, landSummary, MANA_COLORS, type ManaColor } from '../lib/mana';
@@ -89,7 +90,16 @@ export default function LandsRow({ playerIdx }: Props) {
       return;
     }
     const card = await findBasicLand(name);
-    if (card) addItem(playerIdx, createBoardItem(card, 'lands'));
+    if (!card) return;
+    // A fresh art roll per game and per player for each first-of-type land.
+    const variant = await randomBasicArt(name).catch(() => undefined);
+    addItem(
+      playerIdx,
+      createBoardItem(
+        variant ? { ...card, imageNormal: variant.normal, imageArtCrop: variant.artCrop } : card,
+        'lands',
+      ),
+    );
   }
 
   return (

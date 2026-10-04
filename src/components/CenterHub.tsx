@@ -42,7 +42,6 @@ export default function CenterHub({ variant = 'overlay' }: Props) {
   const [trayOpen, setTrayOpen] = useState(false);
 
   if (!game) return null;
-  const active = game.config.profiles[game.activePlayerIndex];
 
   function openSheet(name: SheetName) {
     setTrayOpen(false);
@@ -62,7 +61,6 @@ export default function CenterHub({ variant = 'overlay' }: Props) {
               </>
             )}
           </span>
-          <span className="hub-active">{active.name}</span>
         </div>
         <button className="hub-pass" onClick={passTurn}>
           Pass turn

@@ -32,10 +32,10 @@ beforeEach(() => {
   useAppStore.setState({ game: createGame(config) });
 });
 
-test('shows the turn number and active player', () => {
+test('shows the turn number without repeating the player name', () => {
   render(<CenterHub />);
   expect(screen.getByText(/turn 1/i)).toBeInTheDocument();
-  expect(screen.getByText('Player 0')).toBeInTheDocument();
+  expect(screen.queryByText('Player 0')).not.toBeInTheDocument();
 });
 
 test('pass turn advances to the next player', async () => {
