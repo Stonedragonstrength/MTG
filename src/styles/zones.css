@@ -1557,3 +1557,49 @@ input[type='checkbox'] {
   padding-left: 10px;
   padding-right: 10px;
 }
+
+/* ---- quick-token art tiles ---- */
+.chip--art {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 0;
+  width: 96px;
+  overflow: hidden;
+  border-radius: 10px;
+}
+
+.chip-art {
+  width: 100%;
+  height: 56px;
+  object-fit: cover;
+}
+
+.chip-name {
+  font-size: 0.72rem;
+  padding: 3px 4px 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chip--pinned {
+  border-color: var(--accent);
+}
+
+.search-result-row {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.search-result-main {
+  flex: 1;
+  text-align: left;
+  padding: 8px 12px;
+}
+
+.pin-btn {
+  padding: 8px 12px;
+  color: var(--accent);
+}

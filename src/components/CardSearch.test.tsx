@@ -28,6 +28,7 @@ vi.mock('../data/scryfall', () => ({
     { id: 's1', name: 'Sol Ring' },
   ]),
   getCardById: vi.fn(async (id: string) => (id === 't1' ? treasure : undefined)),
+  findCardByName: vi.fn(async (name: string) => (name === 'Treasure' ? treasure : undefined)),
 }));
 
 const config: GameConfig = {
@@ -42,7 +43,9 @@ const config: GameConfig = {
 
 let added: { playerIdx: number; item: BoardItem }[];
 
-beforeEach(() => {
+beforeEach(async () => {
+  const { getDb } = await import('../data/db');
+  await getDb().kv.clear();
   added = [];
   useAppStore.setState({
     game: createGame(config),
@@ -68,10 +71,13 @@ test('typing finds cards and picking one adds it to the board', async () => {
   expect(onClose).toHaveBeenCalled();
 });
 
-test('common token chips add with a single tap', async () => {
+test('common token chips add with a single tap and show card art', async () => {
   const user = userEvent.setup();
   render(<CardSearch playerIdx={0} onClose={() => {}} />);
-  await user.click(await screen.findByRole('button', { name: /^Treasure token$/i }));
+  const chip = await screen.findByRole('button', { name: /^Treasure token$/i });
+  const { waitFor } = await import('@testing-library/react');
+  await waitFor(() => expect(chip.querySelector('img')).toHaveAttribute('src', treasure.imageNormal));
+  await user.click(chip);
   expect(added).toHaveLength(1);
   expect(added[0].item.name).toBe('Treasure');
 });
@@ -97,6 +103,38 @@ test('offers a custom token form', async () => {
   expect(added[0].item.name).toBe('Blorbo');
   expect(added[0].item.basePower).toBe(3);
   expect(added[0].item.cardId).toBeNull();
+});
+
+test('a search result can be pinned into the quick token row', async () => {
+  const { kvGet } = await import('../data/db');
+  const user = userEvent.setup();
+  render(<CardSearch playerIdx={0} onClose={() => {}} />);
+
+  await user.type(screen.getByPlaceholderText(/search/i), 'treas');
+  await user.click(await screen.findByRole('button', { name: /pin treasure to quick tokens/i }));
+  expect(await kvGet('customQuickTokens')).toEqual([{ id: 't1', name: 'Treasure' }]);
+
+  await user.clear(screen.getByPlaceholderText(/search/i));
+  expect(await screen.findByRole('button', { name: /treasure \(pinned\)/i })).toBeInTheDocument();
+});
+
+test('a pinned quick token adds with one tap and unpins on hold', async () => {
+  const { kvSet, kvGet } = await import('../data/db');
+  const { fireEvent } = await import('@testing-library/react');
+  await kvSet('customQuickTokens', [{ id: 't1', name: 'Treasure' }]);
+  const user = userEvent.setup();
+  render(<CardSearch playerIdx={0} onClose={() => {}} />);
+
+  const chip = await screen.findByRole('button', { name: /treasure \(pinned\)/i });
+  await user.click(chip);
+  expect(added).toHaveLength(1);
+  expect(added[0].item.name).toBe('Treasure');
+
+  fireEvent.pointerDown(chip);
+  await new Promise((r) => setTimeout(r, 650));
+  fireEvent.pointerUp(chip);
+  await new Promise((r) => setTimeout(r, 50));
+  expect(await kvGet('customQuickTokens')).toEqual([]);
 });
 
 test('custom tokens can carry evergreen keywords', async () => {
