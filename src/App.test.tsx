@@ -1,7 +1,16 @@
 import { render, screen } from '@testing-library/react';
+import { beforeEach, expect, test } from 'vitest';
 import App from './App';
+import { getDb } from './data/db';
 
-test('renders app title', () => {
+beforeEach(async () => {
+  await getDb().kv.clear();
+});
+
+test('boots into the setup gate before the card database is downloaded', async () => {
   render(<App />);
-  expect(screen.getByText('MTG Companion')).toBeInTheDocument();
+  expect(await screen.findByText('MTG Companion')).toBeInTheDocument();
+  expect(
+    await screen.findByRole('button', { name: /download card database/i }),
+  ).toBeInTheDocument();
 });
