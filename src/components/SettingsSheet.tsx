@@ -149,6 +149,19 @@ export default function SettingsSheet({ onClose }: Props) {
 
       <div className="settings-row">
         <div className="settings-row-text">
+          <span>Auto-focus active player</span>
+          <small>Their zone takes the screen when the turn passes</small>
+        </div>
+        <input
+          type="checkbox"
+          aria-label="auto focus"
+          checked={settings.autoFocusOn}
+          onChange={(e) => updateSettings({ ...settings, autoFocusOn: e.target.checked })}
+        />
+      </div>
+
+      <div className="settings-row">
+        <div className="settings-row-text">
           <span>Card database</span>
           <small>{refreshMsg || 'Re-download when new sets come out (needs wifi)'}</small>
         </div>

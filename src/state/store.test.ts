@@ -148,6 +148,7 @@ describe('settings', () => {
     expect(settings.fadeSeconds).toBe(2);
     expect(settings.soundOn).toBe(false);
     expect(settings.turnTimerOn).toBe(true);
+    expect(settings.autoFocusOn).toBe(false);
   });
 });
 

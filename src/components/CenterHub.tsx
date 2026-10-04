@@ -6,8 +6,9 @@ import GameLogSheet from './GameLogSheet';
 import RulesViewer from './RulesViewer';
 import SettingsSheet from './SettingsSheet';
 import Sheet from './Sheet';
+import StackSheet from './StackSheet';
 
-type SheetName = 'dice' | 'rules' | 'settings' | 'end' | 'log' | 'combat' | null;
+type SheetName = 'dice' | 'rules' | 'settings' | 'end' | 'log' | 'combat' | 'stack' | null;
 
 function TurnClock({ since }: { since: number }) {
   const [, force] = useState(0);
@@ -63,6 +64,10 @@ export default function CenterHub() {
           <span className="hub-icon">⚔️</span>
           <span className="hub-label">Combat</span>
         </button>
+        <button aria-label="the stack" onClick={() => setSheet('stack')}>
+          <span className="hub-icon">🌀</span>
+          <span className="hub-label">Stack</span>
+        </button>
         <button aria-label="dice" onClick={() => setSheet('dice')}>
           <span className="hub-icon">🎲</span>
           <span className="hub-label">Dice</span>
@@ -90,6 +95,7 @@ export default function CenterHub() {
       {sheet === 'settings' && <SettingsSheet onClose={() => setSheet(null)} />}
       {sheet === 'log' && <GameLogSheet onClose={() => setSheet(null)} />}
       {sheet === 'combat' && <CombatSheet onClose={() => setSheet(null)} />}
+      {sheet === 'stack' && <StackSheet onClose={() => setSheet(null)} />}
       {sheet === 'end' && (
         <Sheet
           title="End this game?"

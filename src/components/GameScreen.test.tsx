@@ -85,6 +85,21 @@ test('tapping a zone header focuses that zone, tapping again releases it', async
   expect(container.querySelector('.game-screen')!.className).not.toContain('focus-mode');
 });
 
+test('auto-focus follows the active player when enabled', async () => {
+  const { act } = await import('@testing-library/react');
+  const settings = useAppStore.getState().settings;
+  useAppStore.setState({ settings: { ...settings, autoFocusOn: true } });
+  const { container } = render(<GameScreen />);
+  expect(container.querySelector('.zone.seat-0')!.className).toContain('zone--focused');
+
+  const game = useAppStore.getState().game!;
+  act(() => {
+    useAppStore.setState({ game: { ...game, activePlayerIndex: 2, turnStartedAt: Date.now() } });
+  });
+  expect(container.querySelector('.zone.seat-2')!.className).toContain('zone--focused');
+  expect(container.querySelector('.zone.seat-0')!.className).not.toContain('zone--focused');
+});
+
 test('the monarch wears the crown in their zone', () => {
   const game = useAppStore.getState().game!;
   useAppStore.setState({ game: { ...game, monarchIdx: 2 } });

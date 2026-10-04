@@ -31,6 +31,7 @@ const baseSettings = {
   fadeSeconds: 2,
   soundOn: false,
   turnTimerOn: true,
+  autoFocusOn: false,
 };
 
 beforeEach(async () => {

@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getGlossary } from '../data/rules';
 import { computedPT } from '../lib/board';
+import { edhrecUrl } from '../lib/edhrec';
 import { findGlossaryTerms, type GlossaryEntry } from '../lib/rulesParser';
 import { useAppStore } from '../state/store';
 import Sheet from './Sheet';
+import SynergySheet from './SynergySheet';
 
 interface Props {
   playerIdx: number;
@@ -37,6 +39,7 @@ export default function CardDetail({ playerIdx, itemId, onClose }: Props) {
   const [activeTerm, setActiveTerm] = useState<GlossaryEntry | null>(null);
   const [splitCount, setSplitCount] = useState('1');
   const [newCounterName, setNewCounterName] = useState('');
+  const [synergiesOpen, setSynergiesOpen] = useState(false);
 
   useEffect(() => {
     getGlossary().then(setGlossary);
@@ -87,6 +90,20 @@ export default function CardDetail({ playerIdx, itemId, onClose }: Props) {
             </strong>
           )}
         </p>
+        {item.cardId && (
+          <p className="card-links">
+            <a
+              href={edhrecUrl(item.name, /Legendary.*Creature/.test(item.typeLine))}
+              target="_blank"
+              rel="noreferrer"
+            >
+              EDHREC ↗
+            </a>
+            <button className="ghost" onClick={() => setSynergiesOpen(true)}>
+              Goes well with…
+            </button>
+          </p>
+        )}
         {item.oracleText && (
           <p className="oracle-text">
             {segments.map((seg, i) =>
@@ -110,6 +127,15 @@ export default function CardDetail({ playerIdx, itemId, onClose }: Props) {
           </div>
         )}
       </div>
+
+      {synergiesOpen && item.cardId && (
+        <SynergySheet
+          cardId={item.cardId}
+          cardName={item.name}
+          isCommander={/Legendary.*Creature/.test(item.typeLine)}
+          onClose={() => setSynergiesOpen(false)}
+        />
+      )}
 
       <div className="detail-section">
         <span className="section-label">Stack</span>

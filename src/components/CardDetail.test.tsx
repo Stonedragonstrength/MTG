@@ -71,6 +71,12 @@ test('splitting a stack calls splitItem with the entered count', async () => {
   expect(spy).toHaveBeenCalledWith(0, 'item-a', 1);
 });
 
+test('real cards link out to EDHREC', () => {
+  render(<CardDetail playerIdx={0} itemId="item-a" onClose={() => {}} />);
+  const link = screen.getByRole('link', { name: /edhrec/i });
+  expect(link).toHaveAttribute('href', 'https://edhrec.com/cards/angel');
+});
+
 test('remove deletes the item and closes', async () => {
   const spy = vi.fn();
   const onClose = vi.fn();

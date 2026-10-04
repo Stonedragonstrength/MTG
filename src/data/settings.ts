@@ -16,6 +16,7 @@ export interface Settings {
   fadeSeconds: number; // crossfade duration
   soundOn: boolean;
   turnTimerOn: boolean;
+  autoFocusOn: boolean; // active player's zone takes the screen each turn
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -25,6 +26,7 @@ export const DEFAULT_SETTINGS: Settings = {
   fadeSeconds: 2,
   soundOn: false,
   turnTimerOn: true,
+  autoFocusOn: false,
 };
 
 export async function getSettings(): Promise<Settings> {
