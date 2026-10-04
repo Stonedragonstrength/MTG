@@ -953,3 +953,32 @@ input[type='checkbox'] {
   gap: 4px;
   justify-content: center;
 }
+
+/* ---- collapsible hub tray ---- */
+.hub-tray {
+  display: grid;
+  grid-template-columns: repeat(4, auto);
+  gap: 2px;
+  padding-top: 2px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.hub-tray button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  background: transparent;
+  border: none;
+  padding: 6px 10px;
+  border-radius: 10px;
+  min-width: 52px;
+}
+
+.hub-tray button:active {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.center-hub {
+  padding: 10px 16px;
+}

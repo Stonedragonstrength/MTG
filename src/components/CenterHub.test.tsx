@@ -50,17 +50,32 @@ test('ending the game requires an inline confirmation', async () => {
   useAppStore.setState({ endGame });
   const user = userEvent.setup();
   render(<CenterHub />);
+  await user.click(screen.getByRole('button', { name: /more options/i }));
   await user.click(screen.getByRole('button', { name: /end game/i }));
   expect(endGame).not.toHaveBeenCalled();
   await user.click(screen.getByRole('button', { name: /yes, end it/i }));
   expect(endGame).toHaveBeenCalled();
 });
 
-test('hub actions carry visible labels', () => {
+test('the options tray is collapsed by default; undo stays visible', async () => {
+  const user = userEvent.setup();
   render(<CenterHub />);
-  for (const label of ['Dice', 'Rules', 'Settings', 'End', 'Undo', 'Log', 'Combat']) {
+  expect(screen.getByText('Undo')).toBeInTheDocument();
+  for (const label of ['Dice', 'Rules', 'Settings', 'End', 'Log', 'Combat', 'Stack']) {
+    expect(screen.queryByText(label)).not.toBeInTheDocument();
+  }
+  await user.click(screen.getByRole('button', { name: /more options/i }));
+  for (const label of ['Dice', 'Rules', 'Settings', 'End', 'Log', 'Combat', 'Stack']) {
     expect(screen.getByText(label)).toBeInTheDocument();
   }
+});
+
+test('picking an action closes the tray', async () => {
+  const user = userEvent.setup();
+  render(<CenterHub />);
+  await user.click(screen.getByRole('button', { name: /more options/i }));
+  await user.click(screen.getByRole('button', { name: /dice/i }));
+  expect(screen.queryByText('Rules')).not.toBeInTheDocument(); // tray closed
 });
 
 test('undo button delegates to the store and disables without history', async () => {
@@ -88,13 +103,15 @@ test('the log sheet shows game history', async () => {
   useAppStore.setState({ log: [{ t: Date.now(), text: 'Nate: life 40 → 38' }] });
   const user = userEvent.setup();
   render(<CenterHub />);
-  await user.click(screen.getByRole('button', { name: /log/i }));
+  await user.click(screen.getByRole('button', { name: /more options/i }));
+  await user.click(screen.getByRole('button', { name: /game log/i }));
   expect(await screen.findByText(/life 40 → 38/)).toBeInTheDocument();
 });
 
 test('dice roller produces a result in range', async () => {
   const user = userEvent.setup();
   render(<CenterHub />);
+  await user.click(screen.getByRole('button', { name: /more options/i }));
   await user.click(screen.getByRole('button', { name: /dice/i }));
   await user.click(screen.getByRole('button', { name: /d20/i }));
   const result = Number(screen.getByTestId('dice-result').textContent);

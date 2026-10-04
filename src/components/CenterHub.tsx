@@ -34,9 +34,15 @@ export default function CenterHub() {
   const canUndo = useAppStore((s) => s.canUndo);
   const turnTimerOn = useAppStore((s) => s.settings.turnTimerOn);
   const [sheet, setSheet] = useState<SheetName>(null);
+  const [trayOpen, setTrayOpen] = useState(false);
 
   if (!game) return null;
   const active = game.config.profiles[game.activePlayerIndex];
+
+  function openSheet(name: SheetName) {
+    setTrayOpen(false);
+    setSheet(name);
+  }
 
   return (
     <div className="center-hub">
@@ -60,35 +66,48 @@ export default function CenterHub() {
           <span className="hub-icon">↩️</span>
           <span className="hub-label">Undo</span>
         </button>
-        <button aria-label="combat math" onClick={() => setSheet('combat')}>
-          <span className="hub-icon">⚔️</span>
-          <span className="hub-label">Combat</span>
-        </button>
-        <button aria-label="the stack" onClick={() => setSheet('stack')}>
-          <span className="hub-icon">🌀</span>
-          <span className="hub-label">Stack</span>
-        </button>
-        <button aria-label="dice" onClick={() => setSheet('dice')}>
-          <span className="hub-icon">🎲</span>
-          <span className="hub-label">Dice</span>
-        </button>
-        <button aria-label="rules" onClick={() => setSheet('rules')}>
-          <span className="hub-icon">📖</span>
-          <span className="hub-label">Rules</span>
-        </button>
-        <button aria-label="game log" onClick={() => setSheet('log')}>
-          <span className="hub-icon">📜</span>
-          <span className="hub-label">Log</span>
-        </button>
-        <button aria-label="settings" onClick={() => setSheet('settings')}>
-          <span className="hub-icon">⚙️</span>
-          <span className="hub-label">Settings</span>
-        </button>
-        <button aria-label="end game" onClick={() => setSheet('end')}>
-          <span className="hub-icon">🏳️</span>
-          <span className="hub-label">End</span>
+        <button
+          aria-label="more options"
+          aria-expanded={trayOpen}
+          onClick={() => setTrayOpen((o) => !o)}
+        >
+          <span className="hub-icon">{trayOpen ? '✕' : '⋯'}</span>
+          <span className="hub-label">{trayOpen ? 'Close' : 'More'}</span>
         </button>
       </div>
+
+      {trayOpen && (
+        <div className="hub-tray">
+          <button aria-label="combat math" onClick={() => openSheet('combat')}>
+            <span className="hub-icon">⚔️</span>
+            <span className="hub-label">Combat</span>
+          </button>
+          <button aria-label="the stack" onClick={() => openSheet('stack')}>
+            <span className="hub-icon">🌀</span>
+            <span className="hub-label">Stack</span>
+          </button>
+          <button aria-label="dice" onClick={() => openSheet('dice')}>
+            <span className="hub-icon">🎲</span>
+            <span className="hub-label">Dice</span>
+          </button>
+          <button aria-label="rules" onClick={() => openSheet('rules')}>
+            <span className="hub-icon">📖</span>
+            <span className="hub-label">Rules</span>
+          </button>
+          <button aria-label="game log" onClick={() => openSheet('log')}>
+            <span className="hub-icon">📜</span>
+            <span className="hub-label">Log</span>
+          </button>
+          <button aria-label="settings" onClick={() => openSheet('settings')}>
+            <span className="hub-icon">⚙️</span>
+            <span className="hub-label">Settings</span>
+          </button>
+          <button aria-label="end game" onClick={() => openSheet('end')}>
+            <span className="hub-icon">🏳️</span>
+            <span className="hub-label">End</span>
+          </button>
+        </div>
+      )}
 
       {sheet === 'dice' && <DiceRoller onClose={() => setSheet(null)} />}
       {sheet === 'rules' && <RulesViewer onClose={() => setSheet(null)} />}
