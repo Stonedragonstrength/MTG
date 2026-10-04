@@ -100,8 +100,16 @@ export function createAppStore() {
         try {
           const saved = await kvGet('activeGame');
           if (saved !== undefined) {
-            if (isValidGame(saved)) game = saved;
-            else await kvDelete('activeGame');
+            if (isValidGame(saved)) {
+              // Migrate saves from before the lands feature: items default to board.
+              game = {
+                ...saved,
+                players: saved.players.map((p) => ({
+                  ...p,
+                  board: p.board.map((item) => ({ ...item, zone: item.zone ?? 'board' })),
+                })),
+              };
+            } else await kvDelete('activeGame');
           }
         } catch (err) {
           console.error('Failed to restore saved game', err);

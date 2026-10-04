@@ -15,7 +15,7 @@ export default function BoardStrip({ playerIdx }: Props) {
   const [detailId, setDetailId] = useState<string | null>(null);
 
   if (!game) return null;
-  const board = game.players[playerIdx].board;
+  const board = game.players[playerIdx].board.filter((item) => item.zone !== 'lands');
 
   return (
     <div className="board-strip">

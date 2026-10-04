@@ -164,6 +164,12 @@ export async function getCardById(id: string): Promise<CardRecord | undefined> {
   return getDb().cards.get(id);
 }
 
+export async function findBasicLand(name: string): Promise<CardRecord | undefined> {
+  const matches = await getDb().cards.where('nameLower').equals(name.toLowerCase()).toArray();
+  const basics = matches.filter((c) => c.isBasicLand);
+  return basics.find((c) => c.imageNormal) ?? basics[0];
+}
+
 export async function loadNameIndex(): Promise<{ id: string; name: string }[]> {
   const stored = await kvGet<{ id: string; name: string }[]>('nameIndex');
   if (stored) return stored;

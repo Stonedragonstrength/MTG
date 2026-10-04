@@ -29,9 +29,10 @@ const RECENT_CAP = 12;
 interface Props {
   playerIdx: number;
   onClose: () => void;
+  zone?: 'board' | 'lands';
 }
 
-export default function CardSearch({ playerIdx, onClose }: Props) {
+export default function CardSearch({ playerIdx, onClose, zone = 'board' }: Props) {
   const addItem = useAppStore((s) => s.addItem);
   const [query, setQuery] = useState('');
   const [names, setNames] = useState<{ id: string; name: string }[]>([]);
@@ -48,7 +49,7 @@ export default function CardSearch({ playerIdx, onClose }: Props) {
   async function pickId(id: string) {
     const card = await getCardById(id);
     if (!card) return;
-    addItem(playerIdx, createBoardItem(card));
+    addItem(playerIdx, createBoardItem(card, zone));
     const entry = { id: card.id, name: card.name };
     const nextRecent = [entry, ...recent.filter((r) => r.id !== entry.id)].slice(0, RECENT_CAP);
     kvSet(RECENT_KEY, nextRecent).catch(() => {});
@@ -71,13 +72,15 @@ export default function CardSearch({ playerIdx, onClose }: Props) {
 
   return (
     <Sheet
-      title="Add a card"
+      title={zone === 'lands' ? 'Add a land' : 'Add a card'}
       onClose={onClose}
       size="wide"
       footer={
-        <button className="ghost" onClick={() => setCustomOpen(true)}>
-          Custom token…
-        </button>
+        zone === 'lands' ? undefined : (
+          <button className="ghost" onClick={() => setCustomOpen(true)}>
+            Custom token…
+          </button>
+        )
       }
     >
       <input
@@ -88,7 +91,9 @@ export default function CardSearch({ playerIdx, onClose }: Props) {
         onChange={(e) => setQuery(e.target.value)}
       />
 
-      {query.trim() === '' ? (
+      {query.trim() === '' && zone === 'lands' ? (
+        <p className="hint">Search for any land — basics have one-tap buttons back on the board.</p>
+      ) : query.trim() === '' ? (
         <>
           <div className="chip-group">
             <span className="chip-group-label">Quick tokens</span>

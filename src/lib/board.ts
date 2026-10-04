@@ -10,7 +10,7 @@ function parsePT(value: string | null): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-export function createBoardItem(card: CardRecord): BoardItem {
+export function createBoardItem(card: CardRecord, zone: 'board' | 'lands' = 'board'): BoardItem {
   return {
     id: newId(),
     cardId: card.id,
@@ -24,6 +24,7 @@ export function createBoardItem(card: CardRecord): BoardItem {
     count: 1,
     counters: {},
     color: null,
+    zone,
   };
 }
 
@@ -46,6 +47,7 @@ export function createCustomToken(
     count: 1,
     counters: {},
     color,
+    zone: 'board',
   };
 }
 

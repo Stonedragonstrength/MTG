@@ -35,6 +35,7 @@ const angel: BoardItem = {
   count: 2,
   counters: {},
   color: null,
+  zone: 'board',
 };
 
 beforeEach(() => {

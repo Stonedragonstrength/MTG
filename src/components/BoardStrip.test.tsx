@@ -36,6 +36,7 @@ const soldiers: BoardItem = {
   count: 8,
   counters: { p1p1: 2 },
   color: null,
+  zone: 'board',
 };
 
 beforeEach(() => {
@@ -65,4 +66,18 @@ test('inline +/− adjust the stack count', async () => {
 test('has an add-card tile', () => {
   render(<BoardStrip playerIdx={0} />);
   expect(screen.getByRole('button', { name: /add a card/i })).toBeInTheDocument();
+});
+
+test('lands-zone items stay out of the battlefield grid', () => {
+  const game = useAppStore.getState().game!;
+  const forest = { ...soldiers, id: 'land-1', name: 'Forest', zone: 'lands' as const };
+  useAppStore.setState({
+    game: {
+      ...game,
+      players: [{ ...game.players[0], board: [soldiers, forest] }, game.players[1]],
+    },
+  });
+  render(<BoardStrip playerIdx={0} />);
+  expect(screen.queryByRole('button', { name: /forest details/i })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /soldier details/i })).toBeInTheDocument();
 });

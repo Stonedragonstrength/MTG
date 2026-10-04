@@ -76,6 +76,14 @@ test('common token chips add with a single tap', async () => {
   expect(added[0].item.name).toBe('Treasure');
 });
 
+test('searching in lands mode adds to the lands zone', async () => {
+  const user = userEvent.setup();
+  render(<CardSearch playerIdx={0} zone="lands" onClose={() => {}} />);
+  await user.type(screen.getByPlaceholderText(/search/i), 'treas');
+  await user.click(await screen.findByRole('button', { name: 'Treasure' }));
+  expect(added[0].item.zone).toBe('lands');
+});
+
 test('offers a custom token form', async () => {
   const user = userEvent.setup();
   render(<CardSearch playerIdx={0} onClose={() => {}} />);

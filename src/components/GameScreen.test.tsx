@@ -70,6 +70,21 @@ test('tapping a commander damage bubble applies damage from that commander', asy
   expect(spy).toHaveBeenCalledWith(0, 'p1', 1);
 });
 
+test('tapping a zone header focuses that zone, tapping again releases it', async () => {
+  const { container } = render(<GameScreen />);
+  const { default: userEvent } = await import('@testing-library/user-event');
+  const user = userEvent.setup();
+
+  const header = container.querySelector('.zone.seat-1 .zone-header') as HTMLElement;
+  await user.click(header);
+  expect(container.querySelector('.game-screen')!.className).toContain('focus-mode');
+  expect(container.querySelector('.zone.seat-1')!.className).toContain('zone--focused');
+  expect(container.querySelector('.zone.seat-0')!.className).not.toContain('zone--focused');
+
+  await user.click(header);
+  expect(container.querySelector('.game-screen')!.className).not.toContain('focus-mode');
+});
+
 test('player names render in their zones', () => {
   const { container } = render(<GameScreen />);
   const names = [...container.querySelectorAll('.zone-name')].map((el) => el.textContent);

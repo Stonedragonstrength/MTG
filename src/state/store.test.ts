@@ -152,8 +152,37 @@ describe('board actions wire through to game state', () => {
       count: 1,
       counters: {},
       color: null,
+      zone: 'board',
     });
     store.getState().changeCount(0, 'item-1', 4);
     expect(store.getState().game?.players[0].board[0].count).toBe(5);
+  });
+});
+
+describe('save migration', () => {
+  test('board items saved before the lands feature restore into the board zone', async () => {
+    const game = createGame(config);
+    const legacyItem = {
+      id: 'old-1',
+      cardId: null,
+      name: 'Treasure',
+      imageNormal: null,
+      imageArtCrop: null,
+      typeLine: 'Token Artifact — Treasure',
+      oracleText: '',
+      basePower: null,
+      baseToughness: null,
+      count: 2,
+      counters: {},
+      color: null,
+      // no zone field — saved by an older version
+    };
+    await kvSet('activeGame', {
+      ...game,
+      players: [{ ...game.players[0], board: [legacyItem] }, game.players[1]],
+    });
+    const store = createAppStore();
+    await store.getState().init();
+    expect(store.getState().game?.players[0].board[0].zone).toBe('board');
   });
 });

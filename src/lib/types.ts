@@ -27,6 +27,7 @@ export interface BoardItem {
   count: number;
   counters: Record<string, number>; // key 'p1p1' = +1/+1 counters
   color: string | null; // custom tokens only
+  zone: 'board' | 'lands';
 }
 
 export interface PlayerState {
