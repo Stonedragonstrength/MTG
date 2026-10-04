@@ -1371,3 +1371,34 @@ input[type='checkbox'] {
     right: 10px;
   }
 }
+
+/* Tablet-width screens render battlefield tokens ~20% larger per tier. */
+@media (min-width: 700px) {
+  .zone--focused .board-strip--sm .thumb,
+  .zone--focused .board-strip--sm .add-tile:not(.add-tile--centered) {
+    width: 70px;
+    height: 98px;
+  }
+
+  .zone--focused .board-strip--md .thumb,
+  .zone--focused .board-strip--md .add-tile:not(.add-tile--centered) {
+    width: 102px;
+    height: 142px;
+  }
+
+  .zone--focused .board-strip--lg .thumb,
+  .zone--focused .board-strip--lg .add-tile:not(.add-tile--centered) {
+    width: 140px;
+    height: 196px;
+    border-radius: 10px;
+  }
+
+  .zone--focused .add-tile--centered {
+    width: 90px;
+    height: 124px;
+  }
+
+  .zone--focused .board-strip--lg .pt-badge {
+    font-size: 1.05rem;
+  }
+}
