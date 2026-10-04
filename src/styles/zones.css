@@ -1312,3 +1312,41 @@ input[type='checkbox'] {
     white-space: nowrap;
   }
 }
+
+/* ---- portrait: breathing room in a narrow screen ---- */
+@media (orientation: portrait) {
+  /* The focused header wraps: identity/COM/life on top, hub on its own line. */
+  .zone--focused .zone-header {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+
+  .header-hub {
+    order: 10;
+    flex-basis: 100%;
+    justify-content: center;
+  }
+
+  .header-hub .hub-main {
+    gap: 14px;
+  }
+
+  /* Collapsed players: identity line first, tokens + lands get the second
+     line to themselves with guaranteed room. */
+  .focus-mode .zone:not(.zone--focused) .board-strip {
+    min-width: 58vw;
+  }
+
+  .focus-mode .zone:not(.zone--focused) .thumb {
+    width: 36px;
+    height: 50px;
+  }
+
+  .zone {
+    padding: 6px;
+  }
+
+  .zone-chips .player-chip {
+    padding: 2px 6px;
+  }
+}
