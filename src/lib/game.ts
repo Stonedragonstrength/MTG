@@ -1,6 +1,6 @@
 import type { GameConfig, GameState, PlayerState } from './types';
 
-export function createGame(config: GameConfig): GameState {
+export function createGame(config: GameConfig, now = Date.now()): GameState {
   return {
     config,
     players: config.profiles.map((profile) => ({
@@ -9,16 +9,24 @@ export function createGame(config: GameConfig): GameState {
       commanderDamage: {},
       eliminated: false,
       board: [],
+      counters: {},
+      commanderDeaths: 0,
     })),
     activePlayerIndex: 0,
     turnNumber: 1,
+    monarchIdx: null,
+    initiativeIdx: null,
+    turnStartedAt: now,
   };
 }
+
+const LETHAL_POISON = 10;
 
 function withElimination(player: PlayerState, threshold: number): PlayerState {
   if (player.eliminated) return player; // sticky
   const byCommander = Object.values(player.commanderDamage).some((d) => d >= threshold);
-  return player.life <= 0 || byCommander ? { ...player, eliminated: true } : player;
+  const byPoison = (player.counters['poison'] ?? 0) >= LETHAL_POISON;
+  return player.life <= 0 || byCommander || byPoison ? { ...player, eliminated: true } : player;
 }
 
 function updatePlayer(
@@ -56,7 +64,33 @@ export function applyCommanderDamage(
   });
 }
 
-export function passTurn(s: GameState): GameState {
+export function setPlayerCounter(
+  s: GameState,
+  playerIdx: number,
+  counterName: string,
+  value: number,
+): GameState {
+  return updatePlayer(s, playerIdx, (p) => {
+    const counters = { ...p.counters };
+    if (value <= 0) delete counters[counterName];
+    else counters[counterName] = value;
+    return { ...p, counters };
+  });
+}
+
+export function setCommanderDeaths(s: GameState, playerIdx: number, deaths: number): GameState {
+  return updatePlayer(s, playerIdx, (p) => ({ ...p, commanderDeaths: Math.max(0, deaths) }));
+}
+
+export function claimMonarch(s: GameState, playerIdx: number): GameState {
+  return { ...s, monarchIdx: s.monarchIdx === playerIdx ? null : playerIdx };
+}
+
+export function claimInitiative(s: GameState, playerIdx: number): GameState {
+  return { ...s, initiativeIdx: s.initiativeIdx === playerIdx ? null : playerIdx };
+}
+
+export function passTurn(s: GameState, now = Date.now()): GameState {
   const n = s.players.length;
   for (let step = 1; step <= n; step++) {
     const idx = (s.activePlayerIndex + step) % n;
@@ -66,6 +100,7 @@ export function passTurn(s: GameState): GameState {
         ...s,
         activePlayerIndex: idx,
         turnNumber: wrapped ? s.turnNumber + 1 : s.turnNumber,
+        turnStartedAt: now,
       };
     }
   }

@@ -715,3 +715,173 @@ input[type='range'] {
   width: 150px;
   accent-color: var(--accent);
 }
+
+/* ---- player chips & badges ---- */
+.zone-chips {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.player-chip {
+  background: #1d1d24;
+  border: 1px solid #33333d;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.chip-poison {
+  border-color: #6aa877;
+  color: #8fd4a0;
+}
+
+.player-more {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  line-height: 1.2;
+}
+
+.badge-monarch,
+.badge-initiative {
+  font-size: 0.95rem;
+}
+
+.mana-pip--mini {
+  min-width: 10px;
+  width: 10px;
+  height: 10px;
+  padding: 0;
+  display: inline-block;
+}
+
+.hint-inline {
+  opacity: 0.55;
+  font-weight: 400;
+}
+
+.badge-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ---- mana tapper ---- */
+.land-stack--partial img,
+.land-stack--partial .land-stack-name {
+  opacity: 0.75;
+}
+
+.land-stack--tapped {
+  transform: rotate(8deg);
+}
+
+.land-stack--tapped img,
+.land-stack--tapped .land-stack-name {
+  opacity: 0.4;
+  filter: grayscale(0.6);
+}
+
+.land-stack--oneshot {
+  outline: 1px dashed var(--accent);
+  outline-offset: 1px;
+}
+
+.tapped-badge {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  background: rgba(0, 0, 0, 0.8);
+  color: var(--accent);
+  border-radius: 4px;
+  padding: 0 3px;
+  font-size: 0.65rem;
+}
+
+.untap-btn {
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  margin-left: auto;
+}
+
+/* ---- hub extras ---- */
+.turn-clock {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.hub-actions button:disabled {
+  opacity: 0.35;
+}
+
+/* ---- log ---- */
+.log-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  text-align: left;
+  flex: 1;
+}
+
+.log-list li {
+  display: flex;
+  gap: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding-bottom: 4px;
+}
+
+.log-time {
+  color: #8c8c99;
+  font-size: 0.75rem;
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- combat ---- */
+.combat-parties {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: center;
+}
+
+.combat-arrow {
+  font-size: 1.3rem;
+  color: var(--accent);
+}
+
+.combat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+}
+
+.combat-total {
+  font-size: 1.05rem;
+}
+
+.blocked-toggle {
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.78rem;
+}
+
+.chip--selected {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: #332b14;
+}
+
+input[type='checkbox'] {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--accent);
+}

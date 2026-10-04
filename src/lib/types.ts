@@ -5,6 +5,7 @@ export interface PlayerProfile {
   name: string;
   avatarUrl: string | null;
   commanderName: string | null;
+  commanderColors?: string[] | null; // WUBRG identity, for zone theming
 }
 
 export interface GameConfig {
@@ -28,6 +29,7 @@ export interface BoardItem {
   counters: Record<string, number>; // key 'p1p1' = +1/+1 counters
   color: string | null; // custom tokens only
   zone: 'board' | 'lands';
+  tapped?: number; // mana sources marked used this turn (≤ count)
 }
 
 export interface PlayerState {
@@ -36,6 +38,8 @@ export interface PlayerState {
   commanderDamage: Record<string, number>; // keyed by opposing profile id
   eliminated: boolean;
   board: BoardItem[];
+  counters: Record<string, number>; // poison, energy, experience…
+  commanderDeaths: number; // tax = deaths × 2
 }
 
 export interface GameState {
@@ -43,10 +47,14 @@ export interface GameState {
   players: PlayerState[];
   activePlayerIndex: number;
   turnNumber: number;
+  monarchIdx: number | null;
+  initiativeIdx: number | null;
+  turnStartedAt: number;
 }
 
 export interface CardRecord {
   id: string;
+  colorIdentity?: string[]; // present on cards imported after this field shipped
   name: string;
   nameLower: string;
   typeLine: string;

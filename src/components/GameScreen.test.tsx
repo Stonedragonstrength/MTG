@@ -85,6 +85,14 @@ test('tapping a zone header focuses that zone, tapping again releases it', async
   expect(container.querySelector('.game-screen')!.className).not.toContain('focus-mode');
 });
 
+test('the monarch wears the crown in their zone', () => {
+  const game = useAppStore.getState().game!;
+  useAppStore.setState({ game: { ...game, monarchIdx: 2 } });
+  const { container } = render(<GameScreen />);
+  expect(container.querySelector('.zone.seat-2 .badge-monarch')).not.toBeNull();
+  expect(container.querySelector('.zone.seat-0 .badge-monarch')).toBeNull();
+});
+
 test('player names render in their zones', () => {
   const { container } = render(<GameScreen />);
   const names = [...container.querySelectorAll('.zone-name')].map((el) => el.textContent);

@@ -27,6 +27,7 @@ export function slimCard(raw: Raw): CardRecord | null {
 
   return {
     id: str(raw.id) ?? name,
+    colorIdentity: (raw.color_identity as string[] | undefined) ?? [],
     name,
     nameLower: name.toLowerCase(),
     typeLine,

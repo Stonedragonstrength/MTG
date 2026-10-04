@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { BoardItem } from './types';
-import { landSummary, manaColors } from './mana';
+import { isOneShotSource, landSummary, manaColors } from './mana';
 
 function land(name: string, oracleText: string, count = 1): BoardItem {
   return {
@@ -45,6 +45,24 @@ describe('manaColors', () => {
 
   test('double production counts once per color', () => {
     expect(manaColors(land('Cabal Coffers', '{2}, {T}: Add {B} for each Swamp you control.'))).toEqual(['B']);
+  });
+});
+
+describe('isOneShotSource', () => {
+  test('sacrifice-for-mana cards are one-shot', () => {
+    expect(
+      isOneShotSource(
+        land('Treasure', '{T}, Sacrifice this artifact: Add one mana of any color.'),
+      ),
+    ).toBe(true);
+    expect(
+      isOneShotSource(land('Lotus Petal', '{T}, Sacrifice Lotus Petal: Add one mana of any color.')),
+    ).toBe(true);
+  });
+
+  test('ordinary lands are not', () => {
+    expect(isOneShotSource(land('Forest', '({T}: Add {G}.)'))).toBe(false);
+    expect(isOneShotSource(land('Command Tower', '{T}: Add one mana of any color.'))).toBe(false);
   });
 });
 

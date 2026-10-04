@@ -58,9 +58,38 @@ test('ending the game requires an inline confirmation', async () => {
 
 test('hub actions carry visible labels', () => {
   render(<CenterHub />);
-  for (const label of ['Dice', 'Rules', 'Settings', 'End']) {
+  for (const label of ['Dice', 'Rules', 'Settings', 'End', 'Undo', 'Log', 'Combat']) {
     expect(screen.getByText(label)).toBeInTheDocument();
   }
+});
+
+test('undo button delegates to the store and disables without history', async () => {
+  const undo = vi.fn();
+  useAppStore.setState({ undo, canUndo: () => true });
+  const user = userEvent.setup();
+  render(<CenterHub />);
+  await user.click(screen.getByRole('button', { name: /undo/i }));
+  expect(undo).toHaveBeenCalled();
+});
+
+test('the turn clock shows when enabled and hides when off', () => {
+  const settings = useAppStore.getState().settings;
+  useAppStore.setState({ settings: { ...settings, turnTimerOn: true } });
+  const { unmount } = render(<CenterHub />);
+  expect(screen.getByTestId('turn-clock').textContent).toMatch(/\d+:\d\d/);
+  unmount();
+
+  useAppStore.setState({ settings: { ...settings, turnTimerOn: false } });
+  render(<CenterHub />);
+  expect(screen.queryByTestId('turn-clock')).not.toBeInTheDocument();
+});
+
+test('the log sheet shows game history', async () => {
+  useAppStore.setState({ log: [{ t: Date.now(), text: 'Nate: life 40 → 38' }] });
+  const user = userEvent.setup();
+  render(<CenterHub />);
+  await user.click(screen.getByRole('button', { name: /log/i }));
+  expect(await screen.findByText(/life 40 → 38/)).toBeInTheDocument();
 });
 
 test('dice roller produces a result in range', async () => {

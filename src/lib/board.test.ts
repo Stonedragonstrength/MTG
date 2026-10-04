@@ -10,6 +10,8 @@ import {
   removeItem,
   setCounter,
   splitItem,
+  tapItem,
+  untapAll,
 } from './board';
 
 const soldier: CardRecord = {
@@ -148,6 +150,41 @@ describe('counters and computed P/T', () => {
 
   test('computedPT is null for items without base P/T', () => {
     expect(computedPT(createBoardItem(clue))).toBeNull();
+  });
+});
+
+describe('mana tapping', () => {
+  function withLands(count: number): { g: GameState; id: string } {
+    let g = freshGame();
+    const item = { ...createBoardItem(soldier), zone: 'lands' as const };
+    g = addItem(g, 0, item);
+    g = changeCount(g, 0, item.id, count - 1);
+    return { g, id: item.id };
+  }
+
+  test('tapping marks sources used, clamped to the stack size', () => {
+    let { g, id } = withLands(3);
+    g = tapItem(g, 0, id, 1);
+    g = tapItem(g, 0, id, 1);
+    expect(g.players[0].board[0].tapped).toBe(2);
+    g = tapItem(g, 0, id, 5);
+    expect(g.players[0].board[0].tapped).toBe(3);
+    g = tapItem(g, 0, id, -10);
+    expect(g.players[0].board[0].tapped).toBe(0);
+  });
+
+  test('untapAll readies every land of that player', () => {
+    let { g, id } = withLands(4);
+    g = tapItem(g, 0, id, 3);
+    g = untapAll(g, 0);
+    expect(g.players[0].board[0].tapped).toBe(0);
+  });
+
+  test('shrinking a stack clamps its tapped count', () => {
+    let { g, id } = withLands(3);
+    g = tapItem(g, 0, id, 3);
+    g = changeCount(g, 0, id, -2);
+    expect(g.players[0].board[0].tapped).toBe(1);
   });
 });
 

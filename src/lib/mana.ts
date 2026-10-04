@@ -20,6 +20,12 @@ export function manaColors(item: BoardItem): (ManaColor | 'any')[] {
   return produced;
 }
 
+/** Treasure-style sources: sacrificing is part of the mana ability, so
+ * "tapping" one in the app spends it instead of marking it tapped. */
+export function isOneShotSource(item: BoardItem): boolean {
+  return /sacrifice[^.:]*:[^.]*add/i.test(item.oracleText);
+}
+
 export interface LandSummary {
   total: number;
   colors: Record<ManaColor, number>;

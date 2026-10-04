@@ -105,3 +105,41 @@ test('land stacks render with their counts', () => {
   render(<LandsRow playerIdx={0} />);
   expect(screen.getByText('×5')).toBeInTheDocument();
 });
+
+test('tapping a land stack marks one source used', async () => {
+  const tapItem = vi.fn();
+  const game = createGame(config);
+  game.players[0] = { ...game.players[0], board: [landItem('Forest', '({T}: Add {G}.)', 5)] };
+  useAppStore.setState({ game, tapItem });
+  const user = userEvent.setup();
+  render(<LandsRow playerIdx={0} />);
+  await user.click(screen.getByRole('button', { name: 'Forest' }));
+  expect(tapItem).toHaveBeenCalledWith(0, 'land-Forest', 1);
+});
+
+test('tapping a one-shot source spends it instead', async () => {
+  const changeCount = vi.fn();
+  const game = createGame(config);
+  game.players[0] = {
+    ...game.players[0],
+    board: [landItem('Treasure', '{T}, Sacrifice this artifact: Add one mana of any color.', 3)],
+  };
+  useAppStore.setState({ game, changeCount });
+  const user = userEvent.setup();
+  render(<LandsRow playerIdx={0} />);
+  await user.click(screen.getByRole('button', { name: 'Treasure' }));
+  expect(changeCount).toHaveBeenCalledWith(0, 'land-Treasure', -1);
+});
+
+test('untap all readies the row', async () => {
+  const untapAll = vi.fn();
+  const game = createGame(config);
+  const tapped = { ...landItem('Forest', '({T}: Add {G}.)', 5), tapped: 3 };
+  game.players[0] = { ...game.players[0], board: [tapped] };
+  useAppStore.setState({ game, untapAll });
+  const user = userEvent.setup();
+  render(<LandsRow playerIdx={0} />);
+  expect(screen.getByLabelText(/forest, 3 of 5 tapped/i)).toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: /untap all/i }));
+  expect(untapAll).toHaveBeenCalledWith(0);
+});

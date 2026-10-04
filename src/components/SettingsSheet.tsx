@@ -123,6 +123,32 @@ export default function SettingsSheet({ onClose }: Props) {
 
       <div className="settings-row">
         <div className="settings-row-text">
+          <span>Sound & haptics</span>
+          <small>Soft ticks and chimes on changes</small>
+        </div>
+        <input
+          type="checkbox"
+          aria-label="sound"
+          checked={settings.soundOn}
+          onChange={(e) => updateSettings({ ...settings, soundOn: e.target.checked })}
+        />
+      </div>
+
+      <div className="settings-row">
+        <div className="settings-row-text">
+          <span>Turn timer</span>
+          <small>Shows how long the current turn is taking</small>
+        </div>
+        <input
+          type="checkbox"
+          aria-label="turn timer"
+          checked={settings.turnTimerOn}
+          onChange={(e) => updateSettings({ ...settings, turnTimerOn: e.target.checked })}
+        />
+      </div>
+
+      <div className="settings-row">
+        <div className="settings-row-text">
           <span>Card database</span>
           <small>{refreshMsg || 'Re-download when new sets come out (needs wifi)'}</small>
         </div>

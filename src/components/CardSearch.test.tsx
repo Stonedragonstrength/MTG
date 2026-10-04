@@ -98,3 +98,14 @@ test('offers a custom token form', async () => {
   expect(added[0].item.basePower).toBe(3);
   expect(added[0].item.cardId).toBeNull();
 });
+
+test('custom tokens can carry evergreen keywords', async () => {
+  const user = userEvent.setup();
+  render(<CardSearch playerIdx={0} onClose={() => {}} />);
+  await user.click(screen.getByRole('button', { name: /custom token/i }));
+  await user.type(screen.getByLabelText(/name/i), 'Dragon');
+  await user.click(screen.getByRole('button', { name: /^Flying$/ }));
+  await user.click(screen.getByRole('button', { name: /^Trample$/ }));
+  await user.click(screen.getByRole('button', { name: /create/i }));
+  expect(added[0].item.oracleText).toBe('Flying, Trample');
+});

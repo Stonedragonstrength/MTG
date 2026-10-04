@@ -14,6 +14,8 @@ export interface Settings {
   backgroundIntensity: number; // 10–100, % brightness of the art
   cycleSeconds: number; // 0 = art changes on turn pass; otherwise a timed loop
   fadeSeconds: number; // crossfade duration
+  soundOn: boolean;
+  turnTimerOn: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -21,6 +23,8 @@ export const DEFAULT_SETTINGS: Settings = {
   backgroundIntensity: 35,
   cycleSeconds: 0,
   fadeSeconds: 2,
+  soundOn: false,
+  turnTimerOn: true,
 };
 
 export async function getSettings(): Promise<Settings> {

@@ -33,6 +33,7 @@ export function createCustomToken(
   power: number | null,
   toughness: number | null,
   color: string,
+  keywords: string[] = [],
 ): BoardItem {
   return {
     id: newId(),
@@ -41,7 +42,7 @@ export function createCustomToken(
     imageNormal: null,
     imageArtCrop: null,
     typeLine: 'Custom Token',
-    oracleText: '',
+    oracleText: keywords.join(', '),
     basePower: power,
     baseToughness: toughness,
     count: 1,
@@ -78,8 +79,34 @@ export function changeCount(
 ): GameState {
   return updateBoard(s, playerIdx, (board) =>
     board
-      .map((it) => (it.id === itemId ? { ...it, count: Math.max(0, it.count + delta) } : it))
+      .map((it) => {
+        if (it.id !== itemId) return it;
+        const count = Math.max(0, it.count + delta);
+        return { ...it, count, tapped: Math.min(it.tapped ?? 0, count) };
+      })
       .filter((it) => it.count > 0),
+  );
+}
+
+export function tapItem(
+  s: GameState,
+  playerIdx: number,
+  itemId: string,
+  delta: number,
+): GameState {
+  return updateBoard(s, playerIdx, (board) =>
+    board.map((it) =>
+      it.id === itemId
+        ? { ...it, tapped: Math.min(it.count, Math.max(0, (it.tapped ?? 0) + delta)) }
+        : it,
+    ),
+  );
+}
+
+/** The untap step: readies every mana source in that player's lands row. */
+export function untapAll(s: GameState, playerIdx: number): GameState {
+  return updateBoard(s, playerIdx, (board) =>
+    board.map((it) => (it.zone === 'lands' && it.tapped ? { ...it, tapped: 0 } : it)),
   );
 }
 

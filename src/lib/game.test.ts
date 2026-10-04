@@ -1,6 +1,15 @@
 import { describe, expect, test } from 'vitest';
 import type { GameConfig, GameState } from './types';
-import { adjustLife, applyCommanderDamage, createGame, passTurn } from './game';
+import {
+  adjustLife,
+  applyCommanderDamage,
+  claimInitiative,
+  claimMonarch,
+  createGame,
+  passTurn,
+  setCommanderDeaths,
+  setPlayerCounter,
+} from './game';
 
 function commanderConfig(playerCount = 4): GameConfig {
   return {
@@ -25,9 +34,14 @@ describe('createGame', () => {
       expect(p.commanderDamage).toEqual({});
       expect(p.eliminated).toBe(false);
       expect(p.board).toEqual([]);
+      expect(p.counters).toEqual({});
+      expect(p.commanderDeaths).toBe(0);
     }
     expect(game.activePlayerIndex).toBe(0);
     expect(game.turnNumber).toBe(1);
+    expect(game.monarchIdx).toBeNull();
+    expect(game.initiativeIdx).toBeNull();
+    expect(typeof game.turnStartedAt).toBe('number');
   });
 });
 
@@ -87,12 +101,73 @@ describe('applyCommanderDamage', () => {
   });
 });
 
+describe('player counters (poison, energy, experience)', () => {
+  test('counters set and clamp at zero', () => {
+    let game = createGame(commanderConfig());
+    game = setPlayerCounter(game, 0, 'energy', 3);
+    game = setPlayerCounter(game, 0, 'energy', -2);
+    expect(game.players[0].counters).toEqual({});
+    game = setPlayerCounter(game, 0, 'experience', 2);
+    expect(game.players[0].counters.experience).toBe(2);
+  });
+
+  test('ten poison eliminates; nine does not', () => {
+    let game = createGame(commanderConfig());
+    game = setPlayerCounter(game, 1, 'poison', 9);
+    expect(game.players[1].eliminated).toBe(false);
+    game = setPlayerCounter(game, 1, 'poison', 10);
+    expect(game.players[1].eliminated).toBe(true);
+  });
+
+  test('energy at any amount never eliminates', () => {
+    let game = createGame(commanderConfig());
+    game = setPlayerCounter(game, 1, 'energy', 25);
+    expect(game.players[1].eliminated).toBe(false);
+  });
+});
+
+describe('commander deaths (tax)', () => {
+  test('tracks deaths and clamps at zero', () => {
+    let game = createGame(commanderConfig());
+    game = setCommanderDeaths(game, 2, 2);
+    expect(game.players[2].commanderDeaths).toBe(2);
+    game = setCommanderDeaths(game, 2, -1);
+    expect(game.players[2].commanderDeaths).toBe(0);
+  });
+});
+
+describe('monarch and initiative', () => {
+  test('claiming moves the badge between players', () => {
+    let game = createGame(commanderConfig());
+    game = claimMonarch(game, 1);
+    expect(game.monarchIdx).toBe(1);
+    game = claimMonarch(game, 3);
+    expect(game.monarchIdx).toBe(3);
+    game = claimInitiative(game, 0);
+    expect(game.initiativeIdx).toBe(0);
+    expect(game.monarchIdx).toBe(3);
+  });
+
+  test('claiming again releases the badge', () => {
+    let game = createGame(commanderConfig());
+    game = claimMonarch(game, 1);
+    game = claimMonarch(game, 1);
+    expect(game.monarchIdx).toBeNull();
+  });
+});
+
 describe('passTurn', () => {
   test('advances to the next seat', () => {
     let game = createGame(commanderConfig());
     game = passTurn(game);
     expect(game.activePlayerIndex).toBe(1);
     expect(game.turnNumber).toBe(1);
+  });
+
+  test('stamps the turn start time', () => {
+    let game = createGame(commanderConfig());
+    game = passTurn(game, 123456);
+    expect(game.turnStartedAt).toBe(123456);
   });
 
   test('wrapping past seat 0 increments the turn number', () => {

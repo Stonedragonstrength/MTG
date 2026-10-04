@@ -3,22 +3,37 @@ import { getDb, kvDelete, kvGet, kvSet } from '../data/db';
 import { DEFAULT_SETTINGS, getSettings, saveSettings, type Settings } from '../data/settings';
 import * as boardLib from '../lib/board';
 import * as gameLib from '../lib/game';
+import { playDefeat, playLifeTick, playTurnChime } from '../lib/sound';
 import type { BoardItem, GameConfig, GameState, PlayerProfile } from '../lib/types';
+
+export interface LogEntry {
+  t: number;
+  text: string;
+}
 
 export interface AppStore {
   setupDone: boolean;
   game: GameState | null;
   profiles: PlayerProfile[];
   settings: Settings;
+  log: LogEntry[];
   updateSettings(settings: Settings): void;
   init(): Promise<void>;
   completeSetup(): void;
   startGame(config: GameConfig): void;
   endGame(): void;
+  undo(): void;
+  canUndo(): boolean;
   adjustLife(playerIdx: number, delta: number): void;
   applyCommanderDamage(defenderIdx: number, attackerProfileId: string, delta: number): void;
   passTurn(): void;
+  setPlayerCounter(playerIdx: number, counterName: string, value: number): void;
+  setCommanderDeaths(playerIdx: number, deaths: number): void;
+  claimMonarch(playerIdx: number): void;
+  claimInitiative(playerIdx: number): void;
   addItem(playerIdx: number, item: BoardItem): void;
+  tapItem(playerIdx: number, itemId: string, delta: number): void;
+  untapAll(playerIdx: number): void;
   changeCount(playerIdx: number, itemId: string, delta: number): void;
   splitItem(playerIdx: number, itemId: string, moveCount: number): void;
   setCounter(playerIdx: number, itemId: string, counterName: string, value: number): void;
@@ -69,14 +84,59 @@ function isValidGame(v: unknown): v is GameState {
   );
 }
 
+/** Fill in fields added after a save was written. */
+function migrateGame(saved: GameState): GameState {
+  return {
+    ...saved,
+    monarchIdx: saved.monarchIdx ?? null,
+    initiativeIdx: saved.initiativeIdx ?? null,
+    turnStartedAt: saved.turnStartedAt ?? Date.now(),
+    players: saved.players.map((p) => ({
+      ...p,
+      counters: p.counters ?? {},
+      commanderDeaths: p.commanderDeaths ?? 0,
+      board: p.board.map((item) => ({ ...item, zone: item.zone ?? 'board' })),
+    })),
+  };
+}
+
+const HISTORY_CAP = 100;
+const LOG_CAP = 200;
+
 export function createAppStore() {
   return create<AppStore>()((set, get) => {
-    const mutateGame = (fn: (g: GameState) => GameState) => {
+    let history: GameState[] = [];
+
+    const playerName = (g: GameState, idx: number) => g.config.profiles[idx]?.name ?? '?';
+
+    const appendLog = (texts: string[]) => {
+      if (texts.length === 0) return;
+      const entries = texts.map((text) => ({ t: Date.now(), text }));
+      set({ log: [...get().log, ...entries].slice(-LOG_CAP) });
+    };
+
+    const mutateGame = (
+      fn: (g: GameState) => GameState,
+      describe?: (prev: GameState, next: GameState) => string | null,
+    ) => {
       const game = get().game;
       if (!game) return;
       const next = fn(game);
+      if (next === game) return;
+      history = [...history.slice(-(HISTORY_CAP - 1)), game];
       set({ game: next });
       persistGame(next);
+
+      const lines: string[] = [];
+      const described = describe?.(game, next);
+      if (described) lines.push(described);
+      next.players.forEach((p, i) => {
+        if (p.eliminated && !game.players[i].eliminated) {
+          lines.push(`${playerName(next, i)} is defeated`);
+          if (get().settings.soundOn) playDefeat();
+        }
+      });
+      appendLog(lines);
     };
 
     return {
@@ -84,6 +144,7 @@ export function createAppStore() {
       game: null,
       profiles: [],
       settings: DEFAULT_SETTINGS,
+      log: [],
 
       updateSettings(settings) {
         set({ settings });
@@ -100,16 +161,8 @@ export function createAppStore() {
         try {
           const saved = await kvGet('activeGame');
           if (saved !== undefined) {
-            if (isValidGame(saved)) {
-              // Migrate saves from before the lands feature: items default to board.
-              game = {
-                ...saved,
-                players: saved.players.map((p) => ({
-                  ...p,
-                  board: p.board.map((item) => ({ ...item, zone: item.zone ?? 'board' })),
-                })),
-              };
-            } else await kvDelete('activeGame');
+            if (isValidGame(saved)) game = migrateGame(saved);
+            else await kvDelete('activeGame');
           }
         } catch (err) {
           console.error('Failed to restore saved game', err);
@@ -124,38 +177,159 @@ export function createAppStore() {
 
       startGame(config) {
         const game = gameLib.createGame(config);
-        set({ game });
+        history = [];
+        set({ game, log: [{ t: Date.now(), text: 'Game started' }] });
         persistGame(game);
       },
 
       endGame() {
-        set({ game: null });
+        history = [];
+        set({ game: null, log: [] });
         persistGame(null);
       },
 
+      undo() {
+        const prev = history[history.length - 1];
+        if (!prev) return;
+        history = history.slice(0, -1);
+        set({ game: prev });
+        persistGame(prev);
+        appendLog(['Undo']);
+      },
+
+      canUndo() {
+        return history.length > 0;
+      },
+
       adjustLife(playerIdx, delta) {
-        mutateGame((g) => gameLib.adjustLife(g, playerIdx, delta));
+        if (get().settings.soundOn) playLifeTick();
+        mutateGame(
+          (g) => gameLib.adjustLife(g, playerIdx, delta),
+          (prev, next) =>
+            `${playerName(prev, playerIdx)}: life ${prev.players[playerIdx].life} → ${next.players[playerIdx].life}`,
+        );
       },
+
       applyCommanderDamage(defenderIdx, attackerProfileId, delta) {
-        mutateGame((g) => gameLib.applyCommanderDamage(g, defenderIdx, attackerProfileId, delta));
+        mutateGame(
+          (g) => gameLib.applyCommanderDamage(g, defenderIdx, attackerProfileId, delta),
+          (prev, next) => {
+            const attacker = prev.config.profiles.find((p) => p.id === attackerProfileId);
+            const dmg = next.players[defenderIdx].commanderDamage[attackerProfileId] ?? 0;
+            return `${playerName(prev, defenderIdx)}: ${dmg} cmdr dmg from ${attacker?.name ?? '?'} (life ${next.players[defenderIdx].life})`;
+          },
+        );
       },
+
       passTurn() {
-        mutateGame((g) => gameLib.passTurn(g));
+        if (get().settings.soundOn) playTurnChime();
+        mutateGame(
+          (g) => {
+            const next = gameLib.passTurn(g);
+            // The incoming player's untap step readies their mana.
+            return boardLib.untapAll(next, next.activePlayerIndex);
+          },
+          (_prev, next) => `Turn ${next.turnNumber}: ${playerName(next, next.activePlayerIndex)}`,
+        );
       },
+
+      tapItem(playerIdx, itemId, delta) {
+        mutateGame((g) => boardLib.tapItem(g, playerIdx, itemId, delta));
+      },
+
+      untapAll(playerIdx) {
+        mutateGame(
+          (g) => boardLib.untapAll(g, playerIdx),
+          (prev) => `${playerName(prev, playerIdx)}: untaps`,
+        );
+      },
+
+      setPlayerCounter(playerIdx, counterName, value) {
+        mutateGame(
+          (g) => gameLib.setPlayerCounter(g, playerIdx, counterName, value),
+          (prev) => `${playerName(prev, playerIdx)}: ${counterName} ${Math.max(0, value)}`,
+        );
+      },
+
+      setCommanderDeaths(playerIdx, deaths) {
+        mutateGame(
+          (g) => gameLib.setCommanderDeaths(g, playerIdx, deaths),
+          (prev) =>
+            `${playerName(prev, playerIdx)}: commander deaths ${Math.max(0, deaths)} (tax +${Math.max(0, deaths) * 2})`,
+        );
+      },
+
+      claimMonarch(playerIdx) {
+        mutateGame(
+          (g) => gameLib.claimMonarch(g, playerIdx),
+          (prev, next) =>
+            next.monarchIdx === null
+              ? 'The crown is released'
+              : `${playerName(prev, playerIdx)} takes the crown`,
+        );
+      },
+
+      claimInitiative(playerIdx) {
+        mutateGame(
+          (g) => gameLib.claimInitiative(g, playerIdx),
+          (prev, next) =>
+            next.initiativeIdx === null
+              ? 'The initiative is released'
+              : `${playerName(prev, playerIdx)} takes the initiative`,
+        );
+      },
+
       addItem(playerIdx, item) {
-        mutateGame((g) => boardLib.addItem(g, playerIdx, item));
+        mutateGame(
+          (g) => boardLib.addItem(g, playerIdx, item),
+          (prev) => `${playerName(prev, playerIdx)}: +${item.name}`,
+        );
       },
+
       changeCount(playerIdx, itemId, delta) {
-        mutateGame((g) => boardLib.changeCount(g, playerIdx, itemId, delta));
+        mutateGame(
+          (g) => boardLib.changeCount(g, playerIdx, itemId, delta),
+          (prev, next) => {
+            const before = prev.players[playerIdx].board.find((it) => it.id === itemId);
+            if (!before) return null;
+            const after = next.players[playerIdx].board.find((it) => it.id === itemId);
+            return after
+              ? `${playerName(prev, playerIdx)}: ${before.name} ×${after.count}`
+              : `${playerName(prev, playerIdx)}: ${before.name} removed`;
+          },
+        );
       },
+
       splitItem(playerIdx, itemId, moveCount) {
-        mutateGame((g) => boardLib.splitItem(g, playerIdx, itemId, moveCount));
+        mutateGame(
+          (g) => boardLib.splitItem(g, playerIdx, itemId, moveCount),
+          (prev) => {
+            const item = prev.players[playerIdx].board.find((it) => it.id === itemId);
+            return item ? `${playerName(prev, playerIdx)}: split ${item.name}` : null;
+          },
+        );
       },
+
       setCounter(playerIdx, itemId, counterName, value) {
-        mutateGame((g) => boardLib.setCounter(g, playerIdx, itemId, counterName, value));
+        mutateGame(
+          (g) => boardLib.setCounter(g, playerIdx, itemId, counterName, value),
+          (prev) => {
+            const item = prev.players[playerIdx].board.find((it) => it.id === itemId);
+            return item
+              ? `${playerName(prev, playerIdx)}: ${item.name} ${counterName} ${Math.max(0, value)}`
+              : null;
+          },
+        );
       },
+
       removeItem(playerIdx, itemId) {
-        mutateGame((g) => boardLib.removeItem(g, playerIdx, itemId));
+        mutateGame(
+          (g) => boardLib.removeItem(g, playerIdx, itemId),
+          (prev) => {
+            const item = prev.players[playerIdx].board.find((it) => it.id === itemId);
+            return item ? `${playerName(prev, playerIdx)}: ${item.name} removed` : null;
+          },
+        );
       },
 
       async saveProfile(p) {

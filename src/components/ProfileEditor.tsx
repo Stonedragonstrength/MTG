@@ -17,6 +17,9 @@ export default function ProfileEditor({ profile, onDone }: Props) {
   const [commanderName, setCommanderName] = useState<string | null>(
     profile?.commanderName ?? null,
   );
+  const [commanderColors, setCommanderColors] = useState<string[] | null>(
+    profile?.commanderColors ?? null,
+  );
   const [picking, setPicking] = useState<'avatar' | 'commander' | null>(null);
 
   async function save() {
@@ -25,6 +28,7 @@ export default function ProfileEditor({ profile, onDone }: Props) {
       name: name.trim(),
       avatarUrl,
       commanderName,
+      commanderColors,
     });
     onDone();
   }
@@ -79,7 +83,10 @@ export default function ProfileEditor({ profile, onDone }: Props) {
           title={picking === 'avatar' ? 'Pick avatar art' : 'Pick commander'}
           onPick={(card) => {
             if (picking === 'avatar') setAvatarUrl(card.imageArtCrop ?? card.imageNormal);
-            else setCommanderName(card.name);
+            else {
+              setCommanderName(card.name);
+              setCommanderColors(card.colorIdentity ?? card.colors);
+            }
             setPicking(null);
           }}
           onClose={() => setPicking(null)}
