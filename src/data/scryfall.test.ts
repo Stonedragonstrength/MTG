@@ -1,3 +1,4 @@
+import { gzipSync } from 'node:zlib';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { getDb } from './db';
 import { getCardById, importBulkData, loadNameIndex, slimCard } from './scryfall';
@@ -121,18 +122,28 @@ describe('importBulkData', () => {
     vi.unstubAllGlobals();
   });
 
+  // Mirrors Scryfall's current bulk-data API: entries expose a gzipped
+  // JSON-Lines file via jsonl_download_uri (download_uri no longer exists).
   function stubScryfall(payload: unknown[]) {
+    const jsonl = payload.map((c) => JSON.stringify(c)).join('\n') + '\n';
+    const gz = gzipSync(Buffer.from(jsonl));
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string | URL) => {
         if (String(url).includes('bulk-data')) {
           return new Response(
             JSON.stringify({
-              data: [{ type: 'oracle_cards', download_uri: 'https://data.example/oracle.json' }],
+              data: [
+                {
+                  type: 'oracle_cards',
+                  jsonl_download_uri: 'https://data.example/oracle.jsonl.gz',
+                  compressed_size: gz.byteLength,
+                },
+              ],
             }),
           );
         }
-        return new Response(JSON.stringify(payload));
+        return new Response(gz, { headers: { 'content-type': 'application/gzip' } });
       }),
     );
   }

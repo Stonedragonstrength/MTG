@@ -42,40 +42,121 @@ export function slimCard(raw: Raw): CardRecord | null {
   };
 }
 
+interface BulkEntry {
+  type?: unknown;
+  jsonl_download_uri?: unknown;
+  download_uri?: unknown;
+  compressed_size?: unknown;
+}
+
 export async function importBulkData(
   onProgress: (pct: number, msg: string) => void,
 ): Promise<number> {
   onProgress(0, 'Contacting Scryfall…');
   const indexResp = await fetch(BULK_INDEX_URL, { headers: { Accept: 'application/json' } });
   if (!indexResp.ok) throw new Error(`Scryfall bulk index failed: ${indexResp.status}`);
-  const index = (await indexResp.json()) as { data: { type: string; download_uri: string }[] };
+  const index = (await indexResp.json()) as { data: BulkEntry[] };
   const oracle = index.data.find((d) => d.type === 'oracle_cards');
   if (!oracle) throw new Error('oracle_cards bulk entry not found');
 
-  onProgress(5, 'Downloading card database (~150MB)…');
-  const dataResp = await fetch(oracle.download_uri);
-  if (!dataResp.ok) throw new Error(`Card download failed: ${dataResp.status}`);
-  const rawCards = (await dataResp.json()) as Raw[];
-
-  onProgress(40, 'Processing cards…');
-  const records: CardRecord[] = [];
-  for (const raw of rawCards) {
-    const card = slimCard(raw);
-    if (card) records.push(card);
-  }
-
   const db = getDb();
   await db.cards.clear();
-  for (let i = 0; i < records.length; i += CHUNK_SIZE) {
-    await db.cards.bulkPut(records.slice(i, i + CHUNK_SIZE));
-    const pct = 40 + Math.min(59, Math.round(((i + CHUNK_SIZE) / records.length) * 60));
-    onProgress(pct, `Storing cards… ${Math.min(i + CHUNK_SIZE, records.length)} / ${records.length}`);
+
+  const names: { id: string; name: string }[] = [];
+  let imported = 0;
+  let batch: CardRecord[] = [];
+
+  const flush = async () => {
+    if (batch.length === 0) return;
+    await db.cards.bulkPut(batch);
+    imported += batch.length;
+    batch = [];
+    onProgress(Math.min(99, 80), `Storing cards… ${imported}`);
+    // Yield a macrotask so the UI can paint progress between batches.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  };
+
+  const addRaw = (raw: Raw) => {
+    const card = slimCard(raw);
+    if (card) {
+      batch.push(card);
+      names.push({ id: card.id, name: card.name });
+    }
+  };
+
+  if (typeof oracle.jsonl_download_uri === 'string') {
+    // Current API: gzipped JSON Lines, streamed and parsed line by line
+    // (~25MB over the wire, no giant JSON.parse blocking the UI).
+    onProgress(5, 'Downloading card database…');
+    const resp = await fetch(oracle.jsonl_download_uri);
+    if (!resp.ok || !resp.body) throw new Error(`Card download failed: ${resp.status}`);
+
+    const total = typeof oracle.compressed_size === 'number' ? oracle.compressed_size : 0;
+    let received = 0;
+    const netReader = resp.body.getReader();
+    const counted = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        const { value, done } = await netReader.read();
+        if (done) {
+          controller.close();
+          return;
+        }
+        received += value.byteLength;
+        if (total > 0) {
+          const pct = 5 + Math.min(70, Math.round((received / total) * 70));
+          onProgress(pct, 'Downloading card database…');
+        }
+        controller.enqueue(value);
+      },
+      cancel(reason) {
+        return netReader.cancel(reason);
+      },
+    });
+
+    const lines = counted
+      .pipeThrough(new DecompressionStream('gzip'))
+      .pipeThrough(new TextDecoderStream())
+      .getReader();
+
+    let buffer = '';
+    for (;;) {
+      const { value, done } = await lines.read();
+      if (value !== undefined) buffer += value;
+      // Scan with a cursor and slice the remainder once per chunk —
+      // re-slicing the buffer per line is quadratic on big chunks.
+      let start = 0;
+      let nl: number;
+      while ((nl = buffer.indexOf('\n', start)) !== -1) {
+        const line = buffer.slice(start, nl).trim();
+        start = nl + 1;
+        if (line) addRaw(JSON.parse(line) as Raw);
+        if (batch.length >= CHUNK_SIZE) await flush();
+      }
+      buffer = start > 0 ? buffer.slice(start) : buffer;
+      if (done) break;
+    }
+    const tail = buffer.trim();
+    if (tail) addRaw(JSON.parse(tail) as Raw);
+  } else if (typeof oracle.download_uri === 'string') {
+    // Legacy API: one large JSON array.
+    onProgress(5, 'Downloading card database…');
+    const resp = await fetch(oracle.download_uri);
+    if (!resp.ok) throw new Error(`Card download failed: ${resp.status}`);
+    const rawCards = (await resp.json()) as Raw[];
+    onProgress(75, 'Processing cards…');
+    for (const raw of rawCards) {
+      addRaw(raw);
+      if (batch.length >= CHUNK_SIZE) await flush();
+    }
+  } else {
+    throw new Error('No usable bulk download URI in Scryfall response');
   }
 
-  await kvSet('nameIndex', records.map((r) => ({ id: r.id, name: r.name })));
+  await flush();
+  await kvSet('nameIndex', names);
   await kvSet('cardsImportedAt', Date.now());
   onProgress(100, 'Done');
-  return records.length;
+  return imported;
 }
 
 export async function getCardById(id: string): Promise<CardRecord | undefined> {
