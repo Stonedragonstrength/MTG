@@ -1,0 +1,167 @@
+.game-screen {
+  position: relative;
+  height: 100vh;
+  height: 100dvh;
+  display: grid;
+  gap: 6px;
+  padding: 6px;
+}
+
+/* Seat layouts: seat order runs clockwise from the bottom edge.
+   Far-side seats rotate 180° so they read right-side up for their player. */
+.players-2 {
+  grid-template-rows: 1fr 1fr;
+  grid-template-areas:
+    'seat1'
+    'seat0';
+}
+
+.players-3 {
+  grid-template-rows: 1fr 1fr;
+  grid-template-columns: 1fr 1fr;
+  grid-template-areas:
+    'seat2 seat1'
+    'seat0 seat0';
+}
+
+.players-4 {
+  grid-template-rows: 1fr 1fr;
+  grid-template-columns: 1fr 1fr;
+  grid-template-areas:
+    'seat3 seat2'
+    'seat0 seat1';
+}
+
+.seat-0 { grid-area: seat0; }
+.seat-1 { grid-area: seat1; }
+.seat-2 { grid-area: seat2; }
+.seat-3 { grid-area: seat3; }
+
+.players-2 .seat-1,
+.players-3 .seat-1,
+.players-3 .seat-2,
+.players-4 .seat-2,
+.players-4 .seat-3 {
+  transform: rotate(180deg);
+}
+
+.zone {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  border: 2px solid #33333d;
+  border-radius: 14px;
+  padding: 8px;
+  background: rgba(16, 16, 20, 0.72);
+  overflow: hidden;
+  min-height: 0;
+}
+
+.zone--active {
+  border-color: var(--accent);
+  animation: zone-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes zone-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(200, 168, 75, 0.35); }
+  50% { box-shadow: 0 0 18px 2px rgba(200, 168, 75, 0.55); }
+}
+
+.zone--dead {
+  filter: grayscale(0.9) brightness(0.55);
+}
+
+.dead-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.4rem;
+  letter-spacing: 0.3em;
+  color: #c0392b;
+  background: rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+.zone-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.zone-name {
+  font-weight: 600;
+}
+
+.avatar--small {
+  width: 34px;
+  height: 34px;
+}
+
+.life-counter {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  border-radius: 12px;
+  transition: background 0.3s;
+}
+
+.life-counter.flash-up { background: rgba(39, 174, 96, 0.25); }
+.life-counter.flash-down { background: rgba(192, 57, 43, 0.3); }
+
+.life-total {
+  font-size: clamp(3rem, 9vw, 5.5rem);
+  font-weight: 800;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.life-half {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 50%;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+}
+
+.life-gain { top: 0; }
+.life-lose { bottom: 0; }
+
+.life-half:active {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.cmd-strip {
+  display: flex;
+  gap: 6px;
+}
+
+.cmd-bubble {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 10px;
+  background: #1d1d24;
+  font-size: 0.8rem;
+}
+
+.cmd-value {
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+.board-strip-slot {
+  width: 100%;
+}
