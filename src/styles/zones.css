@@ -1402,3 +1402,36 @@ input[type='checkbox'] {
     font-size: 1.05rem;
   }
 }
+
+/* Tablet: lands row grows ~15% for friendlier tapping. */
+@media (min-width: 700px) {
+  .zone--focused .lands-row {
+    padding: 8px 8px 4px;
+    gap: 6px;
+  }
+
+  .zone--focused .land-stack {
+    width: 46px;
+    height: 64px;
+  }
+
+  .zone--focused .land-stack .count-badge {
+    font-size: 0.8rem;
+  }
+
+  .zone--focused .basic-add {
+    width: 40px;
+    height: 40px;
+    font-size: 1.05rem;
+  }
+
+  .zone--focused .mana-summary {
+    font-size: 0.82rem;
+  }
+
+  .zone--focused .mana-pip {
+    min-width: 23px;
+    height: 23px;
+    font-size: 0.8rem;
+  }
+}
