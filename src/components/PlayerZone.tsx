@@ -1,4 +1,5 @@
 import { useAppStore } from '../state/store';
+import BoardStrip from './BoardStrip';
 import CommanderDamage from './CommanderDamage';
 import LifeCounter from './LifeCounter';
 
@@ -36,7 +37,7 @@ export default function PlayerZone({ playerIdx }: Props) {
       </header>
       <LifeCounter life={player.life} onAdjust={(delta) => adjustLife(playerIdx, delta)} />
       {game.config.format === 'commander' && <CommanderDamage playerIdx={playerIdx} />}
-      <div className="board-strip-slot" data-player={playerIdx} />
+      <BoardStrip playerIdx={playerIdx} />
       {player.eliminated && <div className="dead-overlay">DEFEATED</div>}
     </section>
   );

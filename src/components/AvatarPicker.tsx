@@ -1,14 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { getCardById, loadNameIndex } from '../data/scryfall';
+import { getCardById } from '../data/scryfall';
 import { searchNames } from '../lib/fuzzy';
 import type { CardRecord } from '../lib/types';
-
-let namesPromise: Promise<{ id: string; name: string }[]> | null = null;
-
-export function getNameIndexCached() {
-  namesPromise ??= loadNameIndex();
-  return namesPromise;
-}
+import { getNameIndex } from './nameIndexCache';
 
 interface Props {
   title: string;
@@ -23,7 +17,7 @@ export default function AvatarPicker({ title, onPick, onClose }: Props) {
   const names = useRef<{ id: string; name: string }[]>([]);
 
   useEffect(() => {
-    getNameIndexCached().then((idx) => {
+    getNameIndex().then((idx) => {
       names.current = idx;
     });
   }, []);
