@@ -63,6 +63,7 @@ export default function BoardStrip({ playerIdx }: Props) {
                 </span>
               )}
             </button>
+            <span className="thumb-name">{item.name}</span>
             <div className="count-controls">
               <button
                 aria-label={`remove one ${item.name}`}
