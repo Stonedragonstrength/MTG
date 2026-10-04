@@ -1,4 +1,5 @@
 import { useAppStore } from '../state/store';
+import CenterHub from './CenterHub';
 import PlayerZone from './PlayerZone';
 import '../styles/zones.css';
 
@@ -11,6 +12,7 @@ export default function GameScreen() {
       {game.players.map((p, i) => (
         <PlayerZone key={p.profileId} playerIdx={i} />
       ))}
+      <CenterHub />
     </div>
   );
 }
