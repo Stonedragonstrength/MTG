@@ -1350,3 +1350,24 @@ input[type='checkbox'] {
     padding: 2px 6px;
   }
 }
+
+/* The docked hub lives in the player's own zone — repeating their name is noise. */
+.header-hub .hub-active {
+  display: none;
+}
+
+@media (orientation: portrait) {
+  /* Hub line spreads across the full width instead of clumping left. */
+  .header-hub .hub-main {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  /* Dice drops to the lower right of the battlefield, clear of the hub
+     above and the land quick-adds below. */
+  .zone-dice {
+    top: auto;
+    bottom: 70px;
+    right: 10px;
+  }
+}
