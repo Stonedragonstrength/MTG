@@ -19,11 +19,17 @@ const ACCENTS: Record<string, string> = {
 
 interface Props {
   playerIdx: number;
+  edge?: string;
   focused?: boolean;
   showHub?: boolean;
 }
 
-export default function PlayerZone({ playerIdx, focused = false, showHub = false }: Props) {
+export default function PlayerZone({
+  playerIdx,
+  edge,
+  focused = false,
+  showHub = false,
+}: Props) {
   const game = useAppStore((s) => s.game);
   const adjustLife = useAppStore((s) => s.adjustLife);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -39,6 +45,7 @@ export default function PlayerZone({ playerIdx, focused = false, showHub = false
   const classes = [
     'zone',
     `seat-${playerIdx}`,
+    edge ? `edge-${edge}` : '',
     player.eliminated ? 'zone--dead' : '',
     isActive && !player.eliminated ? 'zone--active' : '',
     focused ? 'zone--focused' : '',

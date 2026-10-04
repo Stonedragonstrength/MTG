@@ -7,6 +7,13 @@ export interface PlayerProfile {
   commanderName: string | null;
   commanderColors?: string[] | null; // WUBRG identity, for zone theming
   commanderImage?: string | null; // card image for the home-screen tile
+  commanderHistory?: CommanderEntry[]; // recently used commanders, newest first
+}
+
+export interface CommanderEntry {
+  name: string;
+  image: string | null;
+  colors: string[] | null;
 }
 
 export interface GameConfig {

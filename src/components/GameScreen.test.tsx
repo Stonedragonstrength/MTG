@@ -105,6 +105,21 @@ test('every player has their own dice button beneath their life counter', async 
   expect(await screen.findByRole('button', { name: /who goes first/i })).toBeInTheDocument();
 });
 
+test('3+ players sit around the table edges (360 board)', () => {
+  const { container } = render(<GameScreen />);
+  expect(container.querySelector('.game-screen')!.className).toContain('table-360');
+  expect(container.querySelector('.zone.seat-0')!.className).toContain('edge-bottom');
+  expect(container.querySelector('.zone.seat-1')!.className).toContain('edge-right');
+  expect(container.querySelector('.zone.seat-2')!.className).toContain('edge-top');
+  expect(container.querySelector('.zone.seat-3')!.className).toContain('edge-left');
+});
+
+test('2-player games keep the simple top/bottom layout', () => {
+  useAppStore.setState({ game: createGame(config(2)) });
+  const { container } = render(<GameScreen />);
+  expect(container.querySelector('.game-screen')!.className).not.toContain('table-360');
+});
+
 test('the monarch wears the crown in their zone', () => {
   const game = useAppStore.getState().game!;
   useAppStore.setState({ game: { ...game, monarchIdx: 2 } });

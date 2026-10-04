@@ -1,8 +1,10 @@
 import { useState } from 'react';
-import type { PlayerProfile } from '../lib/types';
+import type { CommanderEntry, PlayerProfile } from '../lib/types';
 import { useAppStore } from '../state/store';
 import AvatarPicker from './AvatarPicker';
 import Sheet from './Sheet';
+
+const HISTORY_CAP = 8;
 
 interface Props {
   profile: PlayerProfile | null; // null = create new
@@ -24,8 +26,22 @@ export default function ProfileEditor({ profile, onDone }: Props) {
     profile?.commanderImage ?? null,
   );
   const [picking, setPicking] = useState<'avatar' | 'commander' | null>(null);
+  const history = profile?.commanderHistory ?? [];
+  const recentOthers = history.filter((h) => h.name !== commanderName);
+
+  function switchToCommander(entry: CommanderEntry) {
+    setCommanderName(entry.name);
+    setCommanderColors(entry.colors);
+    setCommanderImage(entry.image);
+  }
 
   async function save() {
+    const current: CommanderEntry | null = commanderName
+      ? { name: commanderName, image: commanderImage, colors: commanderColors }
+      : null;
+    const commanderHistory = current
+      ? [current, ...history.filter((h) => h.name !== current.name)].slice(0, HISTORY_CAP)
+      : history;
     await saveProfile({
       id: profile?.id ?? crypto.randomUUID(),
       name: name.trim(),
@@ -33,6 +49,7 @@ export default function ProfileEditor({ profile, onDone }: Props) {
       commanderName,
       commanderColors,
       commanderImage,
+      commanderHistory,
     });
     onDone();
   }
@@ -82,6 +99,24 @@ export default function ProfileEditor({ profile, onDone }: Props) {
         </div>
         <button onClick={() => setPicking('commander')}>Pick…</button>
       </div>
+      {recentOthers.length > 0 && (
+        <div className="chip-group">
+          <span className="chip-group-label">Recent commanders</span>
+          <div className="chip-row">
+            {recentOthers.map((entry) => (
+              <button
+                key={entry.name}
+                className="chip chip--art"
+                aria-label={`switch commander to ${entry.name}`}
+                onClick={() => switchToCommander(entry)}
+              >
+                {entry.image && <img className="chip-art" src={entry.image} alt="" loading="lazy" />}
+                <span className="chip-name">{entry.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {picking && (
         <AvatarPicker
           title={picking === 'avatar' ? 'Pick avatar art' : 'Pick commander'}

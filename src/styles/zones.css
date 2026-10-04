@@ -1753,3 +1753,86 @@ input[type='checkbox'] {
     font-size: 0.95rem;
   }
 }
+
+/* ---- the 360 board: 3-4 players sit around the tablet's edges ---- */
+.table-360 {
+  display: block;
+  position: relative;
+}
+
+.table-360 .zone {
+  position: absolute;
+  margin: 0;
+}
+
+/* Collapsed edge bars: 52px thick strips hugging each player's edge,
+   rotated to face them. Vertical bars are laid out horizontally and
+   rotated into place, so the slim-bar content works unchanged. */
+.table-360 .edge-bottom:not(.zone--focused) {
+  left: 62px;
+  right: 62px;
+  bottom: 4px;
+  height: 54px;
+  transform: none;
+}
+
+.table-360 .edge-top:not(.zone--focused) {
+  left: 62px;
+  right: 62px;
+  top: 4px;
+  height: 54px;
+  transform: rotate(180deg);
+}
+
+.table-360 .edge-left:not(.zone--focused) {
+  top: 50%;
+  left: 29px;
+  width: calc(100dvh - 128px);
+  height: 54px;
+  transform: translate(-50%, -50%) rotate(90deg);
+}
+
+.table-360 .edge-right:not(.zone--focused) {
+  top: 50%;
+  left: calc(100% - 29px);
+  width: calc(100dvh - 128px);
+  height: 54px;
+  transform: translate(-50%, -50%) rotate(-90deg);
+}
+
+/* Edge bars never wrap; they scroll sideways instead. */
+.table-360 .zone:not(.zone--focused) {
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+.table-360 .zone:not(.zone--focused) .board-strip {
+  min-width: 80px;
+}
+
+/* The focused zone fills the center, oriented toward its player's edge. */
+.table-360 .zone--focused.edge-bottom {
+  inset: 62px 62px 62px 62px;
+  transform: none;
+}
+
+.table-360 .zone--focused.edge-top {
+  inset: 62px 62px 62px 62px;
+  transform: rotate(180deg);
+}
+
+.table-360 .zone--focused.edge-left {
+  top: 50%;
+  left: 50%;
+  width: calc(100dvh - 124px);
+  height: calc(100dvw - 124px);
+  transform: translate(-50%, -50%) rotate(90deg);
+}
+
+.table-360 .zone--focused.edge-right {
+  top: 50%;
+  left: 50%;
+  width: calc(100dvh - 124px);
+  height: calc(100dvw - 124px);
+  transform: translate(-50%, -50%) rotate(-90deg);
+}
