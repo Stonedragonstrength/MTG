@@ -71,7 +71,7 @@ test('tapping a commander damage bubble applies damage from that commander', asy
 });
 
 test('player names render in their zones', () => {
-  render(<GameScreen />);
-  expect(screen.getByText('Player 0')).toBeInTheDocument();
-  expect(screen.getByText('Player 3')).toBeInTheDocument();
+  const { container } = render(<GameScreen />);
+  const names = [...container.querySelectorAll('.zone-name')].map((el) => el.textContent);
+  expect(names).toEqual(['Player 0', 'Player 1', 'Player 2', 'Player 3']);
 });
