@@ -39,14 +39,14 @@ test('renders a rotated zone per player with seat classes', () => {
 test('commander games show a damage bubble per enemy commander', () => {
   const { container } = render(<GameScreen />);
   const zone0 = container.querySelector('.zone.seat-0')!;
-  const bubbles = zone0.querySelectorAll('.cmd-bubble');
+  const bubbles = zone0.querySelectorAll('.cmd-gauge');
   expect(bubbles).toHaveLength(3);
 });
 
 test('standard games show no commander damage strip', () => {
   useAppStore.setState({ game: createGame(config(2, 'standard')) });
   const { container } = render(<GameScreen />);
-  expect(container.querySelectorAll('.cmd-bubble')).toHaveLength(0);
+  expect(container.querySelectorAll('.cmd-gauge')).toHaveLength(0);
 });
 
 test('eliminated players get the dead treatment', () => {
@@ -68,7 +68,7 @@ test('tapping a commander damage bubble applies damage from that commander', asy
   useAppStore.setState({ applyCommanderDamage: spy });
   const { container } = render(<GameScreen />);
   const zone0 = container.querySelector('.zone.seat-0')!;
-  const bubble = zone0.querySelector('.cmd-bubble') as HTMLElement;
+  const bubble = zone0.querySelector('.cmd-gauge') as HTMLElement;
   const { default: userEvent } = await import('@testing-library/user-event');
   await userEvent.setup().click(bubble);
   expect(spy).toHaveBeenCalledWith(0, 'p1', 1);

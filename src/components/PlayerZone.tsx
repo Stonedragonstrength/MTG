@@ -65,6 +65,16 @@ export default function PlayerZone({ playerIdx, focused = false, showHub = false
           ) : (
             <div className="avatar avatar--small avatar--empty" />
           )}
+          <button
+            className="player-more"
+            aria-label={`${profile.name} counters and badges`}
+            onClick={(e) => {
+              e.stopPropagation();
+              setSheetOpen(true);
+            }}
+          >
+            ☰
+          </button>
           <span className="zone-name">{profile.name}</span>
           {game.monarchIdx === playerIdx && (
             <span className="badge-monarch" title="The Monarch">
@@ -80,31 +90,24 @@ export default function PlayerZone({ playerIdx, focused = false, showHub = false
             <span key={c} className={`mana-pip mana-pip--mini mana-${c as ManaColor}`} />
           ))}
         </span>
-        <span className="zone-chips" onClick={(e) => e.stopPropagation()}>
-          {chips.map((chip) => (
-            <span key={chip.key} className={`player-chip ${chip.className ?? ''}`}>
-              {chip.label}
-            </span>
-          ))}
-          <button
-            className="player-more"
-            aria-label={`${profile.name} counters and badges`}
-            onClick={() => setSheetOpen(true)}
-          >
-            ☰
-          </button>
-        </span>
+        {chips.length > 0 && (
+          <span className="zone-chips" onClick={(e) => e.stopPropagation()}>
+            {chips.map((chip) => (
+              <span key={chip.key} className={`player-chip ${chip.className ?? ''}`}>
+                {chip.label}
+              </span>
+            ))}
+          </span>
+        )}
         {showHub && (
           <span className="header-hub" onClick={(e) => e.stopPropagation()}>
             <CenterHub variant="row" />
           </span>
         )}
-        {game.config.format === 'commander' && (
-          <span onClick={(e) => e.stopPropagation()}>
-            <CommanderDamage playerIdx={playerIdx} />
-          </span>
-        )}
-        <LifeCounter life={player.life} onAdjust={(delta) => adjustLife(playerIdx, delta)} />
+        <span className="lifewrap" onClick={(e) => e.stopPropagation()}>
+          <LifeCounter life={player.life} onAdjust={(delta) => adjustLife(playerIdx, delta)} />
+          {game.config.format === 'commander' && <CommanderDamage playerIdx={playerIdx} />}
+        </span>
       </header>
       <button
         className="zone-dice"

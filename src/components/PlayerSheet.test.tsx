@@ -39,6 +39,17 @@ test('commander deaths show the current tax', async () => {
   expect(screen.getByText(/tax \+4/i)).toBeInTheDocument();
 });
 
+test('commander damage has precise steppers per enemy', async () => {
+  const spy = vi.fn();
+  useAppStore.setState({ applyCommanderDamage: spy });
+  const user = userEvent.setup();
+  render(<PlayerSheet playerIdx={0} onClose={() => {}} />);
+  await user.click(screen.getByRole('button', { name: /more commander damage from sam/i }));
+  expect(spy).toHaveBeenCalledWith(0, 'p1', 1);
+  await user.click(screen.getByRole('button', { name: /less commander damage from sam/i }));
+  expect(spy).toHaveBeenCalledWith(0, 'p1', -1);
+});
+
 test('monarch and initiative can be claimed from the sheet', async () => {
   const monarch = vi.fn();
   const initiative = vi.fn();

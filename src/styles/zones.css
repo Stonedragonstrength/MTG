@@ -1603,3 +1603,122 @@ input[type='checkbox'] {
   padding: 8px 12px;
   color: var(--accent);
 }
+
+/* ---- merged commander-damage gauges under life ---- */
+.lifewrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.cmd-gauges {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cmd-gauge {
+  display: grid;
+  grid-template-columns: 34px 44px 18px;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  border: none;
+  padding: 1px 4px;
+  font-size: 0.6rem;
+  color: #9a9aa5;
+  border-radius: 6px;
+}
+
+.cmd-gauge:active {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.cmd-gauge-name {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cmd-gauge-bar {
+  height: 5px;
+  border-radius: 3px;
+  background: #2c2c35;
+  overflow: hidden;
+}
+
+.cmd-gauge-bar i {
+  display: block;
+  height: 100%;
+  background: #d4705a;
+  transition: width 0.25s;
+}
+
+.cmd-gauge-value {
+  font-weight: 700;
+  color: var(--fg);
+  font-size: 0.7rem;
+  text-align: left;
+}
+
+.cmd-gauge--lethal .cmd-gauge-bar i {
+  background: var(--danger);
+}
+
+.cmd-gauge--lethal .cmd-gauge-value {
+  color: var(--danger);
+}
+
+.player-more {
+  padding: 3px 9px;
+}
+
+/* Collapsed bars: gauges shrink and sit beside life. */
+.focus-mode .zone:not(.zone--focused) .lifewrap {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.focus-mode .zone:not(.zone--focused) .cmd-gauge {
+  grid-template-columns: 26px 32px 14px;
+  font-size: 0.55rem;
+}
+
+@media (min-width: 700px) {
+  .zone--focused .cmd-gauge {
+    grid-template-columns: 42px 58px 22px;
+    font-size: 0.7rem;
+  }
+
+  .zone--focused .cmd-gauge-bar {
+    height: 7px;
+  }
+
+  .zone--focused .cmd-gauge-value {
+    font-size: 0.85rem;
+  }
+}
+
+/* Collapsed players' mana line: readable, not specks. */
+.focus-mode .zone:not(.zone--focused) .mana-summary {
+  font-size: 0.9rem;
+  gap: 8px;
+}
+
+.focus-mode .zone:not(.zone--focused) .mana-pip {
+  min-width: 26px;
+  height: 26px;
+  font-size: 0.9rem;
+}
+
+.focus-mode .zone:not(.zone--focused) .lands-total {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--accent);
+}

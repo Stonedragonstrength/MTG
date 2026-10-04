@@ -17,12 +17,14 @@ export default function PlayerSheet({ playerIdx, onClose }: Props) {
   const game = useAppStore((s) => s.game);
   const setPlayerCounter = useAppStore((s) => s.setPlayerCounter);
   const setCommanderDeaths = useAppStore((s) => s.setCommanderDeaths);
+  const applyCommanderDamage = useAppStore((s) => s.applyCommanderDamage);
   const claimMonarch = useAppStore((s) => s.claimMonarch);
   const claimInitiative = useAppStore((s) => s.claimInitiative);
 
   if (!game) return null;
   const player = game.players[playerIdx];
   const profile = game.config.profiles[playerIdx];
+  const enemies = game.config.profiles.filter((p) => p.id !== profile.id);
 
   return (
     <Sheet title={profile.name} onClose={onClose}>
@@ -52,6 +54,34 @@ export default function PlayerSheet({ playerIdx, onClose }: Props) {
           </div>
         );
       })}
+
+      {game.config.format === 'commander' &&
+        enemies.map((enemy) => {
+          const dmg = player.commanderDamage[enemy.id] ?? 0;
+          return (
+            <div className="detail-row" key={enemy.id}>
+              <span>
+                ⚔ Cmdr dmg from {enemy.name}
+                <small className="hint-inline"> ({game.config.commanderDamageThreshold} is lethal)</small>
+              </span>
+              <div className="stepper">
+                <button
+                  aria-label={`less commander damage from ${enemy.name}`}
+                  onClick={() => applyCommanderDamage(playerIdx, enemy.id, -1)}
+                >
+                  −
+                </button>
+                <span>{dmg}</span>
+                <button
+                  aria-label={`more commander damage from ${enemy.name}`}
+                  onClick={() => applyCommanderDamage(playerIdx, enemy.id, 1)}
+                >
+                  +
+                </button>
+              </div>
+            </div>
+          );
+        })}
 
       {game.config.format === 'commander' && (
         <div className="detail-row">
