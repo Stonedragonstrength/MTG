@@ -1078,3 +1078,39 @@ input[type='checkbox'] {
   width: auto;
   gap: 10px;
 }
+
+/* ---- floating dice button ---- */
+.fab-dice {
+  position: fixed;
+  right: 14px;
+  top: 118px;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  font-size: 1.4rem;
+  padding: 0;
+  z-index: 25;
+  background: rgba(23, 23, 28, 0.92);
+  border: 1px solid #3a3a44;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+}
+
+.cmd-name {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+}
+
+.cmd-mini-avatar {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.cmd-initial {
+  font-weight: 700;
+  color: var(--accent);
+}

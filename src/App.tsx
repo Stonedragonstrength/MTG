@@ -10,6 +10,7 @@ import './styles/sheets.css';
 export default function App() {
   const setupDone = useAppStore((s) => s.setupDone);
   const game = useAppStore((s) => s.game);
+  const inGame = useAppStore((s) => s.inGame);
   const [ready, setReady] = useState(false);
   const [bootError, setBootError] = useState<string | null>(null);
 
@@ -43,6 +44,6 @@ export default function App() {
 
   if (!ready) return <div className="screen boot">Loading…</div>;
   if (!setupDone) return <SetupGate />;
-  if (!game) return <HomeScreen />;
+  if (!game || !inGame) return <HomeScreen />;
   return <GameScreen />;
 }

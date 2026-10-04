@@ -4,6 +4,15 @@ export type ManaColor = 'W' | 'U' | 'B' | 'R' | 'G' | 'C';
 
 export const MANA_COLORS: ManaColor[] = ['W', 'U', 'B', 'R', 'G', 'C'];
 
+export const COLOR_HEX: Record<string, string> = {
+  W: '#e8e3d0',
+  U: '#5a9bd4',
+  B: '#9a8fa8',
+  R: '#d4705a',
+  G: '#6aa877',
+  C: '#a8a8b2',
+};
+
 /** What a land can produce, read from its rules text: specific colors in
  * order of appearance, ['any'] for any-color sources, [] for none. */
 export function manaColors(item: BoardItem): (ManaColor | 'any')[] {

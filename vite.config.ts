@@ -9,8 +9,8 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       manifest: {
-        name: 'MTG Companion',
-        short_name: 'MTG Companion',
+        name: 'MTG Battlefield Hub & Tracker',
+        short_name: 'MTG Hub',
         description: 'Table companion for in-person Magic: The Gathering games',
         display: 'standalone',
         orientation: 'any',
@@ -22,7 +22,7 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,txt}'],
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,txt,woff2}'],
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         runtimeCaching: [
           {

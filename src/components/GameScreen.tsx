@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAppStore } from '../state/store';
 import CenterHub from './CenterHub';
+import DiceRoller from './DiceRoller';
 import LandBackground from './LandBackground';
 import PlayerZone from './PlayerZone';
 import '../styles/zones.css';
@@ -10,6 +11,7 @@ export default function GameScreen() {
   const autoFocusOn = useAppStore((s) => s.settings.autoFocusOn);
   const activeIdx = game?.activePlayerIndex ?? null;
   const [focusedIdx, setFocusedIdx] = useState<number | null>(null);
+  const [diceOpen, setDiceOpen] = useState(false);
 
   useEffect(() => {
     if (autoFocusOn && activeIdx !== null) setFocusedIdx(activeIdx);
@@ -34,6 +36,10 @@ export default function GameScreen() {
         />
       ))}
       {focusedIdx === null && <CenterHub />}
+      <button className="fab-dice" aria-label="dice roller" onClick={() => setDiceOpen(true)}>
+        🎲
+      </button>
+      {diceOpen && <DiceRoller onClose={() => setDiceOpen(false)} />}
     </div>
   );
 }

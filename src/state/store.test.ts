@@ -201,6 +201,23 @@ describe('board actions wire through to game state', () => {
     expect(store.getState().game?.players[1].board[0].tapped).toBe(0);
   });
 
+  test('starting a game enters it; restoring a save waits for pick-up', async () => {
+    const store = createAppStore();
+    expect(store.getState().inGame).toBe(false);
+    store.getState().startGame(config);
+    expect(store.getState().inGame).toBe(true);
+    await flushPersistence();
+
+    const storeB = createAppStore();
+    await storeB.getState().init();
+    expect(storeB.getState().game).not.toBeNull();
+    expect(storeB.getState().inGame).toBe(false); // home screen offers Pick up
+    storeB.getState().enterGame();
+    expect(storeB.getState().inGame).toBe(true);
+    storeB.getState().endGame();
+    expect(storeB.getState().inGame).toBe(false);
+  });
+
   test('player counters, commander deaths, and badges wire through', () => {
     const store = createAppStore();
     store.getState().startGame(config);

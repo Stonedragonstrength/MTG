@@ -14,6 +14,7 @@ export interface LogEntry {
 export interface AppStore {
   setupDone: boolean;
   game: GameState | null;
+  inGame: boolean; // false with a saved game = home screen offers Pick up
   profiles: PlayerProfile[];
   settings: Settings;
   log: LogEntry[];
@@ -21,6 +22,7 @@ export interface AppStore {
   init(): Promise<void>;
   completeSetup(): void;
   startGame(config: GameConfig): void;
+  enterGame(): void;
   endGame(): void;
   undo(): void;
   canUndo(): boolean;
@@ -142,6 +144,7 @@ export function createAppStore() {
     return {
       setupDone: false,
       game: null,
+      inGame: false,
       profiles: [],
       settings: DEFAULT_SETTINGS,
       log: [],
@@ -178,13 +181,17 @@ export function createAppStore() {
       startGame(config) {
         const game = gameLib.createGame(config);
         history = [];
-        set({ game, log: [{ t: Date.now(), text: 'Game started' }] });
+        set({ game, inGame: true, log: [{ t: Date.now(), text: 'Game started' }] });
         persistGame(game);
+      },
+
+      enterGame() {
+        if (get().game) set({ inGame: true });
       },
 
       endGame() {
         history = [];
-        set({ game: null, log: [] });
+        set({ game: null, inGame: false, log: [] });
         persistGame(null);
       },
 

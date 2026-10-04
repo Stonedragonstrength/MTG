@@ -34,7 +34,10 @@ export default function SetupGate() {
 
   return (
     <div className="screen setup-gate">
-      <h1>MTG Companion</h1>
+      <h1 className="home-title">
+        <span className="home-title-main">MTG Battlefield</span>
+        <span className="home-title-sub">Hub &amp; Tracker</span>
+      </h1>
       <p>
         First-time setup needs a one-time download of the full card database (~150MB) and the
         comprehensive rules. After this, everything works offline. Make sure you are on wifi.
