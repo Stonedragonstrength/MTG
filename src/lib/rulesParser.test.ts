@@ -14,6 +14,8 @@ const FIXTURE = [
   ' ',
   'Credits',
   ' ',
+  '702. Keyword Abilities',
+  ' ',
   '702.19. Protection',
   ' ',
   '702.19a Protection is a static ability.',
@@ -62,6 +64,10 @@ describe('parseRules', () => {
     expect(glossary.some((g) => g.term === 'Credits')).toBe(false);
     expect(rules.some((r) => r.text === 'Keyword Abilities')).toBe(true);
   });
+
+  test('rule numbers repeated by the table of contents collapse to one entry', () => {
+    expect(rules.filter((r) => r.number === '702')).toHaveLength(1);
+  });
 });
 
 describe('findGlossaryTerms', () => {
@@ -97,5 +103,6 @@ describe('real comprehensive rules file', () => {
     expect(glossary.length).toBeGreaterThan(500);
     const deathtouch = glossary.find((g) => g.term === 'Deathtouch');
     expect(deathtouch?.definition).toMatch(/keyword ability/i);
+    expect(new Set(rules.map((r) => r.number)).size).toBe(rules.length);
   });
 });

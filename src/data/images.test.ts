@@ -1,7 +1,7 @@
-import { beforeEach, describe, expect, test } from 'vitest';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 import type { CardRecord } from '../lib/types';
 import { getDb, kvGet } from './db';
-import { pickLandArtPack } from './images';
+import { pickLandArtPack, precacheUrls } from './images';
 
 function basic(id: string, type: string, art: string | null): CardRecord {
   return {
@@ -46,5 +46,29 @@ describe('pickLandArtPack', () => {
     for (const url of pack.plains) expect(url).toContain('art_crop');
 
     expect(await kvGet('landArtPack')).toEqual(pack);
+  });
+});
+
+describe('precacheUrls', () => {
+  test('stores into the same cache the service worker serves images from', async () => {
+    const added: string[] = [];
+    const opened: string[] = [];
+    vi.stubGlobal('caches', {
+      open: async (name: string) => {
+        opened.push(name);
+        return {
+          match: async () => undefined,
+          add: async (url: string) => {
+            added.push(url);
+          },
+        };
+      },
+    });
+
+    await precacheUrls(['https://cards.scryfall.io/art_crop/a.jpg']);
+
+    expect(opened).toEqual(['scryfall-images']);
+    expect(added).toEqual(['https://cards.scryfall.io/art_crop/a.jpg']);
+    vi.unstubAllGlobals();
   });
 });

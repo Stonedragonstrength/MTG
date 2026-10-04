@@ -38,6 +38,12 @@ export function parseRules(text: string): { rules: RuleEntry[]; glossary: Glossa
     }
   }
 
+  // The table of contents repeats section headers ("702. Keyword Abilities");
+  // keep one entry per rule number, preferring the later (body) occurrence.
+  const byNumber = new Map<string, RuleEntry>();
+  for (const rule of rules) byNumber.set(rule.number, rule);
+  const dedupedRules = [...byNumber.values()];
+
   // Glossary: blank-separated blocks of term + definition lines, until Credits.
   const glossary: GlossaryEntry[] = [];
   if (glossaryStart !== -1) {
@@ -59,7 +65,7 @@ export function parseRules(text: string): { rules: RuleEntry[]; glossary: Glossa
     flush();
   }
 
-  return { rules, glossary };
+  return { rules: dedupedRules, glossary };
 }
 
 function escapeRegExp(s: string): string {

@@ -27,18 +27,17 @@ const pack = {
 beforeEach(async () => {
   await getDb().kv.clear();
   await kvSet('landArtPack', pack);
-  useAppStore.setState({ game: createGame(config) });
+  useAppStore.setState({ game: createGame(config), settings: { backgroundMode: 'all' } });
 });
 
 test('mode off renders no art layer', async () => {
-  await kvSet('settings', { backgroundMode: 'off' });
+  useAppStore.setState({ settings: { backgroundMode: 'off' } });
   const { container } = render(<LandBackground />);
   await waitFor(() => expect(container.querySelector('[data-mode="off"]')).not.toBeNull());
   expect(container.querySelector('.land-layer')).toBeNull();
 });
 
 test('turn passes advance the art through the land cycle', async () => {
-  await kvSet('settings', { backgroundMode: 'all' });
   const { container } = render(<LandBackground />);
 
   await waitFor(() => {
@@ -54,4 +53,13 @@ test('turn passes advance the art through the land cycle', async () => {
     const current = layers[layers.length - 1] as HTMLElement;
     expect(current.style.backgroundImage).toContain('island.jpg');
   });
+});
+
+test('turning the background off mid-game takes effect immediately', async () => {
+  const { container } = render(<LandBackground />);
+  await waitFor(() => expect(container.querySelector('.land-layer')).not.toBeNull());
+
+  useAppStore.setState({ settings: { backgroundMode: 'off' } });
+
+  await waitFor(() => expect(container.querySelector('.land-layer')).toBeNull());
 });

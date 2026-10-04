@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { kvGet } from '../data/db';
 import { LAND_TYPES, type LandArtPack } from '../data/images';
-import { getSettings, type BackgroundMode } from '../data/settings';
 import { useAppStore } from '../state/store';
 
 interface Layer {
@@ -11,18 +10,17 @@ interface Layer {
 
 export default function LandBackground() {
   const turnNumber = useAppStore((s) => s.game?.turnNumber ?? 1);
-  const [mode, setMode] = useState<BackgroundMode | null>(null);
+  const mode = useAppStore((s) => s.settings.backgroundMode);
   const [pack, setPack] = useState<LandArtPack | null>(null);
   const [layers, setLayers] = useState<Layer[]>([]);
   const keyRef = useRef(0);
 
   useEffect(() => {
-    getSettings().then((s) => setMode(s.backgroundMode));
     kvGet<LandArtPack>('landArtPack').then((p) => setPack(p ?? null));
   }, []);
 
   useEffect(() => {
-    if (!pack || !mode || mode === 'off') return;
+    if (!pack || mode === 'off') return;
     const types = mode === 'all' ? [...LAND_TYPES] : [mode];
     const typesWithArt = types.filter((t) => (pack[t] ?? []).length > 0);
     if (typesWithArt.length === 0) return;
@@ -40,7 +38,7 @@ export default function LandBackground() {
   }, [turnNumber, pack, mode]);
 
   return (
-    <div className="land-bg" data-mode={mode ?? 'loading'}>
+    <div className="land-bg" data-mode={mode}>
       {mode !== 'off' &&
         layers.map((layer, i) => (
           <div

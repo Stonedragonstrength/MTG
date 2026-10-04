@@ -6,7 +6,10 @@ export type LandType = (typeof LAND_TYPES)[number];
 export type LandArtPack = Record<LandType, string[]>;
 
 const PER_TYPE = 10;
-const PRECACHE_CACHE_NAME = 'img-precache';
+// Must match the service worker's runtime cache (vite.config.ts) so
+// pre-cached art is found offline even if the SW wasn't controlling
+// the page during setup.
+const PRECACHE_CACHE_NAME = 'scryfall-images';
 const REQUEST_GAP_MS = 110; // stay under Scryfall's 10 req/sec guidance
 
 const COMMON_TOKEN_NAMES = [

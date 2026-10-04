@@ -20,10 +20,11 @@ export default function NewGameScreen({ onBack }: Props) {
   }
 
   function start() {
+    const n = Number(threshold);
     startGame({
       format,
       startingLife: format === 'commander' ? 40 : 20,
-      commanderDamageThreshold: Number(threshold) || 21,
+      commanderDamageThreshold: Number.isFinite(n) && n >= 1 ? Math.floor(n) : 21,
       profiles: selected.map((id) => profiles.find((p) => p.id === id)!),
     });
   }

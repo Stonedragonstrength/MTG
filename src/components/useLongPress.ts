@@ -32,5 +32,11 @@ export function useLongPress(onShort: () => void, onLong: () => void) {
       clear();
       firedLong.current = false;
     },
+    // Touch scrolls fire pointercancel (not up/leave); without this, the
+    // long-press timer still fires and a scroll becomes a phantom ±5.
+    onPointerCancel: () => {
+      clear();
+      firedLong.current = false;
+    },
   };
 }

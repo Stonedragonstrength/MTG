@@ -7,3 +7,8 @@ export function getNameIndex(): Promise<{ id: string; name: string }[]> {
   cached ??= loadNameIndex();
   return cached;
 }
+
+/** Call after re-importing the card database so searches see the new index. */
+export function invalidateNameIndex(): void {
+  cached = null;
+}

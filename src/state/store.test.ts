@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from 'vitest';
 import { getDb, kvGet, kvSet } from '../data/db';
+import { createGame } from '../lib/game';
 import type { GameConfig } from '../lib/types';
 import { createAppStore, flushPersistence } from './store';
 
@@ -38,6 +39,32 @@ describe('game persistence', () => {
     await store.getState().init();
     expect(store.getState().game).toBeNull();
     expect(await kvGet('activeGame')).toBeUndefined();
+  });
+
+  test('a restored game with an out-of-range active player is discarded', async () => {
+    await kvSet('activeGame', { ...createGame(config), activePlayerIndex: 7 });
+    const store = createAppStore();
+    await store.getState().init();
+    expect(store.getState().game).toBeNull();
+  });
+
+  test('a restored game whose profiles are missing is discarded', async () => {
+    const game = createGame(config);
+    await kvSet('activeGame', { ...game, config: { ...game.config, profiles: undefined } });
+    const store = createAppStore();
+    await store.getState().init();
+    expect(store.getState().game).toBeNull();
+  });
+
+  test('a restored game with fewer profiles than players is discarded', async () => {
+    const game = createGame(config);
+    await kvSet('activeGame', {
+      ...game,
+      config: { ...game.config, profiles: game.config.profiles.slice(0, 1) },
+    });
+    const store = createAppStore();
+    await store.getState().init();
+    expect(store.getState().game).toBeNull();
   });
 
   test('endGame clears the saved game', async () => {
@@ -88,6 +115,23 @@ describe('profiles', () => {
     await store.getState().deleteProfile('x');
     expect(store.getState().profiles).toHaveLength(0);
     expect(await getDb().profiles.count()).toBe(0);
+  });
+});
+
+describe('settings', () => {
+  test('updateSettings persists and restores into a fresh store', async () => {
+    const storeA = createAppStore();
+    storeA.getState().updateSettings({ backgroundMode: 'swamp' });
+    await flushPersistence();
+
+    const storeB = createAppStore();
+    await storeB.getState().init();
+    expect(storeB.getState().settings.backgroundMode).toBe('swamp');
+  });
+
+  test('settings default to all-lands background', () => {
+    const store = createAppStore();
+    expect(store.getState().settings.backgroundMode).toBe('all');
   });
 });
 

@@ -59,8 +59,9 @@ export async function importBulkData(
   const oracle = index.data.find((d) => d.type === 'oracle_cards');
   if (!oracle) throw new Error('oracle_cards bulk entry not found');
 
+  // No upfront clear: bulkPut upserts by id, so a failed re-download
+  // leaves the previous database usable instead of bricking search.
   const db = getDb();
-  await db.cards.clear();
 
   const names: { id: string; name: string }[] = [];
   let imported = 0;

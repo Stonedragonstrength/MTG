@@ -175,4 +175,33 @@ describe('importBulkData', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('nope', { status: 503 })));
     await expect(importBulkData(() => {})).rejects.toThrow(/503/);
   });
+
+  test('a failed re-download leaves the existing card database intact', async () => {
+    stubScryfall([creatureRaw, tokenRaw]);
+    await importBulkData(() => {});
+    expect(await getDb().cards.count()).toBe(2);
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL) => {
+        if (String(url).includes('bulk-data')) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  type: 'oracle_cards',
+                  jsonl_download_uri: 'https://data.example/oracle.jsonl.gz',
+                  compressed_size: 1,
+                },
+              ],
+            }),
+          );
+        }
+        return new Response('down', { status: 503 });
+      }),
+    );
+    await expect(importBulkData(() => {})).rejects.toThrow(/503/);
+    expect(await getDb().cards.count()).toBe(2);
+    expect(await getCardById('aaa-111')).toBeDefined();
+  });
 });

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { getDb, kvDelete, kvGet, kvSet } from '../data/db';
+import { DEFAULT_SETTINGS, getSettings, saveSettings, type Settings } from '../data/settings';
 import * as boardLib from '../lib/board';
 import * as gameLib from '../lib/game';
 import type { BoardItem, GameConfig, GameState, PlayerProfile } from '../lib/types';
@@ -8,6 +9,8 @@ export interface AppStore {
   setupDone: boolean;
   game: GameState | null;
   profiles: PlayerProfile[];
+  settings: Settings;
+  updateSettings(settings: Settings): void;
   init(): Promise<void>;
   completeSetup(): void;
   startGame(config: GameConfig): void;
@@ -37,14 +40,31 @@ export function flushPersistence(): Promise<unknown> {
   return pending;
 }
 
+// Checks every field the components dereference at render time; anything
+// less and a half-corrupted save becomes a crash loop on launch.
 function isValidGame(v: unknown): v is GameState {
   const g = v as GameState | null;
   return (
     !!g &&
     Array.isArray(g.players) &&
-    g.players.every((p) => typeof p?.life === 'number' && Array.isArray(p.board)) &&
+    g.players.length > 0 &&
+    g.players.every(
+      (p) =>
+        typeof p?.life === 'number' &&
+        Array.isArray(p.board) &&
+        typeof p.commanderDamage === 'object' &&
+        p.commanderDamage !== null &&
+        typeof p.eliminated === 'boolean',
+    ) &&
     typeof g.config?.startingLife === 'number' &&
-    typeof g.activePlayerIndex === 'number' &&
+    typeof g.config.commanderDamageThreshold === 'number' &&
+    (g.config.format === 'commander' || g.config.format === 'standard') &&
+    Array.isArray(g.config.profiles) &&
+    g.config.profiles.length === g.players.length &&
+    g.config.profiles.every((p) => typeof p?.id === 'string' && typeof p.name === 'string') &&
+    Number.isInteger(g.activePlayerIndex) &&
+    g.activePlayerIndex >= 0 &&
+    g.activePlayerIndex < g.players.length &&
     typeof g.turnNumber === 'number'
   );
 }
@@ -63,10 +83,19 @@ export function createAppStore() {
       setupDone: false,
       game: null,
       profiles: [],
+      settings: DEFAULT_SETTINGS,
+
+      updateSettings(settings) {
+        set({ settings });
+        pending = pending
+          .then(() => saveSettings(settings))
+          .catch((err) => console.error('Failed to persist settings', err));
+      },
 
       async init() {
         const imported = await kvGet('cardsImportedAt');
         const profiles = await getDb().profiles.toArray();
+        const settings = await getSettings();
         let game: GameState | null = null;
         try {
           const saved = await kvGet('activeGame');
@@ -78,7 +107,7 @@ export function createAppStore() {
           console.error('Failed to restore saved game', err);
           await kvDelete('activeGame').catch(() => {});
         }
-        set({ setupDone: imported !== undefined, profiles, game });
+        set({ setupDone: imported !== undefined, profiles, game, settings });
       },
 
       completeSetup() {

@@ -1,12 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { importBulkData } from '../data/scryfall';
-import {
-  getSettings,
-  saveSettings,
-  type BackgroundMode,
-  type Settings,
-} from '../data/settings';
+import type { BackgroundMode } from '../data/settings';
 import { useAppStore } from '../state/store';
+import { invalidateNameIndex } from './nameIndexCache';
 import Sheet from './Sheet';
 
 const MODES: { value: BackgroundMode; label: string }[] = [
@@ -25,24 +21,16 @@ interface Props {
 
 export default function SettingsSheet({ onClose }: Props) {
   const game = useAppStore((s) => s.game);
-  const [settings, setSettings] = useState<Settings | null>(null);
+  const settings = useAppStore((s) => s.settings);
+  const updateSettings = useAppStore((s) => s.updateSettings);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshMsg, setRefreshMsg] = useState('');
-
-  useEffect(() => {
-    getSettings().then(setSettings);
-  }, []);
-
-  function update(mode: BackgroundMode) {
-    const next = { ...(settings ?? { backgroundMode: 'all' as const }), backgroundMode: mode };
-    setSettings(next);
-    saveSettings(next).catch(() => {});
-  }
 
   async function refreshCards() {
     setRefreshing(true);
     try {
       await importBulkData((_pct, msg) => setRefreshMsg(msg));
+      invalidateNameIndex();
       setRefreshMsg('Card database updated.');
     } catch (err) {
       setRefreshMsg(err instanceof Error ? err.message : String(err));
@@ -60,8 +48,10 @@ export default function SettingsSheet({ onClose }: Props) {
         </div>
         <select
           aria-label="land background"
-          value={settings?.backgroundMode ?? 'all'}
-          onChange={(e) => update(e.target.value as BackgroundMode)}
+          value={settings.backgroundMode}
+          onChange={(e) =>
+            updateSettings({ ...settings, backgroundMode: e.target.value as BackgroundMode })
+          }
         >
           {MODES.map((m) => (
             <option key={m.value} value={m.value}>

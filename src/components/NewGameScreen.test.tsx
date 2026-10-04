@@ -53,6 +53,18 @@ test('start is disabled with fewer than 2 players selected', async () => {
   expect(screen.getByRole('button', { name: /start game/i })).toBeDisabled();
 });
 
+test('a nonsense threshold falls back to 21', async () => {
+  const user = userEvent.setup();
+  render(<NewGameScreen onBack={() => {}} />);
+  const input = screen.getByLabelText(/commander damage/i);
+  await user.clear(input);
+  await user.type(input, '-3');
+  await user.click(screen.getByRole('button', { name: 'Nate' }));
+  await user.click(screen.getByRole('button', { name: 'Sam' }));
+  await user.click(screen.getByRole('button', { name: /start game/i }));
+  expect(startedWith?.commanderDamageThreshold).toBe(21);
+});
+
 test('the commander damage threshold is adjustable', async () => {
   const user = userEvent.setup();
   render(<NewGameScreen onBack={() => {}} />);
