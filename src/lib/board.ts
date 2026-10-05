@@ -103,10 +103,10 @@ export function tapItem(
   );
 }
 
-/** The untap step: readies every mana source in that player's lands row. */
+/** The untap step: readies every permanent that player controls. */
 export function untapAll(s: GameState, playerIdx: number): GameState {
   return updateBoard(s, playerIdx, (board) =>
-    board.map((it) => (it.zone === 'lands' && it.tapped ? { ...it, tapped: 0 } : it)),
+    board.map((it) => (it.tapped ? { ...it, tapped: 0 } : it)),
   );
 }
 

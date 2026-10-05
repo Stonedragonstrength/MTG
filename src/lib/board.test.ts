@@ -180,6 +180,25 @@ describe('mana tapping', () => {
     expect(g.players[0].board[0].tapped).toBe(0);
   });
 
+  test('untapAll readies tapped board creatures too', () => {
+    let g = freshGame();
+    const creature = createBoardItem(soldier); // zone defaults to 'board'
+    g = addItem(g, 0, creature);
+    g = tapItem(g, 0, creature.id, 1);
+    expect(g.players[0].board[0].tapped).toBe(1);
+    g = untapAll(g, 0);
+    expect(g.players[0].board[0].tapped).toBe(0);
+  });
+
+  test('untapAll leaves other players’ permanents alone', () => {
+    let g = freshGame();
+    const creature = createBoardItem(soldier);
+    g = addItem(g, 1, creature);
+    g = tapItem(g, 1, creature.id, 1);
+    g = untapAll(g, 0);
+    expect(g.players[1].board[0].tapped).toBe(1);
+  });
+
   test('shrinking a stack clamps its tapped count', () => {
     let { g, id } = withLands(3);
     g = tapItem(g, 0, id, 3);

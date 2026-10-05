@@ -51,3 +51,11 @@ export function playDefeat(): void {
   tone(131, 0.55, 'sawtooth', 0.05, 0.22);
   vibrate([60, 60, 120]);
 }
+
+export function playSlash(): void {
+  // A quick metallic "shink": bright attack, short low thud behind it.
+  tone(1800, 0.06, 'sawtooth', 0.025);
+  tone(2400, 0.09, 'square', 0.012, 0.02);
+  tone(220, 0.12, 'triangle', 0.035, 0.05);
+  vibrate([15, 30, 10]);
+}

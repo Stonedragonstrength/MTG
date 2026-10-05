@@ -233,7 +233,7 @@ export function createAppStore() {
         mutateGame(
           (g) => {
             const next = gameLib.passTurn(g);
-            // The incoming player's untap step readies their mana.
+            // The incoming player's untap step readies all their permanents.
             return boardLib.untapAll(next, next.activePlayerIndex);
           },
           (_prev, next) => `Turn ${next.turnNumber}: ${playerName(next, next.activePlayerIndex)}`,

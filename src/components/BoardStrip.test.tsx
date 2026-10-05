@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { createGame } from '../lib/game';
 import type { BoardItem, GameConfig } from '../lib/types';
@@ -11,6 +11,12 @@ vi.mock('../data/scryfall', () => ({
 }));
 vi.mock('../data/rules', () => ({
   getGlossary: vi.fn(async () => []),
+}));
+vi.mock('../lib/sound', () => ({
+  playLifeTick: vi.fn(),
+  playTurnChime: vi.fn(),
+  playDefeat: vi.fn(),
+  playSlash: vi.fn(),
 }));
 
 const config: GameConfig = {
@@ -39,11 +45,27 @@ const soldiers: BoardItem = {
   zone: 'board',
 };
 
-beforeEach(() => {
+beforeEach(async () => {
   const game = createGame(config);
   game.players[0] = { ...game.players[0], board: [soldiers] };
-  useAppStore.setState({ game });
+  const { DEFAULT_SETTINGS } = await import('../data/settings');
+  useAppStore.setState({ game, settings: { ...DEFAULT_SETTINGS } });
 });
+
+/** Waits out the death animation so its timer can't leak act() warnings. */
+async function ghostGone(container: HTMLElement) {
+  const { waitFor } = await import('@testing-library/react');
+  await waitFor(() => expect(container.querySelector('.board-item--dying')).toBeNull(), {
+    timeout: 1500,
+  });
+}
+
+/** A real-time sleep with the long-press timer landing inside act(). */
+async function sleep(ms: number) {
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, ms));
+  });
+}
 
 test('shows the count badge and computed P/T', () => {
   render(<BoardStrip playerIdx={0} />);
@@ -68,11 +90,50 @@ test('has an add-card tile', () => {
   expect(screen.getByRole('button', { name: /add a card/i })).toBeInTheDocument();
 });
 
+test('tapping a token card taps one copy', async () => {
+  const tapItem = vi.fn();
+  useAppStore.setState({ tapItem });
+  const { default: userEvent } = await import('@testing-library/user-event');
+  const user = userEvent.setup();
+  render(<BoardStrip playerIdx={0} />);
+  await user.click(screen.getByRole('button', { name: 'Soldier' }));
+  expect(tapItem).toHaveBeenCalledWith(0, 'item-1', 1);
+});
+
+test('holding a token card opens details instead of tapping', async () => {
+  const tapItem = vi.fn();
+  useAppStore.setState({ tapItem });
+  const { fireEvent } = await import('@testing-library/react');
+  render(<BoardStrip playerIdx={0} />);
+  const thumb = screen.getByRole('button', { name: 'Soldier' });
+
+  fireEvent.pointerDown(thumb);
+  await sleep(650);
+  fireEvent.pointerUp(thumb);
+
+  expect(tapItem).not.toHaveBeenCalled();
+  expect(await screen.findByRole('button', { name: /one more copy/i })).toBeInTheDocument();
+});
+
+test('a partially tapped stack shows how many are tapped', () => {
+  const game = useAppStore.getState().game!;
+  const partiallyTapped = { ...soldiers, tapped: 3 };
+  useAppStore.setState({
+    game: {
+      ...game,
+      players: [{ ...game.players[0], board: [partiallyTapped] }, game.players[1]],
+    },
+  });
+  render(<BoardStrip playerIdx={0} />);
+  expect(screen.getByRole('button', { name: /soldier, 3 of 8 tapped/i })).toBeInTheDocument();
+  expect(screen.getByText('3⤵')).toBeInTheDocument();
+});
+
 test('holding the ✕ removes the whole stack; a short tap does not', async () => {
   const removeItem = vi.fn();
   useAppStore.setState({ removeItem });
   const { fireEvent } = await import('@testing-library/react');
-  render(<BoardStrip playerIdx={0} />);
+  const { container } = render(<BoardStrip playerIdx={0} />);
   const del = screen.getByRole('button', { name: /remove soldier stack/i });
 
   fireEvent.pointerDown(del);
@@ -80,9 +141,86 @@ test('holding the ✕ removes the whole stack; a short tap does not', async () =
   expect(removeItem).not.toHaveBeenCalled();
 
   fireEvent.pointerDown(del);
-  await new Promise((r) => setTimeout(r, 650));
+  await sleep(650);
   fireEvent.pointerUp(del);
   expect(removeItem).toHaveBeenCalledWith(0, 'item-1');
+  await ghostGone(container);
+});
+
+test('removing a stack leaves a dying ghost with the slash overlay', async () => {
+  const removeItem = vi.fn();
+  const { DEFAULT_SETTINGS } = await import('../data/settings');
+  useAppStore.setState({ removeItem, settings: { ...DEFAULT_SETTINGS, soundOn: true } });
+  const { fireEvent } = await import('@testing-library/react');
+  const { playSlash } = await import('../lib/sound');
+  vi.mocked(playSlash).mockClear();
+  const { container } = render(<BoardStrip playerIdx={0} />);
+  const del = screen.getByRole('button', { name: /remove soldier stack/i });
+
+  fireEvent.pointerDown(del);
+  await sleep(650);
+  fireEvent.pointerUp(del);
+
+  expect(removeItem).toHaveBeenCalledWith(0, 'item-1');
+  expect(container.querySelector('.board-item--dying')).not.toBeNull();
+  expect(container.querySelector('.death-slash')).not.toBeNull();
+  expect(container.querySelector('.death-x')).not.toBeNull();
+  expect(playSlash).toHaveBeenCalled();
+  await ghostGone(container);
+});
+
+test('the slash sound respects the mute setting', async () => {
+  const removeItem = vi.fn();
+  const { DEFAULT_SETTINGS } = await import('../data/settings');
+  useAppStore.setState({ removeItem, settings: { ...DEFAULT_SETTINGS, soundOn: false } });
+  const { fireEvent } = await import('@testing-library/react');
+  const { playSlash } = await import('../lib/sound');
+  vi.mocked(playSlash).mockClear();
+  const { container } = render(<BoardStrip playerIdx={0} />);
+  const del = screen.getByRole('button', { name: /remove soldier stack/i });
+
+  fireEvent.pointerDown(del);
+  await sleep(650);
+  fireEvent.pointerUp(del);
+
+  expect(removeItem).toHaveBeenCalled();
+  expect(playSlash).not.toHaveBeenCalled();
+  await ghostGone(container);
+});
+
+test('minus on the last copy also plays the death animation', async () => {
+  const game = useAppStore.getState().game!;
+  const lastOne = { ...soldiers, count: 1 };
+  const changeCount = vi.fn();
+  useAppStore.setState({
+    game: { ...game, players: [{ ...game.players[0], board: [lastOne] }, game.players[1]] },
+    changeCount,
+  });
+  const { default: userEvent } = await import('@testing-library/user-event');
+  const user = userEvent.setup();
+  const { container } = render(<BoardStrip playerIdx={0} />);
+  await user.click(screen.getByRole('button', { name: /remove one soldier/i }));
+  expect(changeCount).toHaveBeenCalledWith(0, 'item-1', -1);
+  expect(container.querySelector('.board-item--dying')).not.toBeNull();
+  await ghostGone(container);
+});
+
+test('the dying ghost cleans itself up after the animation', async () => {
+  const game = useAppStore.getState().game!;
+  const lastOne = { ...soldiers, count: 1 };
+  useAppStore.setState({
+    game: { ...game, players: [{ ...game.players[0], board: [lastOne] }, game.players[1]] },
+    changeCount: vi.fn(),
+  });
+  const { default: userEvent } = await import('@testing-library/user-event');
+  const user = userEvent.setup();
+  const { container } = render(<BoardStrip playerIdx={0} />);
+  await user.click(screen.getByRole('button', { name: /remove one soldier/i }));
+  expect(container.querySelector('.board-item--dying')).not.toBeNull();
+  const { waitFor } = await import('@testing-library/react');
+  await waitFor(() => expect(container.querySelector('.board-item--dying')).toBeNull(), {
+    timeout: 1500,
+  });
 });
 
 test('token size scales down as the board fills up', () => {
@@ -92,15 +230,19 @@ test('token size scales down as the board fills up', () => {
   expect(container.querySelector('.board-strip')!.className).toContain('board-strip--lg');
 
   const many = Array.from({ length: 5 }, (_, i) => ({ ...soldiers, id: `it-${i}` }));
-  useAppStore.setState({
-    game: { ...game, players: [{ ...game.players[0], board: many }, game.players[1]] },
+  act(() => {
+    useAppStore.setState({
+      game: { ...game, players: [{ ...game.players[0], board: many }, game.players[1]] },
+    });
   });
   rerender(<BoardStrip playerIdx={0} />);
   expect(container.querySelector('.board-strip')!.className).toContain('board-strip--md');
 
   const lots = Array.from({ length: 10 }, (_, i) => ({ ...soldiers, id: `lot-${i}` }));
-  useAppStore.setState({
-    game: { ...game, players: [{ ...game.players[0], board: lots }, game.players[1]] },
+  act(() => {
+    useAppStore.setState({
+      game: { ...game, players: [{ ...game.players[0], board: lots }, game.players[1]] },
+    });
   });
   rerender(<BoardStrip playerIdx={0} />);
   expect(container.querySelector('.board-strip')!.className).toContain('board-strip--sm');
@@ -117,6 +259,6 @@ test('lands-zone items stay out of the battlefield grid', () => {
     },
   });
   render(<BoardStrip playerIdx={0} />);
-  expect(screen.queryByRole('button', { name: /forest details/i })).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /soldier details/i })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Forest' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Soldier' })).toBeInTheDocument();
 });

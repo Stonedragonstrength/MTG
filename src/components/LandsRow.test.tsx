@@ -141,6 +141,20 @@ test('tapping a one-shot source spends it instead', async () => {
   expect(changeCount).toHaveBeenCalledWith(0, 'land-Treasure', -1);
 });
 
+test('the untap button appears when only a board creature is tapped', () => {
+  const game = createGame(config);
+  const creature: BoardItem = {
+    ...landItem('Soldier', '', 2),
+    id: 'tok-1',
+    zone: 'board',
+    tapped: 1,
+  };
+  game.players[0] = { ...game.players[0], board: [creature] };
+  useAppStore.setState({ game });
+  render(<LandsRow playerIdx={0} />);
+  expect(screen.getByRole('button', { name: /untap all/i })).toBeInTheDocument();
+});
+
 test('untap all readies the row', async () => {
   const untapAll = vi.fn();
   const game = createGame(config);

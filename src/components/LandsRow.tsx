@@ -81,7 +81,8 @@ export default function LandsRow({ playerIdx }: Props) {
   if (!game) return null;
   const lands = game.players[playerIdx].board.filter((it) => it.zone === 'lands');
   const summary = landSummary(lands);
-  const anyTapped = lands.some((it) => (it.tapped ?? 0) > 0);
+  // Untap-all readies the whole board now, so any tapped permanent surfaces it.
+  const anyTapped = game.players[playerIdx].board.some((it) => (it.tapped ?? 0) > 0);
 
   async function quickAdd(name: string) {
     const existing = lands.find((it) => it.name === name);
