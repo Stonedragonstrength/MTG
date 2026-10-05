@@ -71,6 +71,42 @@ test('splitting a stack calls splitItem with the entered count', async () => {
   expect(spy).toHaveBeenCalledWith(0, 'item-a', 1);
 });
 
+test('a mana pip sets the override', async () => {
+  const spy = vi.fn();
+  useAppStore.setState({ setManaMode: spy });
+  const user = userEvent.setup();
+  render(<CardDetail playerIdx={0} itemId="item-a" onClose={() => {}} />);
+  await user.click(screen.getByRole('button', { name: /taps for green/i }));
+  expect(spy).toHaveBeenCalledWith(0, 'item-a', 'G');
+});
+
+test('tapping the active pip turns the override off', async () => {
+  const spy = vi.fn();
+  const game = createGame(config);
+  game.players[0] = { ...game.players[0], board: [{ ...angel, manaMode: 'G' }] };
+  useAppStore.setState({ game, setManaMode: spy });
+  const user = userEvent.setup();
+  render(<CardDetail playerIdx={0} itemId="item-a" onClose={() => {}} />);
+  const pip = screen.getByRole('button', { name: /taps for green/i });
+  expect(pip).toHaveAttribute('aria-pressed', 'true');
+  await user.click(pip);
+  expect(spy).toHaveBeenCalledWith(0, 'item-a', undefined);
+});
+
+test('turning off a real dork silences it with none', async () => {
+  const spy = vi.fn();
+  const game = createGame(config);
+  const elves = { ...angel, id: 'item-e', name: 'Llanowar Elves', oracleText: '{T}: Add {G}.' };
+  game.players[0] = { ...game.players[0], board: [elves] };
+  useAppStore.setState({ game, setManaMode: spy });
+  const user = userEvent.setup();
+  render(<CardDetail playerIdx={0} itemId="item-e" onClose={() => {}} />);
+  const pip = screen.getByRole('button', { name: /taps for green/i });
+  expect(pip).toHaveAttribute('aria-pressed', 'true');
+  await user.click(pip);
+  expect(spy).toHaveBeenCalledWith(0, 'item-e', 'none');
+});
+
 test('real cards link out to EDHREC', () => {
   render(<CardDetail playerIdx={0} itemId="item-a" onClose={() => {}} />);
   const link = screen.getByRole('link', { name: /edhrec/i });

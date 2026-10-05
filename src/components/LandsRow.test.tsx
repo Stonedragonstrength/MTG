@@ -108,6 +108,24 @@ test('the mana summary tallies the lands zone', () => {
   expect(screen.getByLabelText(/2 any-color sources/i)).toBeInTheDocument();
 });
 
+test('board-zone mana sources join the color pips but not the land total', () => {
+  const game = createGame(config);
+  const elves: BoardItem = {
+    ...landItem('Llanowar Elves', '{T}: Add {G}.', 2),
+    id: 'tok-elves',
+    zone: 'board',
+  };
+  const bear: BoardItem = { ...landItem('Bear', '', 1), id: 'tok-bear', zone: 'board', manaMode: 'G' };
+  game.players[0] = {
+    ...game.players[0],
+    board: [landItem('Forest', '({T}: Add {G}.)', 3), elves, bear],
+  };
+  useAppStore.setState({ game });
+  render(<LandsRow playerIdx={0} />);
+  expect(screen.getByText(/3 lands/i)).toBeInTheDocument();
+  expect(screen.getByLabelText(/6 green sources/i)).toBeInTheDocument();
+});
+
 test('land stacks render with their counts', () => {
   const game = createGame(config);
   game.players[0] = { ...game.players[0], board: [landItem('Forest', '({T}: Add {G}.)', 5)] };

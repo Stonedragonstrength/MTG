@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { BoardItem } from './types';
-import { isOneShotSource, landSummary, manaColors } from './mana';
+import { effectiveManaColors, isOneShotSource, landSummary, manaColors } from './mana';
 
 function land(name: string, oracleText: string, count = 1): BoardItem {
   return {
@@ -66,7 +66,49 @@ describe('isOneShotSource', () => {
   });
 });
 
+function creature(name: string, oracleText: string, count = 1): BoardItem {
+  return { ...land(name, oracleText, count), typeLine: 'Creature', zone: 'board' };
+}
+
+describe('effectiveManaColors', () => {
+  test('an explicit manaMode wins over oracle text', () => {
+    expect(effectiveManaColors({ ...creature('Soldier', ''), manaMode: 'G' })).toEqual(['G']);
+    expect(effectiveManaColors({ ...creature('Soldier', ''), manaMode: 'any' })).toEqual(['any']);
+  });
+
+  test('manaMode none silences a real mana dork', () => {
+    expect(
+      effectiveManaColors({ ...creature('Llanowar Elves', '{T}: Add {G}.'), manaMode: 'none' }),
+    ).toEqual([]);
+  });
+
+  test('without a manaMode, oracle text decides', () => {
+    expect(effectiveManaColors(creature('Llanowar Elves', '{T}: Add {G}.'))).toEqual(['G']);
+    expect(effectiveManaColors(creature('Soldier', ''))).toEqual([]);
+  });
+});
+
 describe('landSummary', () => {
+  test('board-zone mana sources count toward colors but not the land total', () => {
+    const items = [
+      land('Forest', '({T}: Add {G}.)', 2),
+      { ...creature('Ashaya-fied Bear', '', 3), manaMode: 'G' as const },
+      creature('Llanowar Elves', '{T}: Add {G}.', 1),
+      { ...creature('Quiet Elves', '{T}: Add {G}.', 2), manaMode: 'none' as const },
+      creature('Soldier', '', 4),
+    ];
+    const summary = landSummary(items);
+    expect(summary.total).toBe(2);
+    expect(summary.colors.G).toBe(6);
+    expect(summary.any).toBe(0);
+  });
+
+  test('a board creature set to any-color counts as an any source', () => {
+    const rite = { ...creature('Soldier', '', 2), manaMode: 'any' as const };
+    expect(landSummary([rite]).any).toBe(2);
+    expect(landSummary([rite]).total).toBe(0);
+  });
+
   test('totals stacks and tallies color capability', () => {
     const items = [
       land('Forest', '({T}: Add {G}.)', 4),

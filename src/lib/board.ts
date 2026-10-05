@@ -144,6 +144,17 @@ export function setCounter(
   );
 }
 
+export function setManaMode(
+  s: GameState,
+  playerIdx: number,
+  itemId: string,
+  mode: BoardItem['manaMode'],
+): GameState {
+  return updateBoard(s, playerIdx, (board) =>
+    board.map((it) => (it.id === itemId ? { ...it, manaMode: mode } : it)),
+  );
+}
+
 export function computedPT(item: BoardItem): { power: number; toughness: number } | null {
   if (item.basePower === null || item.baseToughness === null) return null;
   const plus = item.counters['p1p1'] ?? 0;

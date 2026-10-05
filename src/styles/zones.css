@@ -337,6 +337,29 @@ button.term {
   gap: 8px;
 }
 
+/* ---- "taps for" mana picker (card detail) ---- */
+.mana-pick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mana-pick-pip {
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  opacity: 0.35;
+}
+
+.mana-pick-pip--on {
+  opacity: 1;
+  border-color: var(--accent);
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.25);
+}
+
 .split-label input {
   width: 64px;
   text-align: center;
@@ -830,6 +853,26 @@ input[type='range'] {
   border-radius: 4px;
   padding: 0 3px;
   font-size: 0.65rem;
+}
+
+/* Board creatures moonlighting as mana sources wear their color(s). */
+.mana-badge {
+  position: absolute;
+  bottom: 2px;
+  left: 2px;
+  display: inline-flex;
+  gap: 2px;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.78);
+  border-radius: 999px;
+  padding: 2px 3px;
+}
+
+.mana-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
 }
 
 /* ---- animation layer: tapping, spawning, dying ---- */

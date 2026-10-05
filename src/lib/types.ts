@@ -38,6 +38,9 @@ export interface BoardItem {
   color: string | null; // custom tokens only
   zone: 'board' | 'lands';
   tapped?: number; // mana sources marked used this turn (≤ count)
+  // Mana override: a color/'any' makes this stack a mana source (Ashaya,
+  // Cryptolith Rite…), 'none' silences a real dork, unset = read oracle text.
+  manaMode?: 'W' | 'U' | 'B' | 'R' | 'G' | 'C' | 'any' | 'none';
 }
 
 export interface PlayerState {

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { computedPT } from '../lib/board';
+import { COLOR_NAMES, effectiveManaColors } from '../lib/mana';
 import { playSlash } from '../lib/sound';
 import type { BoardItem } from '../lib/types';
 import { useAppStore } from '../state/store';
@@ -23,6 +24,7 @@ function TokenCard({
   const press = useLongPress(onTap, onDetail);
   const tapped = item.tapped ?? 0;
   const pt = computedPT(item);
+  const mana = effectiveManaColors(item);
   const label = `${item.name}` + (tapped > 0 ? `, ${tapped} of ${item.count} tapped` : '');
   return (
     <button
@@ -44,6 +46,18 @@ function TokenCard({
       {pt && (
         <span className="pt-badge">
           {pt.power}/{pt.toughness}
+        </span>
+      )}
+      {mana.length > 0 && (
+        <span
+          className="mana-badge"
+          aria-label={`makes ${mana
+            .map((c) => (c === 'any' ? 'any color' : COLOR_NAMES[c]))
+            .join(' and ')} mana`}
+        >
+          {mana.map((c) => (
+            <i key={c} className={`mana-dot mana-${c}`} />
+          ))}
         </span>
       )}
       {tapped > 0 && <span className="tapped-badge">{tapped}⤵</span>}

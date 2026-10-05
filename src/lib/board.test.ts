@@ -9,6 +9,7 @@ import {
   createCustomToken,
   removeItem,
   setCounter,
+  setManaMode,
   splitItem,
   tapItem,
   untapAll,
@@ -70,6 +71,20 @@ describe('createBoardItem', () => {
     const item = createBoardItem(tarmo);
     expect(item.basePower).toBeNull();
     expect(item.baseToughness).toBeNull();
+  });
+});
+
+describe('setManaMode', () => {
+  test('sets, changes, and clears the mana override', () => {
+    let g = freshGame();
+    const item = createBoardItem(soldier);
+    g = addItem(g, 0, item);
+    g = setManaMode(g, 0, item.id, 'G');
+    expect(g.players[0].board[0].manaMode).toBe('G');
+    g = setManaMode(g, 0, item.id, 'any');
+    expect(g.players[0].board[0].manaMode).toBe('any');
+    g = setManaMode(g, 0, item.id, undefined);
+    expect(g.players[0].board[0].manaMode).toBeUndefined();
   });
 });
 

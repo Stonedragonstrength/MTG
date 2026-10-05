@@ -39,6 +39,7 @@ export interface AppStore {
   changeCount(playerIdx: number, itemId: string, delta: number): void;
   splitItem(playerIdx: number, itemId: string, moveCount: number): void;
   setCounter(playerIdx: number, itemId: string, counterName: string, value: number): void;
+  setManaMode(playerIdx: number, itemId: string, mode: BoardItem['manaMode']): void;
   removeItem(playerIdx: number, itemId: string): void;
   saveProfile(p: PlayerProfile): Promise<void>;
   deleteProfile(id: string): Promise<void>;
@@ -325,6 +326,19 @@ export function createAppStore() {
             return item
               ? `${playerName(prev, playerIdx)}: ${item.name} ${counterName} ${Math.max(0, value)}`
               : null;
+          },
+        );
+      },
+
+      setManaMode(playerIdx, itemId, mode) {
+        mutateGame(
+          (g) => boardLib.setManaMode(g, playerIdx, itemId, mode),
+          (prev) => {
+            const item = prev.players[playerIdx].board.find((it) => it.id === itemId);
+            if (!item) return null;
+            const what =
+              !mode || mode === 'none' ? 'stops making mana' : `taps for ${mode === 'any' ? 'any color' : `{${mode}}`}`;
+            return `${playerName(prev, playerIdx)}: ${item.name} ${what}`;
           },
         );
       },

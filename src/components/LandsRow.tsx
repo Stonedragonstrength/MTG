@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { randomBasicArt } from '../data/images';
 import { findBasicLand } from '../data/scryfall';
 import { createBoardItem } from '../lib/board';
-import { isOneShotSource, landSummary, MANA_COLORS, type ManaColor } from '../lib/mana';
+import { COLOR_NAMES, isOneShotSource, landSummary, MANA_COLORS, type ManaColor } from '../lib/mana';
 import type { BoardItem } from '../lib/types';
 import { useAppStore } from '../state/store';
 import CardDetail from './CardDetail';
@@ -16,15 +16,6 @@ const BASICS: { name: string; color: ManaColor }[] = [
   { name: 'Mountain', color: 'R' },
   { name: 'Forest', color: 'G' },
 ];
-
-const COLOR_NAMES: Record<ManaColor, string> = {
-  W: 'white',
-  U: 'blue',
-  B: 'black',
-  R: 'red',
-  G: 'green',
-  C: 'colorless',
-};
 
 /** Tap = use one mana source (one-shots get spent); hold = card details. */
 function LandStack({
@@ -80,7 +71,9 @@ export default function LandsRow({ playerIdx }: Props) {
 
   if (!game) return null;
   const lands = game.players[playerIdx].board.filter((it) => it.zone === 'lands');
-  const summary = landSummary(lands);
+  // The summary reads the whole board: dorks and Ashaya-fied creatures
+  // count toward the color pips while the total stays lands-only.
+  const summary = landSummary(game.players[playerIdx].board);
   // Untap-all readies the whole board now, so any tapped permanent surfaces it.
   const anyTapped = game.players[playerIdx].board.some((it) => (it.tapped ?? 0) > 0);
 

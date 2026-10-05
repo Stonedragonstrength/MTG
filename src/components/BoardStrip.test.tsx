@@ -67,6 +67,14 @@ async function sleep(ms: number) {
   });
 }
 
+test('mana sources show a mana badge on their card', () => {
+  const game = createGame(config);
+  game.players[0] = { ...game.players[0], board: [{ ...soldiers, manaMode: 'G' }] };
+  useAppStore.setState({ game });
+  render(<BoardStrip playerIdx={0} />);
+  expect(screen.getByLabelText(/makes green mana/i)).toBeInTheDocument();
+});
+
 test('shows the count badge and computed P/T', () => {
   const { container } = render(<BoardStrip playerIdx={0} />);
   expect(container.querySelector('.count-controls .count-badge')).toHaveTextContent('×8');

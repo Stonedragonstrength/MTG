@@ -2,6 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { getGlossary } from '../data/rules';
 import { computedPT } from '../lib/board';
 import { edhrecUrl } from '../lib/edhrec';
+import {
+  COLOR_NAMES,
+  effectiveManaColors,
+  MANA_COLORS,
+  manaColors,
+  type ManaColor,
+} from '../lib/mana';
 import { findGlossaryTerms, type GlossaryEntry } from '../lib/rulesParser';
 import { useAppStore } from '../state/store';
 import Sheet from './Sheet';
@@ -32,6 +39,7 @@ export default function CardDetail({ playerIdx, itemId, onClose }: Props) {
   const game = useAppStore((s) => s.game);
   const changeCount = useAppStore((s) => s.changeCount);
   const setCounter = useAppStore((s) => s.setCounter);
+  const setManaMode = useAppStore((s) => s.setManaMode);
   const splitItemAction = useAppStore((s) => s.splitItem);
   const removeItemAction = useAppStore((s) => s.removeItem);
 
@@ -168,6 +176,38 @@ export default function CardDetail({ playerIdx, itemId, onClose }: Props) {
             </button>
           </div>
         )}
+      </div>
+
+      <div className="detail-section">
+        <span className="section-label">Mana</span>
+        <div className="detail-row">
+          <span>Taps for</span>
+          <div className="mana-pick">
+            {([...MANA_COLORS, 'any'] as (ManaColor | 'any')[]).map((p) => {
+              const effective = effectiveManaColors(item);
+              const active = effective.includes(p);
+              return (
+                <button
+                  key={p}
+                  className={`mana-pip mana-${p} mana-pick-pip${active ? ' mana-pick-pip--on' : ''}`}
+                  aria-label={`taps for ${p === 'any' ? 'any color' : COLOR_NAMES[p]}`}
+                  aria-pressed={active}
+                  onClick={() => {
+                    // Tapping the lit pip turns the source off; 'none' is only
+                    // needed when oracle text would turn it back on.
+                    if (active)
+                      setManaMode(
+                        playerIdx,
+                        itemId,
+                        manaColors(item).length > 0 ? 'none' : undefined,
+                      );
+                    else setManaMode(playerIdx, itemId, p);
+                  }}
+                />
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       <div className="detail-section">
