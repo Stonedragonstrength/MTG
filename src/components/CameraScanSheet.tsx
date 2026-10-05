@@ -55,7 +55,25 @@ export default function CameraScanSheet({ deckId, onClose }: Props) {
     };
   }, []);
 
-  async function read() {
+  // Hands-free loop: keep reading while nothing is pending, pause while
+  // confirm chips are up so they can't flicker away mid-tap.
+  const loopState = useRef({ busy: false, pending: false });
+  loopState.current = { busy, pending: guesses.length > 0 };
+  useEffect(() => {
+    if (unavailable) return;
+    const t = window.setInterval(() => {
+      const { busy: b, pending } = loopState.current;
+      if (!b && !pending) void read(true);
+    }, 2200);
+    return () => window.clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unavailable, names]);
+
+  // The just-confirmed card keeps sitting under the lens; auto reads skip
+  // it so a stray tap can't double-add. A different card clears the hold.
+  const lastConfirmed = useRef<string | null>(null);
+
+  async function read(auto = false) {
     const video = videoRef.current;
     if (!video || video.videoWidth === 0) return;
     setBusy(true);
@@ -82,7 +100,13 @@ export default function CameraScanSheet({ deckId, onClose }: Props) {
       );
       const text = await recognizeTitle(canvas);
       setLastRead(text || null);
-      setGuesses(matchScannedTitle(text, names));
+      const hits = matchScannedTitle(text, names);
+      if (auto && hits[0] && hits[0].id === lastConfirmed.current) {
+        setGuesses([]);
+      } else {
+        if (hits[0] && hits[0].id !== lastConfirmed.current) lastConfirmed.current = null;
+        setGuesses(hits);
+      }
     } finally {
       setBusy(false);
     }
@@ -94,6 +118,7 @@ export default function CameraScanSheet({ deckId, onClose }: Props) {
     if (!card || card.isToken || !deck) return;
     await saveDeck(addCard(deck, card));
     setLastAdded(card.name);
+    lastConfirmed.current = id;
     setGuesses([]);
   }
 
@@ -110,10 +135,13 @@ export default function CameraScanSheet({ deckId, onClose }: Props) {
             <video ref={videoRef} className="scan-video" playsInline muted />
             <div className="scan-guide" aria-hidden="true" />
           </div>
-          <p className="hint">Line the card's title up inside the band, then read it.</p>
+          <p className="hint">
+            Line the title up inside the band — it reads on its own. Tap the match, slide the
+            next card in, repeat.
+          </p>
           <div className="modal-actions">
             <button className="primary" disabled={busy} onClick={() => void read()}>
-              {busy ? 'Reading…' : 'Read card'}
+              {busy ? 'Reading…' : 'Read now'}
             </button>
           </div>
           {lastAdded && <p className="entry-last">Added {lastAdded}</p>}
@@ -124,6 +152,9 @@ export default function CameraScanSheet({ deckId, onClose }: Props) {
                   {g.name}
                 </button>
               ))}
+              <button className="chip chip--skip" onClick={() => setGuesses([])}>
+                ✕ none of these
+              </button>
             </div>
           ) : (
             lastRead !== null &&
