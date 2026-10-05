@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { findCardByName, getCardById } from '../data/scryfall';
+import { findBasicLand, findCardByName, getCardById } from '../data/scryfall';
 import { addCard, deckSize } from '../lib/deck';
 import { searchNames } from '../lib/fuzzy';
 import { STAPLE_CATEGORIES } from '../lib/staples';
@@ -7,6 +7,61 @@ import type { CardRecord } from '../lib/types';
 import { useAppStore } from '../state/store';
 import { getNameIndex } from './nameIndexCache';
 import Sheet from './Sheet';
+
+const BASICS: { name: string; color: string }[] = [
+  { name: 'Plains', color: 'W' },
+  { name: 'Island', color: 'U' },
+  { name: 'Swamp', color: 'B' },
+  { name: 'Mountain', color: 'R' },
+  { name: 'Forest', color: 'G' },
+];
+
+const REPEAT_DELAY_MS = 450;
+const REPEAT_EVERY_MS = 170;
+
+/** Tap adds one; holding keeps counting — 24 Forests is a short hold,
+ * not 24 taps. Pointer-only so a click never double-fires. */
+function BasicChip({
+  name,
+  color,
+  count,
+  onAdd,
+}: {
+  name: string;
+  color: string;
+  count: number;
+  onAdd: () => void;
+}) {
+  const timers = useRef<{ delay?: number; repeat?: number }>({});
+
+  function stop() {
+    window.clearTimeout(timers.current.delay);
+    window.clearInterval(timers.current.repeat);
+    timers.current = {};
+  }
+  useEffect(() => stop, []);
+
+  return (
+    <button
+      className={`basic-add swatch-${color} deck-basic`}
+      aria-label={`add ${name}`}
+      title="Tap to add one · hold to keep adding"
+      onPointerDown={() => {
+        onAdd();
+        timers.current.delay = window.setTimeout(() => {
+          timers.current.repeat = window.setInterval(onAdd, REPEAT_EVERY_MS);
+        }, REPEAT_DELAY_MS);
+      }}
+      onPointerUp={stop}
+      onPointerLeave={stop}
+      onPointerCancel={stop}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      <span className="deck-basic-name">{name}</span>
+      {count > 0 && <span className="count-badge">×{count}</span>}
+    </button>
+  );
+}
 
 interface Props {
   deckId: string;
@@ -91,7 +146,19 @@ export default function DeckEntrySheet({ deckId, onClose }: Props) {
     inputRef.current?.focus();
   }
 
+  // Hold-to-repeat fires faster than React re-renders, so basics must read
+  // the freshest deck from the store or rapid adds overwrite each other.
+  async function addBasic(name: string) {
+    const card = await findBasicLand(name);
+    const fresh = useAppStore.getState().decks.find((d) => d.id === deckId);
+    if (!card || !fresh) return;
+    await saveDeck(addCard(fresh, card));
+    setLastAdded(name);
+  }
+
   const owned = new Set(deck.cards.map((c) => c.cardId));
+  const basicCount = (name: string) =>
+    deck.cards.find((c) => c.name === name && c.typeLine.startsWith('Basic Land'))?.count ?? 0;
 
   return (
     <Sheet title="Add cards" onClose={onClose} size="wide">
@@ -123,6 +190,17 @@ export default function DeckEntrySheet({ deckId, onClose }: Props) {
         </ul>
       ) : (
         <>
+          <div className="deck-basics" aria-label="basic lands">
+            {BASICS.map((b) => (
+              <BasicChip
+                key={b.name}
+                name={b.name}
+                color={b.color}
+                count={basicCount(b.name)}
+                onAdd={() => void addBasic(b.name)}
+              />
+            ))}
+          </div>
           <div className="chip-row entry-staple-cats" aria-label="staple categories">
             {STAPLE_CATEGORIES.map((c) => (
               <button

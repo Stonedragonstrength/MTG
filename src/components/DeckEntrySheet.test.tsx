@@ -72,7 +72,19 @@ const swords: CardRecord = {
   colorIdentity: ['W'],
 };
 
+const forest: CardRecord = {
+  ...ashaya,
+  id: 'c-forest',
+  name: 'Forest',
+  nameLower: 'forest',
+  typeLine: 'Basic Land — Forest',
+  manaCost: '',
+  isBasicLand: true,
+  colorIdentity: [],
+};
+
 const BY_ID: Record<string, CardRecord> = {
+  'c-forest': forest,
   'c-ashaya': ashaya,
   'c-cultivate': cultivate,
   'c-elemental-token': elementalToken,
@@ -92,7 +104,7 @@ vi.mock('../data/scryfall', () => ({
   findCardByName: vi.fn(async (name: string) =>
     Object.values(BY_ID).find((c) => c.nameLower === name.toLowerCase()),
   ),
-  findBasicLand: vi.fn(async () => undefined),
+  findBasicLand: vi.fn(async (name: string) => (name === 'Forest' ? forest : undefined)),
 }));
 
 beforeEach(() => {
@@ -141,6 +153,18 @@ test('off-color staples stay hidden', async () => {
   await user.click(screen.getByRole('button', { name: /removal/i }));
   await screen.findByRole('button', { name: /beast within/i }).catch(() => {});
   expect(screen.queryByRole('button', { name: /swords to plowshares/i })).not.toBeInTheDocument();
+});
+
+test('basics add with one tap and show a live count', async () => {
+  const user = userEvent.setup();
+  render(<DeckEntrySheet deckId="deck-1" onClose={() => {}} />);
+  const forestBtn = screen.getByRole('button', { name: /add forest/i });
+  await user.click(forestBtn);
+  await user.click(forestBtn);
+  expect(await screen.findByText('3 / 100')).toBeInTheDocument(); // commander + 2 forests
+  const deck = useAppStore.getState().decks[0];
+  expect(deck.cards.find((c) => c.name === 'Forest')?.count).toBe(2);
+  expect(screen.getByText('×2')).toBeInTheDocument();
 });
 
 test('enter adds the top match', async () => {

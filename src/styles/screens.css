@@ -633,3 +633,43 @@ label {
 .entry-staples {
   justify-content: flex-start;
 }
+
+/* ---- basics fast lane in deck entry ---- */
+.deck-basics {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.deck-basics .deck-basic {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 72px;
+  padding: 10px 8px 8px;
+  border-radius: 10px;
+  color: #141410;
+  font-weight: 700;
+  touch-action: none;
+  user-select: none;
+}
+
+.deck-basic .deck-basic-name {
+  font-size: 0.78rem;
+}
+
+.deck-basic .count-badge {
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  border-radius: 999px;
+  padding: 0 7px;
+  font-size: 0.75rem;
+}
+
+.swatch-W.deck-basic { background: #e8e3d0; }
+.swatch-U.deck-basic { background: #5a9bd4; }
+.swatch-B.deck-basic { background: #9a8fa8; }
+.swatch-R.deck-basic { background: #d4705a; }
+.swatch-G.deck-basic { background: #6aa877; }
