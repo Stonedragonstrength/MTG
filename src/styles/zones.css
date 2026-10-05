@@ -533,7 +533,6 @@ button.term {
   align-items: center;
   gap: 6px;
   font-size: 0.72rem;
-  padding-right: 52px; /* the dice button's reserved corner */
 }
 
 .lands-total {
@@ -1391,28 +1390,22 @@ input[type='checkbox'] {
   color: var(--accent);
 }
 
-/* Per-player dice, tucked under their life counter with room to breathe. */
+/* Per-player dice: an ordinary member of the lands-row summary line, so
+ * every seat rotation carries it with the row (absolute corners broke on
+ * rotated boards — it wandered into neighboring panes). */
 .zone-dice {
-  position: absolute;
-  top: 58px;
-  right: 10px;
-  width: 42px;
-  height: 42px;
+  margin-left: auto;
+  width: 38px;
+  height: 38px;
+  min-width: 38px;
   border-radius: 50%;
-  font-size: 1.1rem;
+  font-size: 1rem;
   padding: 0;
-  z-index: 5;
   background: rgba(23, 23, 28, 0.88);
 }
 
 .fab-dice {
   display: none;
-}
-
-/* Dice sits clear below the life counter. */
-.zone-dice {
-  top: 100px;
-  right: 12px;
 }
 
 /* An empty battlefield centers its add button. */
@@ -1608,13 +1601,6 @@ input[type='checkbox'] {
     justify-content: space-between;
   }
 
-  /* Dice owns the right end of the lands-row summary line (the untap pill
-     clusters left with the pips, so nothing else lives there). */
-  .zone-dice {
-    top: auto;
-    bottom: 76px;
-    right: 10px;
-  }
 }
 
 /* Tablet-width screens render battlefield tokens ~20% larger per tier. */
@@ -1983,14 +1969,6 @@ input[type='checkbox'] {
 /* Landscape has less vertical room: battlefield cards use the moderate
    sizes there; the big treatment stays for portrait. */
 @media (orientation: landscape) {
-  /* Dice clears the life/gauge corner the same way portrait does: it owns
-     the right end of the lands summary line (untap clusters left). */
-  .zone--focused .zone-dice {
-    top: auto;
-    bottom: 76px;
-    right: 10px;
-  }
-
   .zone--focused .board-strip--sm .thumb,
   .zone--focused .board-strip--sm .add-tile:not(.add-tile--centered) {
     width: 58px;

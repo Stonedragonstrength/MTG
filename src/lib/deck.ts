@@ -19,6 +19,7 @@ function toDeckCard(card: CardRecord): DeckCard {
     manaCost: card.manaCost,
     imageNormal: card.imageNormal,
     count: 1,
+    colorIdentity: card.colorIdentity,
   };
 }
 
@@ -96,6 +97,41 @@ export function manaValue(manaCost: string): number {
     else if (!symbol.includes('X')) total += 1;
   }
   return total;
+}
+
+/** Cards whose color identity leaves the commander's — best effort: cards
+ * saved without identity data (older imports) are never flagged. */
+export function offColorCards(deck: Deck): DeckCard[] {
+  if (!deck.commander || deck.colors.length === 0) return [];
+  const allowed = new Set(deck.colors);
+  return deck.cards.filter(
+    (c) => c.colorIdentity !== undefined && c.colorIdentity.some((color) => !allowed.has(color)),
+  );
+}
+
+export interface DeckStats {
+  lands: number;
+  ramp: number;
+  draw: number;
+  removal: number;
+}
+
+/** Rough commander staples count from rules text — a nudge, not a judge. */
+export function deckStats(
+  entries: { typeLine: string; oracleText: string; count: number }[],
+): DeckStats {
+  const stats: DeckStats = { lands: 0, ramp: 0, draw: 0, removal: 0 };
+  for (const e of entries) {
+    if (bucketOf(e.typeLine) === 'Lands') {
+      stats.lands += e.count;
+      continue;
+    }
+    if (/add \{|add (one|two|three) mana|search your library for[^.]*land/i.test(e.oracleText))
+      stats.ramp += e.count;
+    if (/draw (a|one|two|three|x|that many) card/i.test(e.oracleText)) stats.draw += e.count;
+    if (/(destroy|exile) target/i.test(e.oracleText)) stats.removal += e.count;
+  }
+  return stats;
 }
 
 /** Buckets 0–6 and 7+, nonland cards only, weighted by copy count. */

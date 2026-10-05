@@ -45,6 +45,40 @@ test('standard game starts with 20 life', async () => {
   expect(startedWith?.format).toBe('standard');
 });
 
+test('picking a deck for a player carries its commander into the game', async () => {
+  const saveProfile = vi.fn(async () => {});
+  useAppStore.setState({
+    saveProfile,
+    decks: [
+      {
+        id: 'deck-1',
+        name: 'Ashaya Stompy',
+        commander: {
+          cardId: 'c-ashaya',
+          name: 'Ashaya, Soul of the Wild',
+          typeLine: 'Legendary Creature — Elemental',
+          manaCost: '{3}{G}{G}',
+          imageNormal: 'https://img.example/ashaya.jpg',
+          count: 1,
+        },
+        colors: ['G'],
+        cards: [],
+        updatedAt: 1,
+      },
+    ],
+  });
+  const user = userEvent.setup();
+  render(<NewGameScreen onBack={() => {}} />);
+  await user.click(screen.getByRole('button', { name: 'Nate' }));
+  await user.click(screen.getByRole('button', { name: 'Sam' }));
+  await user.selectOptions(screen.getByLabelText(/deck for Nate/i), 'deck-1');
+  await user.click(screen.getByRole('button', { name: /start game/i }));
+  expect(startedWith?.profiles[0].commanderName).toBe('Ashaya, Soul of the Wild');
+  expect(startedWith?.profiles[0].commanderColors).toEqual(['G']);
+  expect(startedWith?.profiles[1].commanderName).toBeNull();
+  expect(saveProfile).toHaveBeenCalledTimes(1);
+});
+
 test('start is disabled with fewer than 2 players selected', async () => {
   const user = userEvent.setup();
   render(<NewGameScreen onBack={() => {}} />);

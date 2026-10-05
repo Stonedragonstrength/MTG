@@ -459,3 +459,60 @@ label {
   color: var(--accent);
   font-size: 0.85rem;
 }
+
+/* ---- deck health + warnings + game-day deck picks ---- */
+.deck-health {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.deck-health-chip {
+  font-size: 0.75rem;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #1d2a1f;
+  border: 1px solid #2f4a35;
+}
+
+.deck-health-chip--short {
+  background: #2a2316;
+  border-color: #5a4a1e;
+  color: #d4b96a;
+}
+
+.deck-synergy-btn {
+  padding: 4px 10px;
+  font-size: 0.8rem;
+}
+
+.deck-row-warn {
+  color: #d4b96a;
+  font-size: 0.8rem;
+}
+
+.deck-picks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 420px;
+}
+
+.deck-pick {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.85rem;
+}
+
+.deck-pick select {
+  font: inherit;
+  color: var(--fg);
+  background: #26262e;
+  border: 1px solid #3a3a44;
+  border-radius: 8px;
+  padding: 6px 10px;
+  max-width: 220px;
+}

@@ -1,9 +1,27 @@
-import { useState } from 'react';
-import { changeCardCount, deckSize, groupCards, manaCurve } from '../lib/deck';
+import { useEffect, useState } from 'react';
+import { getCardById } from '../data/scryfall';
+import {
+  changeCardCount,
+  deckSize,
+  deckStats,
+  groupCards,
+  manaCurve,
+  offColorCards,
+  type DeckStats,
+} from '../lib/deck';
 import type { DeckCard } from '../lib/types';
 import { useAppStore } from '../state/store';
 import DeckCardSheet from './DeckCardSheet';
 import DeckEntrySheet from './DeckEntrySheet';
+import SynergySheet from './SynergySheet';
+
+/** Commander rules of thumb — a nudge, not a judge. */
+const HEALTH_TARGETS: { key: keyof DeckStats; label: string; target: number }[] = [
+  { key: 'lands', label: 'Lands', target: 36 },
+  { key: 'ramp', label: 'Ramp', target: 10 },
+  { key: 'draw', label: 'Draw', target: 10 },
+  { key: 'removal', label: 'Removal', target: 8 },
+];
 
 /** The bars read relative to the deck's own tallest bucket. */
 function CurveBar({ curve }: { curve: number[] }) {
@@ -34,10 +52,37 @@ export default function DeckEditor({ deckId, onBack }: Props) {
   const deleteDeck = useAppStore((s) => s.deleteDeck);
   const [adding, setAdding] = useState(false);
   const [viewing, setViewing] = useState<DeckCard | null>(null);
+  const [synergyOpen, setSynergyOpen] = useState(false);
+  const [stats, setStats] = useState<DeckStats | null>(null);
+
+  // Rules text lives in the card database, not the deck — fetch to count staples.
+  const cardsKey = deck?.cards.map((c) => `${c.cardId}:${c.count}`).join(',');
+  useEffect(() => {
+    if (!deck) return;
+    let cancelled = false;
+    (async () => {
+      const entries = [];
+      for (const c of deck.cards) {
+        const record = await getCardById(c.cardId).catch(() => undefined);
+        entries.push({
+          typeLine: c.typeLine,
+          oracleText: record?.oracleText ?? '',
+          count: c.count,
+        });
+        if (cancelled) return;
+      }
+      if (!cancelled) setStats(deckStats(entries));
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cardsKey]);
 
   if (!deck) return null;
   const groups = groupCards(deck.cards);
   const size = deckSize(deck);
+  const offColor = new Set(offColorCards(deck).map((c) => c.cardId));
 
   return (
     <div className="screen deck-editor">
@@ -67,9 +112,27 @@ export default function DeckEditor({ deckId, onBack }: Props) {
               <span key={c} className={`mana-pip mana-pip--mini mana-${c}`} />
             ))}
           </span>
+          {deck.commander && (
+            <button className="ghost deck-synergy-btn" onClick={() => setSynergyOpen(true)}>
+              Goes well with…
+            </button>
+          )}
           <CurveBar curve={manaCurve(deck.cards)} />
         </div>
       </div>
+
+      {stats && (
+        <div className="deck-health" aria-label="deck health">
+          {HEALTH_TARGETS.map(({ key, label, target }) => (
+            <span
+              key={key}
+              className={`deck-health-chip${stats[key] < target ? ' deck-health-chip--short' : ''}`}
+            >
+              {label} {stats[key]}/{target}
+            </span>
+          ))}
+        </div>
+      )}
 
       <button className="primary deck-add-btn" onClick={() => setAdding(true)}>
         + Add cards
@@ -88,6 +151,15 @@ export default function DeckEditor({ deckId, onBack }: Props) {
               <button className="deck-row-name" onClick={() => setViewing(card)}>
                 {card.name}
               </button>
+              {offColor.has(card.cardId) && (
+                <span
+                  className="deck-row-warn"
+                  aria-label={`${card.name} is outside commander colors`}
+                  title="Outside commander color identity"
+                >
+                  ⚠
+                </span>
+              )}
               <span className="deck-row-cost">{card.manaCost}</span>
               <div className="stepper stepper--tight">
                 <button
@@ -123,6 +195,14 @@ export default function DeckEditor({ deckId, onBack }: Props) {
 
       {adding && <DeckEntrySheet deckId={deck.id} onClose={() => setAdding(false)} />}
       {viewing && <DeckCardSheet card={viewing} onClose={() => setViewing(null)} />}
+      {synergyOpen && deck.commander && (
+        <SynergySheet
+          cardId={deck.commander.cardId}
+          cardName={deck.commander.name}
+          isCommander
+          onClose={() => setSynergyOpen(false)}
+        />
+      )}
     </div>
   );
 }

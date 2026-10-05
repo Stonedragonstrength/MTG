@@ -5,9 +5,11 @@ import {
   changeCardCount,
   createDeck,
   deckSize,
+  deckStats,
   groupCards,
   manaCurve,
   manaValue,
+  offColorCards,
   setCommander,
 } from './deck';
 
@@ -78,6 +80,42 @@ describe('groupCards', () => {
       addCard(createDeck('x'), card('Darksteel Citadel', 'Artifact Land')).cards[0],
     ]);
     expect(groups.map((g) => g.label)).toEqual(['Creatures', 'Lands']);
+  });
+});
+
+describe('offColorCards', () => {
+  test('flags cards whose identity leaves the commander colors', () => {
+    let deck = setCommander(createDeck('x'), card('Ashaya, Soul of the Wild', 'Legendary Creature — Elemental'));
+    deck = addCard(deck, { ...card('Lightning Bolt', 'Instant'), colorIdentity: ['R'] });
+    deck = addCard(deck, { ...card('Sol Ring', 'Artifact'), colorIdentity: [] });
+    deck = addCard(deck, card('Llanowar Elves', 'Creature — Elf Druid'));
+    expect(offColorCards(deck).map((c) => c.name)).toEqual(['Lightning Bolt']);
+  });
+
+  test('stays quiet without a commander or without identity data', () => {
+    const noCommander = addCard(createDeck('x'), { ...card('Bolt', 'Instant'), colorIdentity: ['R'] });
+    expect(offColorCards(noCommander)).toEqual([]);
+    let deck = setCommander(createDeck('x'), card('Ashaya, Soul of the Wild', 'Legendary Creature — Elemental'));
+    deck = addCard(deck, { ...card('Mystery', 'Instant'), colorIdentity: undefined });
+    expect(offColorCards(deck)).toEqual([]);
+  });
+});
+
+describe('deckStats', () => {
+  test('counts lands, ramp, draw, and removal from rules text', () => {
+    const entries = [
+      { typeLine: 'Basic Land — Forest', oracleText: '({T}: Add {G}.)', count: 30 },
+      { typeLine: 'Creature — Elf Druid', oracleText: '{T}: Add {G}.', count: 2 },
+      { typeLine: 'Sorcery', oracleText: 'Search your library for up to two basic land cards…', count: 1 },
+      { typeLine: 'Enchantment', oracleText: 'At the beginning of your upkeep, draw a card.', count: 1 },
+      { typeLine: 'Instant', oracleText: 'Destroy target artifact.', count: 3 },
+      { typeLine: 'Creature — Beast', oracleText: 'Trample', count: 4 },
+    ];
+    const stats = deckStats(entries);
+    expect(stats.lands).toBe(30);
+    expect(stats.ramp).toBe(3); // dorks + land search, but not the Forests
+    expect(stats.draw).toBe(1);
+    expect(stats.removal).toBe(3);
   });
 });
 

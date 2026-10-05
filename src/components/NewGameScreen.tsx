@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Format } from '../lib/types';
+import type { Format, PlayerProfile } from '../lib/types';
 import { useAppStore } from '../state/store';
 
 interface Props {
@@ -8,15 +8,33 @@ interface Props {
 
 export default function NewGameScreen({ onBack }: Props) {
   const profiles = useAppStore((s) => s.profiles);
+  const decks = useAppStore((s) => s.decks);
   const startGame = useAppStore((s) => s.startGame);
+  const saveProfile = useAppStore((s) => s.saveProfile);
   const [format, setFormat] = useState<Format>('commander');
   const [threshold, setThreshold] = useState('21');
   const [selected, setSelected] = useState<string[]>([]);
+  const [deckChoice, setDeckChoice] = useState<Record<string, string>>({});
 
   function toggle(id: string) {
     setSelected((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : prev.length < 4 ? [...prev, id] : prev,
     );
+  }
+
+  /** A chosen deck brings its commander along for this game (and sticks
+   * to the profile for next time). */
+  function withDeck(profile: PlayerProfile): PlayerProfile {
+    const deck = decks.find((d) => d.id === deckChoice[profile.id]);
+    if (!deck?.commander) return profile;
+    const patched = {
+      ...profile,
+      commanderName: deck.commander.name,
+      commanderColors: deck.colors,
+      commanderImage: deck.commander.imageNormal,
+    };
+    void saveProfile(patched);
+    return patched;
   }
 
   function start() {
@@ -25,7 +43,7 @@ export default function NewGameScreen({ onBack }: Props) {
       format,
       startingLife: format === 'commander' ? 40 : 20,
       commanderDamageThreshold: Number.isFinite(n) && n >= 1 ? Math.floor(n) : 21,
-      profiles: selected.map((id) => profiles.find((p) => p.id === id)!),
+      profiles: selected.map((id) => withDeck(profiles.find((p) => p.id === id)!)),
     });
   }
 
@@ -80,6 +98,31 @@ export default function NewGameScreen({ onBack }: Props) {
           </button>
         ))}
       </div>
+      {format === 'commander' && decks.length > 0 && selected.length > 0 && (
+        <div className="deck-picks">
+          {selected.map((id) => {
+            const p = profiles.find((x) => x.id === id)!;
+            return (
+              <label key={id} className="deck-pick">
+                Deck for {p.name}
+                <select
+                  value={deckChoice[id] ?? ''}
+                  onChange={(e) =>
+                    setDeckChoice((prev) => ({ ...prev, [id]: e.target.value }))
+                  }
+                >
+                  <option value="">{p.commanderName ?? 'No deck'}</option>
+                  {decks.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            );
+          })}
+        </div>
+      )}
       <div className="modal-actions">
         <button disabled={selected.length < 2} onClick={start}>
           Start game

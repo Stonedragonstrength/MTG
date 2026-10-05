@@ -70,6 +70,7 @@ export interface DeckCard {
   manaCost: string;
   imageNormal: string | null;
   count: number;
+  colorIdentity?: string[]; // absent on cards saved before this shipped
 }
 
 export interface Deck {

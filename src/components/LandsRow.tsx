@@ -7,6 +7,7 @@ import type { BoardItem } from '../lib/types';
 import { useAppStore } from '../state/store';
 import CardDetail from './CardDetail';
 import CardSearch from './CardSearch';
+import DiceRoller from './DiceRoller';
 import { useLongPress } from './useLongPress';
 
 const BASICS: { name: string; color: ManaColor }[] = [
@@ -68,6 +69,7 @@ export default function LandsRow({ playerIdx }: Props) {
   const untapAll = useAppStore((s) => s.untapAll);
   const [searchOpen, setSearchOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [diceOpen, setDiceOpen] = useState(false);
 
   if (!game) return null;
   const lands = game.players[playerIdx].board.filter((it) => it.zone === 'lands');
@@ -119,6 +121,17 @@ export default function LandsRow({ playerIdx }: Props) {
             ⟳ untap
           </button>
         )}
+        {/* In flow at the line's end so every seat rotation carries it. */}
+        <button
+          className="zone-dice"
+          aria-label="dice roller"
+          onClick={(e) => {
+            e.stopPropagation();
+            setDiceOpen(true);
+          }}
+        >
+          🎲
+        </button>
       </div>
 
       <div className="lands-stacks">
@@ -161,6 +174,7 @@ export default function LandsRow({ playerIdx }: Props) {
       {detailId && (
         <CardDetail playerIdx={playerIdx} itemId={detailId} onClose={() => setDetailId(null)} />
       )}
+      {diceOpen && <DiceRoller onClose={() => setDiceOpen(false)} />}
     </div>
   );
 }
