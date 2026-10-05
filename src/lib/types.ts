@@ -63,6 +63,24 @@ export interface GameState {
   turnStartedAt: number;
 }
 
+export interface DeckCard {
+  cardId: string;
+  name: string;
+  typeLine: string;
+  manaCost: string;
+  imageNormal: string | null;
+  count: number;
+}
+
+export interface Deck {
+  id: string;
+  name: string;
+  commander: DeckCard | null;
+  colors: string[]; // commander color identity
+  cards: DeckCard[]; // everything except the commander
+  updatedAt: number;
+}
+
 export interface CardRecord {
   id: string;
   colorIdentity?: string[]; // present on cards imported after this field shipped

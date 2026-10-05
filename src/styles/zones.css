@@ -533,6 +533,7 @@ button.term {
   align-items: center;
   gap: 6px;
   font-size: 0.72rem;
+  padding-right: 52px; /* the dice button's reserved corner */
 }
 
 .lands-total {
@@ -1075,11 +1076,12 @@ input[type='range'] {
   }
 }
 
+/* Lives in the summary's left cluster, right after the pips — the right
+ * end of that line belongs to the dice button (see .zone-dice). */
 .untap-btn {
   padding: 2px 10px;
   border-radius: 999px;
   font-size: 0.72rem;
-  margin-left: auto;
 }
 
 /* ---- hub extras ---- */
@@ -1606,12 +1608,11 @@ input[type='checkbox'] {
     justify-content: space-between;
   }
 
-  /* Dice drops to the lower right of the battlefield, clear of the hub
-     above and the whole lands row below (summary line + stacks ≈128px —
-     the untap pill lives on that summary line, so 70px collided). */
+  /* Dice owns the right end of the lands-row summary line (the untap pill
+     clusters left with the pips, so nothing else lives there). */
   .zone-dice {
     top: auto;
-    bottom: 134px;
+    bottom: 76px;
     right: 10px;
   }
 }
@@ -1982,11 +1983,11 @@ input[type='checkbox'] {
 /* Landscape has less vertical room: battlefield cards use the moderate
    sizes there; the big treatment stays for portrait. */
 @media (orientation: landscape) {
-  /* Dice clears the life/gauge corner the same way portrait does:
-     lower right, above the whole lands row (incl. the untap pill's line). */
+  /* Dice clears the life/gauge corner the same way portrait does: it owns
+     the right end of the lands summary line (untap clusters left). */
   .zone--focused .zone-dice {
     top: auto;
-    bottom: 134px;
+    bottom: 76px;
     right: 10px;
   }
 

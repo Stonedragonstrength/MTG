@@ -25,6 +25,7 @@ beforeEach(async () => {
   const db = getDb();
   await db.kv.clear();
   await db.profiles.clear();
+  await db.decks.clear();
 });
 
 describe('game persistence', () => {
@@ -97,6 +98,36 @@ describe('setup status', () => {
     const storeB = createAppStore();
     await storeB.getState().init();
     expect(storeB.getState().setupDone).toBe(true);
+  });
+});
+
+describe('decks', () => {
+  test('saveDeck round-trips through the database, newest first', async () => {
+    const { createDeck } = await import('../lib/deck');
+    const storeA = createAppStore();
+    await storeA.getState().init();
+    const older = { ...createDeck('Old Faithful'), updatedAt: 1000 };
+    const newer = { ...createDeck('Fresh Brew'), updatedAt: 2000 };
+    await storeA.getState().saveDeck(older);
+    await storeA.getState().saveDeck(newer);
+
+    const storeB = createAppStore();
+    await storeB.getState().init();
+    expect(storeB.getState().decks.map((d) => d.name)).toEqual(['Fresh Brew', 'Old Faithful']);
+  });
+
+  test('deleteDeck removes it from state and the database', async () => {
+    const { createDeck } = await import('../lib/deck');
+    const storeA = createAppStore();
+    await storeA.getState().init();
+    const deck = createDeck('Doomed');
+    await storeA.getState().saveDeck(deck);
+    await storeA.getState().deleteDeck(deck.id);
+    expect(storeA.getState().decks).toHaveLength(0);
+
+    const storeB = createAppStore();
+    await storeB.getState().init();
+    expect(storeB.getState().decks).toHaveLength(0);
   });
 });
 

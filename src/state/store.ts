@@ -4,7 +4,7 @@ import { DEFAULT_SETTINGS, getSettings, saveSettings, type Settings } from '../d
 import * as boardLib from '../lib/board';
 import * as gameLib from '../lib/game';
 import { playDefeat, playLifeTick, playTurnChime } from '../lib/sound';
-import type { BoardItem, GameConfig, GameState, PlayerProfile } from '../lib/types';
+import type { BoardItem, Deck, GameConfig, GameState, PlayerProfile } from '../lib/types';
 
 export interface LogEntry {
   t: number;
@@ -43,6 +43,9 @@ export interface AppStore {
   removeItem(playerIdx: number, itemId: string): void;
   saveProfile(p: PlayerProfile): Promise<void>;
   deleteProfile(id: string): Promise<void>;
+  decks: Deck[];
+  saveDeck(deck: Deck): Promise<void>;
+  deleteDeck(id: string): Promise<void>;
 }
 
 // Serialized writes so saves never interleave; flushPersistence() awaits the tail.
@@ -147,6 +150,7 @@ export function createAppStore() {
       game: null,
       inGame: false,
       profiles: [],
+      decks: [],
       settings: DEFAULT_SETTINGS,
       log: [],
 
@@ -160,6 +164,7 @@ export function createAppStore() {
       async init() {
         const imported = await kvGet('cardsImportedAt');
         const profiles = await getDb().profiles.toArray();
+        const decks = (await getDb().decks.toArray()).sort((a, b) => b.updatedAt - a.updatedAt);
         const settings = await getSettings();
         let game: GameState | null = null;
         try {
@@ -172,7 +177,7 @@ export function createAppStore() {
           console.error('Failed to restore saved game', err);
           await kvDelete('activeGame').catch(() => {});
         }
-        set({ setupDone: imported !== undefined, profiles, game, settings });
+        set({ setupDone: imported !== undefined, profiles, decks, game, settings });
       },
 
       completeSetup() {
@@ -362,6 +367,17 @@ export function createAppStore() {
       async deleteProfile(id) {
         await getDb().profiles.delete(id);
         set({ profiles: get().profiles.filter((x) => x.id !== id) });
+      },
+
+      async saveDeck(deck) {
+        await getDb().decks.put(deck);
+        const others = get().decks.filter((d) => d.id !== deck.id);
+        set({ decks: [deck, ...others].sort((a, b) => b.updatedAt - a.updatedAt) });
+      },
+
+      async deleteDeck(id) {
+        await getDb().decks.delete(id);
+        set({ decks: get().decks.filter((d) => d.id !== id) });
       },
     };
   });
