@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from 'vitest';
 import type { CardRecord } from '../lib/types';
 import { getDb } from './db';
-import { findSynergiesFor } from './synergy';
+import { findCommandersFor, findSynergiesFor } from './synergy';
 
 function card(id: string, name: string, typeLine: string, oracleText: string): CardRecord {
   return {
@@ -41,6 +41,41 @@ beforeEach(async () => {
     card('counter', 'Counterspell', 'Instant', 'Counter target spell.'),
     card('forest', 'Forest', 'Basic Land — Forest', '({T}: Add {G}.)'),
   ]);
+});
+
+describe('findCommandersFor', () => {
+  beforeEach(async () => {
+    const db = getDb();
+    await db.cards.bulkPut([
+      {
+        ...card(
+          'magda',
+          'Magda, Brazen Outlaw',
+          'Legendary Creature — Dwarf Berserker',
+          'Whenever a Dwarf you control becomes tapped, create a Treasure token.',
+        ),
+        colorIdentity: ['R'],
+      },
+      { ...card('depala', 'Depala, Pilot Exemplar', 'Legendary Creature — Dwarf Pilot', 'Other Dwarves you control get +1/+1.'), colorIdentity: ['R', 'W'] },
+      { ...card('offcolor', 'Sygg, River Guide', 'Legendary Creature — Merfolk Wizard', 'Dwarf Dwarf Dwarf you control.'), colorIdentity: ['W', 'U'] },
+      { ...card('notlegend', 'Dwarf Fan', 'Creature — Human', 'Dwarves you control get +2/+0.'), colorIdentity: ['R'] },
+    ]);
+  });
+
+  test('ranks color-feasible commanders by profile overlap', async () => {
+    const hits = await findCommandersFor({ 'tribal:Dwarf': 6, treasure: 2 }, ['R'], 5);
+    const names = hits.map((h) => h.card.name);
+    expect(names[0]).toBe('Magda, Brazen Outlaw'); // R ⊆ R, dwarf+treasure
+    expect(names).toContain('Depala, Pilot Exemplar'); // R ⊆ RW
+    expect(names).not.toContain('Sygg, River Guide'); // R ⊄ WU
+    expect(names).not.toContain('Dwarf Fan'); // not commander-legal
+    expect(hits[0].score).toBeGreaterThan(0);
+    expect(hits[0].shared).toContain('tribal:Dwarf');
+  });
+
+  test('an empty profile matches nothing', async () => {
+    expect(await findCommandersFor({}, [], 5)).toEqual([]);
+  });
 });
 
 describe('findSynergiesFor', () => {

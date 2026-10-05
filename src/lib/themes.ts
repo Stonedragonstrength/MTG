@@ -72,3 +72,31 @@ export function synergyScore(sourceThemes: string[], candidate: CardRecord): num
     0,
   );
 }
+
+/** What a whole deck is about: each theme weighted by how many copies care
+ * about it. The input is deck cards joined to their full records. */
+export function deckThemeProfile(
+  entries: { card: CardRecord; count: number }[],
+): Record<string, number> {
+  const profile: Record<string, number> = {};
+  for (const { card, count } of entries) {
+    for (const theme of cardThemes(card)) {
+      profile[theme] = (profile[theme] ?? 0) + count;
+    }
+  }
+  return profile;
+}
+
+/** How hard a candidate leans into a deck's profile: each matched theme
+ * contributes the deck's weight for it, doubled for tribes. */
+export function profileScore(
+  profile: Record<string, number>,
+  candidate: CardRecord,
+): { score: number; shared: string[] } {
+  const shared = sharedThemes(Object.keys(profile), candidate);
+  const score = shared.reduce(
+    (sum, theme) => sum + (profile[theme] ?? 0) * (theme.startsWith(TRIBAL_PREFIX) ? 2 : 1),
+    0,
+  );
+  return { score, shared };
+}

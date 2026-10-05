@@ -32,15 +32,66 @@ const cultivate: CardRecord = {
   manaCost: '{2}{G}',
 };
 
+const elementalToken: CardRecord = {
+  ...ashaya,
+  id: 'c-elemental-token',
+  name: 'Elemental',
+  nameLower: 'elemental',
+  typeLine: 'Token Creature — Elemental',
+  manaCost: '',
+  isToken: true,
+};
+
+const lightningElemental: CardRecord = {
+  ...ashaya,
+  id: 'c-lightning-elemental',
+  name: 'Lightning Elemental',
+  nameLower: 'lightning elemental',
+  typeLine: 'Creature — Elemental',
+  manaCost: '{3}{R}',
+  colorIdentity: ['R'],
+};
+
+const solRing: CardRecord = {
+  ...ashaya,
+  id: 'c-solring',
+  name: 'Sol Ring',
+  nameLower: 'sol ring',
+  typeLine: 'Artifact',
+  manaCost: '{1}',
+  colorIdentity: [],
+};
+
+const swords: CardRecord = {
+  ...ashaya,
+  id: 'c-swords',
+  name: 'Swords to Plowshares',
+  nameLower: 'swords to plowshares',
+  typeLine: 'Instant',
+  manaCost: '{W}',
+  colorIdentity: ['W'],
+};
+
+const BY_ID: Record<string, CardRecord> = {
+  'c-ashaya': ashaya,
+  'c-cultivate': cultivate,
+  'c-elemental-token': elementalToken,
+  'c-lightning-elemental': lightningElemental,
+  'c-solring': solRing,
+  'c-swords': swords,
+};
+
 vi.mock('../data/scryfall', () => ({
   loadNameIndex: vi.fn(async () => [
     { id: 'c-cultivate', name: 'Cultivate' },
     { id: 'c-ashaya', name: 'Ashaya, Soul of the Wild' },
+    { id: 'c-elemental-token', name: 'Elemental' },
+    { id: 'c-lightning-elemental', name: 'Lightning Elemental' },
   ]),
-  getCardById: vi.fn(async (id: string) =>
-    id === 'c-cultivate' ? cultivate : id === 'c-ashaya' ? ashaya : undefined,
+  getCardById: vi.fn(async (id: string) => BY_ID[id]),
+  findCardByName: vi.fn(async (name: string) =>
+    Object.values(BY_ID).find((c) => c.nameLower === name.toLowerCase()),
   ),
-  findCardByName: vi.fn(async () => undefined),
   findBasicLand: vi.fn(async () => undefined),
 }));
 
@@ -64,6 +115,32 @@ test('typing finds cards; picking one adds it, clears the box, bumps the counter
   expect(await screen.findByText('2 / 100')).toBeInTheDocument();
   expect(input).toHaveValue('');
   expect(screen.getByText(/added cultivate/i)).toBeInTheDocument();
+});
+
+test('token cards never appear; real cards show their type line', async () => {
+  const user = userEvent.setup();
+  render(<DeckEntrySheet deckId="deck-1" onClose={() => {}} />);
+  await user.type(screen.getByRole('searchbox'), 'elemental');
+  expect(await screen.findByRole('button', { name: /lightning elemental/i })).toBeInTheDocument();
+  expect(screen.getByText(/creature — elemental/i)).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /^elemental$/i })).not.toBeInTheDocument();
+});
+
+test('staple categories offer in-color staples for one-tap adding', async () => {
+  const user = userEvent.setup();
+  render(<DeckEntrySheet deckId="deck-1" onClose={() => {}} />);
+  await user.click(screen.getByRole('button', { name: /mana rocks/i }));
+  await user.click(await screen.findByRole('button', { name: /sol ring/i }));
+  expect(await screen.findByText('2 / 100')).toBeInTheDocument();
+  expect(useAppStore.getState().decks[0].cards[0]?.name).toBe('Sol Ring');
+});
+
+test('off-color staples stay hidden', async () => {
+  const user = userEvent.setup();
+  render(<DeckEntrySheet deckId="deck-1" onClose={() => {}} />);
+  await user.click(screen.getByRole('button', { name: /removal/i }));
+  await screen.findByRole('button', { name: /beast within/i }).catch(() => {});
+  expect(screen.queryByRole('button', { name: /swords to plowshares/i })).not.toBeInTheDocument();
 });
 
 test('enter adds the top match', async () => {

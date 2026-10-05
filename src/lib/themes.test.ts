@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { CardRecord } from './types';
-import { cardThemes, synergyScore } from './themes';
+import { cardThemes, deckThemeProfile, profileScore, synergyScore } from './themes';
 
 function card(name: string, typeLine: string, oracleText: string): CardRecord {
   return {
@@ -41,6 +41,32 @@ describe('cardThemes', () => {
 
   test('a vanilla creature has no themes', () => {
     expect(cardThemes(card('Grizzly Bears', 'Creature — Bear', ''))).toEqual([]);
+  });
+});
+
+describe('deckThemeProfile', () => {
+  test('tallies themes across the deck weighted by copy count', () => {
+    const profile = deckThemeProfile([
+      { card: card('Dwarf A', 'Creature — Dwarf', 'Whenever a Dwarf you control attacks, it gets +1/+0.'), count: 3 },
+      { card: card('Revel', 'Enchantment', 'create a Treasure token.'), count: 1 },
+      { card: card('Bears', 'Creature — Bear', ''), count: 4 },
+    ]);
+    expect(profile['tribal:Dwarf']).toBe(3);
+    expect(profile['treasure']).toBe(1);
+    expect(profile['tokens']).toBe(1);
+    expect(Object.keys(profile)).not.toContain('tribal:Bear');
+  });
+});
+
+describe('profileScore', () => {
+  test('weights matches by how much the deck cares, tribes double', () => {
+    const profile = { 'tribal:Dwarf': 5, treasure: 2 };
+    const magda = treasureCommander; // dwarf tribal + treasure text
+    const generic = card('Gilded Lotus', 'Artifact', '{T}: Add three mana of any one color.');
+    const magdaScore = profileScore(profile, magda);
+    expect(magdaScore.score).toBe(5 * 2 + 2); // tribe doubled + treasure
+    expect(magdaScore.shared).toContain('tribal:Dwarf');
+    expect(profileScore(profile, generic).score).toBe(0);
   });
 });
 
