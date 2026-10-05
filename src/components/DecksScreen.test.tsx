@@ -77,6 +77,15 @@ test('tapping a deck tile opens its editor', async () => {
   expect(screen.getByDisplayValue('Stompy')).toBeInTheDocument();
 });
 
+test('start from cards creates a commanderless deck and opens it', async () => {
+  const user = userEvent.setup();
+  render(<DecksScreen onBack={() => {}} />);
+  await user.click(screen.getByRole('button', { name: /start from cards/i }));
+  expect(useAppStore.getState().decks).toHaveLength(1);
+  expect(useAppStore.getState().decks[0].commander).toBeNull();
+  expect(screen.getByDisplayValue(/untitled deck/i)).toBeInTheDocument();
+});
+
 test('new deck flow: pick a commander, deck is created and opened', async () => {
   const user = userEvent.setup();
   render(<DecksScreen onBack={() => {}} />);

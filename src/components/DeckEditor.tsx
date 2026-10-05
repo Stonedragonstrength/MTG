@@ -11,6 +11,7 @@ import {
 } from '../lib/deck';
 import type { DeckCard } from '../lib/types';
 import { useAppStore } from '../state/store';
+import CommanderAlignSheet from './CommanderAlignSheet';
 import DeckCardSheet from './DeckCardSheet';
 import DeckEntrySheet from './DeckEntrySheet';
 import SynergySheet from './SynergySheet';
@@ -53,6 +54,7 @@ export default function DeckEditor({ deckId, onBack }: Props) {
   const [adding, setAdding] = useState(false);
   const [viewing, setViewing] = useState<DeckCard | null>(null);
   const [synergyOpen, setSynergyOpen] = useState(false);
+  const [aligning, setAligning] = useState(false);
   const [stats, setStats] = useState<DeckStats | null>(null);
 
   // Rules text lives in the card database, not the deck — fetch to count staples.
@@ -106,17 +108,28 @@ export default function DeckEditor({ deckId, onBack }: Props) {
           <img className="deck-commander-img" src={deck.commander.imageNormal} alt="" />
         )}
         <div className="deck-hero-info">
-          {deck.commander && <span className="deck-commander-name">{deck.commander.name}</span>}
+          {deck.commander ? (
+            <span className="deck-commander-name">{deck.commander.name}</span>
+          ) : (
+            <span className="deck-commander-name deck-commander-name--none">
+              No commander yet
+            </span>
+          )}
           <span className="profile-pips">
             {deck.colors.map((c) => (
               <span key={c} className={`mana-pip mana-pip--mini mana-${c}`} />
             ))}
           </span>
-          {deck.commander && (
-            <button className="ghost deck-synergy-btn" onClick={() => setSynergyOpen(true)}>
-              Goes well with…
+          <span className="deck-hero-actions">
+            {deck.commander && (
+              <button className="ghost deck-synergy-btn" onClick={() => setSynergyOpen(true)}>
+                Goes well with…
+              </button>
+            )}
+            <button className="ghost deck-synergy-btn" onClick={() => setAligning(true)}>
+              Align commander
             </button>
-          )}
+          </span>
           <CurveBar curve={manaCurve(deck.cards)} />
         </div>
       </div>
@@ -203,6 +216,7 @@ export default function DeckEditor({ deckId, onBack }: Props) {
           onClose={() => setSynergyOpen(false)}
         />
       )}
+      {aligning && <CommanderAlignSheet deckId={deck.id} onClose={() => setAligning(false)} />}
     </div>
   );
 }

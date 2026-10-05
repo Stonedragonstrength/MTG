@@ -516,3 +516,120 @@ label {
   padding: 6px 10px;
   max-width: 220px;
 }
+
+/* ---- commander alignment ---- */
+.deck-hero-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.deck-commander-name--none {
+  color: #8c8c99;
+  font-style: italic;
+}
+
+.align-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.align-row {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  align-items: center;
+  padding: 8px;
+}
+
+.align-thumb {
+  width: 58px;
+  border-radius: 5px;
+  flex: 0 0 auto;
+}
+
+.align-thumb--empty {
+  width: 58px;
+  height: 81px;
+  background: #22222a;
+  border-radius: 5px;
+  flex: 0 0 auto;
+}
+
+.align-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.align-name {
+  font-weight: 700;
+}
+
+.align-pips {
+  display: flex;
+  gap: 3px;
+}
+
+.align-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: #22222a;
+  overflow: hidden;
+}
+
+.align-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #8a6d1f, var(--accent));
+}
+
+.align-shared {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.align-theme {
+  font-size: 0.68rem;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #26262e;
+  border: 1px solid #3a3a44;
+  color: #b9b9c4;
+}
+
+.chip--owned {
+  opacity: 0.45;
+}
+
+.entry-result {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.entry-result-type {
+  font-size: 0.72rem;
+  color: #8c8c99;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.entry-staple-cats {
+  justify-content: flex-start;
+}
+
+.entry-staples {
+  justify-content: flex-start;
+}

@@ -68,6 +68,19 @@ export default function DecksScreen({ onBack }: Props) {
           <span className="profile-add-plus">+</span>
           <span className="profile-name">New deck</span>
         </button>
+        <button
+          className="profile-card profile-card--add"
+          aria-label="start from cards"
+          onClick={() => {
+            const deck = createDeck('Untitled deck');
+            void saveDeck(deck);
+            setOpenId(deck.id);
+          }}
+        >
+          <span className="profile-add-plus">🂠</span>
+          <span className="profile-name">Start from cards</span>
+          <span className="deck-tile-count">find the commander later</span>
+        </button>
       </div>
 
       {picking && (

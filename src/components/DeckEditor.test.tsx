@@ -54,6 +54,11 @@ const forest: CardRecord = {
   isBasicLand: true,
 };
 
+vi.mock('../data/synergy', () => ({
+  findCommandersFor: vi.fn(async () => []),
+  findSynergiesFor: vi.fn(async () => []),
+}));
+
 vi.mock('../data/scryfall', () => ({
   loadNameIndex: vi.fn(async () => []),
   getCardById: vi.fn(
@@ -130,6 +135,13 @@ test('off-color cards wear a warning', () => {
   useAppStore.setState({ decks: [withBolt] });
   render(<DeckEditor deckId="deck-1" onBack={() => {}} />);
   expect(screen.getByLabelText(/Lightning Bolt is outside commander colors/i)).toBeInTheDocument();
+});
+
+test('align commander opens the suggestion sheet', async () => {
+  const user = userEvent.setup();
+  render(<DeckEditor deckId="deck-1" onBack={() => {}} />);
+  await user.click(screen.getByRole('button', { name: /align commander/i }));
+  expect(await screen.findByText(/who wants to lead/i)).toBeInTheDocument();
 });
 
 test('the commander offers synergy browsing', () => {
