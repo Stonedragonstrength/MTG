@@ -337,28 +337,6 @@ button.term {
   gap: 8px;
 }
 
-/* ---- "taps for" mana picker (card detail) ---- */
-.mana-pick {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.mana-pick-pip {
-  width: 26px;
-  height: 26px;
-  min-width: 26px;
-  padding: 0;
-  border-radius: 50%;
-  border: 2px solid transparent;
-  opacity: 0.35;
-}
-
-.mana-pick-pip--on {
-  opacity: 1;
-  border-color: var(--accent);
-  box-shadow: 0 0 6px rgba(255, 255, 255, 0.25);
-}
 
 .split-label input {
   width: 64px;
@@ -582,7 +560,34 @@ button.term {
 .mana-R { background: #d4705a; }
 .mana-G { background: #6aa877; }
 .mana-C { background: #a8a8b2; }
-.mana-any { background: linear-gradient(135deg, #e8e3d0, #5a9bd4, #6aa877); }
+/* WUBRG wheel so "any" never reads as just blue at small sizes. */
+.mana-any {
+  background: conic-gradient(#e8e3d0, #5a9bd4, #9a8fa8, #d4705a, #6aa877, #e8e3d0);
+}
+
+/* ---- "taps for" mana picker (card detail) ----
+   Sits below .mana-pip so its sizing wins the cascade. */
+.mana-pick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mana-pick-pip {
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  opacity: 0.35;
+}
+
+.mana-pick-pip--on {
+  opacity: 1;
+  border-color: var(--accent);
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.25);
+}
 
 .lands-stacks {
   display: flex;
@@ -1602,10 +1607,11 @@ input[type='checkbox'] {
   }
 
   /* Dice drops to the lower right of the battlefield, clear of the hub
-     above and the land quick-adds below. */
+     above and the whole lands row below (summary line + stacks ≈128px —
+     the untap pill lives on that summary line, so 70px collided). */
   .zone-dice {
     top: auto;
-    bottom: 70px;
+    bottom: 134px;
     right: 10px;
   }
 }
@@ -1977,10 +1983,10 @@ input[type='checkbox'] {
    sizes there; the big treatment stays for portrait. */
 @media (orientation: landscape) {
   /* Dice clears the life/gauge corner the same way portrait does:
-     lower right, above the lands row. */
+     lower right, above the whole lands row (incl. the untap pill's line). */
   .zone--focused .zone-dice {
     top: auto;
-    bottom: 70px;
+    bottom: 134px;
     right: 10px;
   }
 
