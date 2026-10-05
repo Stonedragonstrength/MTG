@@ -1208,6 +1208,32 @@ input[type='checkbox'] {
   padding: 4px 10px;
 }
 
+/* A searched spell's label is tappable for rules text — keep it looking
+ * like text, with just a dotted underline as the tell. */
+.stack-list button.stack-label--card {
+  background: transparent;
+  border: none;
+  padding: 0;
+  text-align: left;
+  flex: 1;
+  text-decoration: underline dotted #8c8c99;
+  text-underline-offset: 3px;
+}
+
+.stack-categories {
+  justify-content: flex-start;
+}
+
+.stack-categories .chip {
+  padding: 4px 10px;
+  font-size: 0.75rem;
+}
+
+.stack-suggestions {
+  max-height: 220px;
+  overflow-y: auto;
+}
+
 /* ---- synergies & card links ---- */
 .card-links {
   display: flex;

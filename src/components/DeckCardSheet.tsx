@@ -20,7 +20,8 @@ export default function DeckCardSheet({ card, onClose }: Props) {
     getCardById(card.cardId).then((c) => setFull(c ?? null));
   }, [card.cardId]);
 
-  const isCommanderish = /Legendary.*Creature/.test(card.typeLine);
+  const typeLine = full?.typeLine || card.typeLine;
+  const isCommanderish = /Legendary.*Creature/.test(typeLine);
 
   return (
     <Sheet title={card.name} onClose={onClose}>
@@ -32,7 +33,7 @@ export default function DeckCardSheet({ card, onClose }: Props) {
             alt={card.name}
           />
         )}
-        <p className="type-line">{card.typeLine}</p>
+        <p className="type-line">{typeLine}</p>
         <p className="card-links">
           <a href={edhrecUrl(card.name, isCommanderish)} target="_blank" rel="noreferrer">
             EDHREC ↗
