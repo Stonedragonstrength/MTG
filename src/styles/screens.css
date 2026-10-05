@@ -720,19 +720,21 @@ label {
 .scan-video {
   width: 100%;
   display: block;
-  max-height: 46vh;
+  max-height: 62vh;
   object-fit: cover;
 }
 
+/* Generous on purpose: line matching finds the title inside the band,
+ * so aim can be casual and the card can sit at arm's length. */
 .scan-guide {
   position: absolute;
-  left: 4%;
-  right: 4%;
-  top: 43%;
-  height: 14%;
+  left: 3%;
+  right: 3%;
+  top: 30%;
+  height: 36%;
   border: 2px solid var(--accent);
-  border-radius: 8px;
-  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
+  border-radius: 10px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.4);
   pointer-events: none;
 }
 

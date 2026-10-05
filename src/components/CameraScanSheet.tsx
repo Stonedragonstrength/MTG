@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { recognizeTitle } from '../data/ocr';
+import { recognizeLines } from '../data/ocr';
 import { getCardById } from '../data/scryfall';
 import { addCard } from '../lib/deck';
-import { matchScannedTitle } from '../lib/decklist';
+import { bestScannedMatch } from '../lib/decklist';
 import { useAppStore } from '../state/store';
 import { getNameIndex } from './nameIndexCache';
 import Sheet from './Sheet';
@@ -79,28 +79,21 @@ export default function CameraScanSheet({ deckId, onClose }: Props) {
     setBusy(true);
     setGuesses([]);
     try {
-      // The on-screen guide sits across the middle: crop that band only —
-      // less text competing with the title, much better OCR.
+      // Crop the on-screen band (generous on purpose — line matching sorts
+      // the title from type/rules text) and upscale ×2: small letters from
+      // arm's length resolve far better for the OCR.
       const canvas = document.createElement('canvas');
-      const bandH = Math.round(video.videoHeight * 0.14);
-      canvas.width = video.videoWidth;
-      canvas.height = bandH;
+      const bandY = Math.round(video.videoHeight * 0.3);
+      const bandH = Math.round(video.videoHeight * 0.36);
+      canvas.width = video.videoWidth * 2;
+      canvas.height = bandH * 2;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
-      ctx.drawImage(
-        video,
-        0,
-        Math.round(video.videoHeight * 0.43),
-        video.videoWidth,
-        bandH,
-        0,
-        0,
-        canvas.width,
-        bandH,
-      );
-      const text = await recognizeTitle(canvas);
-      setLastRead(text || null);
-      const hits = matchScannedTitle(text, names);
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(video, 0, bandY, video.videoWidth, bandH, 0, 0, canvas.width, canvas.height);
+      const lines = await recognizeLines(canvas);
+      setLastRead(lines.join(' · ') || null);
+      const hits = bestScannedMatch(lines, names);
       if (auto && hits[0] && hits[0].id === lastConfirmed.current) {
         setGuesses([]);
       } else {

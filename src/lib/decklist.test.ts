@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { matchScannedTitle, parseDeckList } from './decklist';
+import { bestScannedMatch, matchScannedTitle, parseDeckList } from './decklist';
 
 describe('parseDeckList', () => {
   test('reads counts in the common formats', () => {
@@ -47,5 +47,29 @@ describe('matchScannedTitle', () => {
   test('returns nothing for garbage or tiny fragments', () => {
     expect(matchScannedTitle('~~\\//~~', names)).toEqual([]);
     expect(matchScannedTitle('Li', names)).toEqual([]);
+  });
+});
+
+describe('bestScannedMatch', () => {
+  const names = [
+    { id: 'bolt', name: 'Lightning Bolt' },
+    { id: 'sol', name: 'Sol Ring' },
+  ];
+
+  test('a wide crop full of other text still finds the title line', () => {
+    const hits = bestScannedMatch(
+      ['=== #4', 'Lightnmg Bolt', 'Instant', 'deals 3 damage to any target'],
+      names,
+    );
+    expect(hits[0]?.name).toBe('Lightning Bolt');
+  });
+
+  test('prefers the line that matches a name most cleanly', () => {
+    const hits = bestScannedMatch(['Sol Rng', 'random flavor words here'], names);
+    expect(hits[0]?.name).toBe('Sol Ring');
+  });
+
+  test('all-noise crops match nothing', () => {
+    expect(bestScannedMatch(['###', 'xq zz vv ww pp kk'], names)).toEqual([]);
   });
 });

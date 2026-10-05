@@ -65,6 +65,26 @@ function editDistance(a: string, b: string, cap: number): number {
   return prev[b.length];
 }
 
+/** A wide camera crop OCRs into several lines (title, type line, rules
+ * text). Each line tries to match a card name; the line that matches
+ * most cleanly wins, so aim doesn't have to be surgical. */
+export function bestScannedMatch(
+  lines: string[],
+  names: { id: string; name: string }[],
+): { id: string; name: string }[] {
+  let best: { hits: { id: string; name: string }[]; score: number } | null = null;
+  for (const line of lines) {
+    const hits = matchScannedTitle(line, names);
+    if (hits.length === 0) continue;
+    const cleaned = line.replace(/[^A-Za-z',\- ]+/g, ' ').replace(/\s+/g, ' ').trim();
+    // Direct fuzzy quality when available; edit-distance rescues rank
+    // beneath any direct match but can still win an all-noise field.
+    const score = Math.max(1, fuzzyScore(cleaned, hits[0].name));
+    if (!best || score > best.score) best = { hits, score };
+  }
+  return best?.hits ?? [];
+}
+
 /** Fuzzy-rescues a scanned/OCR'd title: prefix/subsequence fuzzy first,
  * then an edit-distance pass for mid-word OCR damage ("Lightnmg Bolt").
  * Nothing comes back when the text is too short or too weak to trust. */
