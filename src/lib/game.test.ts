@@ -1,15 +1,54 @@
 import { describe, expect, test } from 'vitest';
-import type { GameConfig, GameState } from './types';
+import type { CardRecord, GameConfig, GameState } from './types';
 import {
   adjustLife,
   applyCommanderDamage,
   claimInitiative,
   claimMonarch,
   createGame,
+  isCommanderLegal,
   passTurn,
   setCommanderDeaths,
   setPlayerCounter,
 } from './game';
+
+function card(typeLine: string, oracleText = ''): CardRecord {
+  return {
+    id: 'x',
+    name: 'X',
+    nameLower: 'x',
+    typeLine,
+    oracleText,
+    manaCost: '',
+    power: null,
+    toughness: null,
+    colors: [],
+    imageNormal: null,
+    imageArtCrop: null,
+    isToken: false,
+    isBasicLand: false,
+  };
+}
+
+describe('isCommanderLegal', () => {
+  test('legendary creatures qualify', () => {
+    expect(isCommanderLegal(card('Legendary Creature — Dragon'))).toBe(true);
+  });
+
+  test('ordinary creatures and legendary non-creatures do not', () => {
+    expect(isCommanderLegal(card('Creature — Dragon'))).toBe(false);
+    expect(isCommanderLegal(card('Legendary Artifact'))).toBe(false);
+    expect(isCommanderLegal(card('Basic Land — Forest'))).toBe(false);
+  });
+
+  test('cards that say they can be your commander qualify', () => {
+    expect(
+      isCommanderLegal(
+        card('Legendary Planeswalker — Teferi', 'Teferi, Temporal Archmage can be your commander.'),
+      ),
+    ).toBe(true);
+  });
+});
 
 function commanderConfig(playerCount = 4): GameConfig {
   return {

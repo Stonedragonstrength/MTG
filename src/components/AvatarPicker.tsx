@@ -9,10 +9,13 @@ interface Props {
   title: string;
   onPick: (card: CardRecord) => void;
   onClose: () => void;
+  /** Keeps only qualifying cards (e.g. commander-legal); candidates whose
+   * record can't be loaded are dropped rather than shown unverified. */
+  filter?: (card: CardRecord) => boolean;
 }
 
 /** Card search with art previews; used for avatars and commander picks. */
-export default function AvatarPicker({ title, onPick, onClose }: Props) {
+export default function AvatarPicker({ title, onPick, onClose, filter }: Props) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<{ id: string; name: string }[]>([]);
   const [previews, setPreviews] = useState<Record<string, CardRecord>>({});
@@ -25,24 +28,33 @@ export default function AvatarPicker({ title, onPick, onClose }: Props) {
   }, []);
 
   useEffect(() => {
-    setResults(searchNames(query, names.current, 12));
-  }, [query]);
-
-  useEffect(() => {
     let cancelled = false;
     (async () => {
+      // Filtering needs the full card, so cast a wider net and keep 12 hits.
+      const candidates = searchNames(query, names.current, filter ? 48 : 12);
+      const kept: { id: string; name: string }[] = [];
       const loaded: Record<string, CardRecord> = {};
-      for (const r of results) {
-        const card = await getCardById(r.id);
-        if (card) loaded[r.id] = card;
+      for (const r of candidates) {
         if (cancelled) return;
+        const card = await getCardById(r.id);
+        if (!card) {
+          if (!filter) kept.push(r);
+          continue;
+        }
+        if (filter && !filter(card)) continue;
+        loaded[r.id] = card;
+        kept.push(r);
+        if (kept.length >= 12) break;
       }
-      if (!cancelled) setPreviews(loaded);
+      if (!cancelled) {
+        setResults(kept);
+        setPreviews(loaded);
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [results]);
+  }, [query, filter]);
 
   function pick(id: string) {
     const card = previews[id];

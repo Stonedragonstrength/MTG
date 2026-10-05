@@ -20,10 +20,43 @@ const ragavan: CardRecord = {
   isBasicLand: false,
 };
 
+const impostor: CardRecord = {
+  ...ragavan,
+  id: 'r2',
+  name: 'Ragavan the Unlegendary',
+  nameLower: 'ragavan the unlegendary',
+  typeLine: 'Creature — Monkey',
+  imageNormal: 'https://img.example/impostor.jpg',
+  imageArtCrop: 'https://img.example/impostor-art.jpg',
+};
+
 vi.mock('../data/scryfall', () => ({
-  loadNameIndex: vi.fn(async () => [{ id: 'r1', name: 'Ragavan, Nimble Pilferer' }]),
-  getCardById: vi.fn(async (id: string) => (id === 'r1' ? ragavan : undefined)),
+  loadNameIndex: vi.fn(async () => [
+    { id: 'r1', name: 'Ragavan, Nimble Pilferer' },
+    { id: 'r2', name: 'Ragavan the Unlegendary' },
+  ]),
+  getCardById: vi.fn(async (id: string) =>
+    id === 'r1' ? ragavan : id === 'r2' ? impostor : undefined,
+  ),
 }));
+
+test('a filter keeps non-qualifying cards out of the grid', async () => {
+  const { isCommanderLegal } = await import('../lib/game');
+  const user = userEvent.setup();
+  render(
+    <AvatarPicker
+      title="Pick commander"
+      onPick={() => {}}
+      onClose={() => {}}
+      filter={isCommanderLegal}
+    />,
+  );
+
+  await user.type(screen.getByPlaceholderText(/search card names/i), 'ragavan');
+
+  await screen.findByAltText('Ragavan, Nimble Pilferer');
+  expect(screen.queryByText('Ragavan the Unlegendary')).not.toBeInTheDocument();
+});
 
 test('search results show art previews, and picking returns the card', async () => {
   const onPick = vi.fn();

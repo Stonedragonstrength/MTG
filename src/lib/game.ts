@@ -1,4 +1,12 @@
-import type { GameConfig, GameState, PlayerState } from './types';
+import type { CardRecord, GameConfig, GameState, PlayerState } from './types';
+
+/** Commander legality: a legendary creature, or a card whose text allows it
+ * (planeswalker commanders say "can be your commander"). */
+export function isCommanderLegal(card: CardRecord): boolean {
+  const type = card.typeLine.toLowerCase();
+  if (type.includes('legendary') && type.includes('creature')) return true;
+  return card.oracleText.toLowerCase().includes('can be your commander');
+}
 
 export function createGame(config: GameConfig, now = Date.now()): GameState {
   return {

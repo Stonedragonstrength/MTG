@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { isCommanderLegal } from '../lib/game';
 import type { CommanderEntry, PlayerProfile } from '../lib/types';
 import { useAppStore } from '../state/store';
 import AvatarPicker from './AvatarPicker';
@@ -120,6 +121,7 @@ export default function ProfileEditor({ profile, onDone }: Props) {
       {picking && (
         <AvatarPicker
           title={picking === 'avatar' ? 'Pick avatar art' : 'Pick commander'}
+          filter={picking === 'commander' ? isCommanderLegal : undefined}
           onPick={(card) => {
             if (picking === 'avatar') setAvatarUrl(card.imageArtCrop ?? card.imageNormal);
             else {
