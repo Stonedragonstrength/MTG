@@ -167,6 +167,17 @@ test('basics add with one tap and show a live count', async () => {
   expect(screen.getByText('×2')).toBeInTheDocument();
 });
 
+test('paste list and scan open their sheets; scanning explains itself without a camera', async () => {
+  const user = userEvent.setup();
+  render(<DeckEntrySheet deckId="deck-1" onClose={() => {}} />);
+  await user.click(screen.getByRole('button', { name: /paste list/i }));
+  expect(screen.getByRole('textbox')).toBeInTheDocument();
+  const closes = screen.getAllByRole('button', { name: /close/i });
+  await user.click(closes[closes.length - 1]);
+  await user.click(screen.getByRole('button', { name: /scan/i }));
+  expect(await screen.findByText(/no camera here/i)).toBeInTheDocument();
+});
+
 test('enter adds the top match', async () => {
   const user = userEvent.setup();
   render(<DeckEntrySheet deckId="deck-1" onClose={() => {}} />);

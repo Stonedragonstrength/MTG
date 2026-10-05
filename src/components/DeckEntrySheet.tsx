@@ -5,7 +5,9 @@ import { searchNames } from '../lib/fuzzy';
 import { STAPLE_CATEGORIES } from '../lib/staples';
 import type { CardRecord } from '../lib/types';
 import { useAppStore } from '../state/store';
+import CameraScanSheet from './CameraScanSheet';
 import { getNameIndex } from './nameIndexCache';
+import PasteListSheet from './PasteListSheet';
 import Sheet from './Sheet';
 
 const BASICS: { name: string; color: string }[] = [
@@ -80,6 +82,8 @@ export default function DeckEntrySheet({ deckId, onClose }: Props) {
   const [lastAdded, setLastAdded] = useState<string | null>(null);
   const [staplesOpen, setStaplesOpen] = useState<string | null>(null);
   const [staples, setStaples] = useState<CardRecord[]>([]);
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [scanOpen, setScanOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -165,6 +169,14 @@ export default function DeckEntrySheet({ deckId, onClose }: Props) {
       <div className="entry-status">
         <span className="deck-size">{deckSize(deck)} / 100</span>
         {lastAdded && <span className="entry-last">Added {lastAdded}</span>}
+        <span className="entry-tools">
+          <button className="ghost entry-tool" onClick={() => setPasteOpen(true)}>
+            📋 Paste list
+          </button>
+          <button className="ghost entry-tool" onClick={() => setScanOpen(true)}>
+            📷 Scan
+          </button>
+        </span>
       </div>
       <input
         ref={inputRef}
@@ -240,6 +252,8 @@ export default function DeckEntrySheet({ deckId, onClose }: Props) {
           )}
         </>
       )}
+      {pasteOpen && <PasteListSheet deckId={deck.id} onClose={() => setPasteOpen(false)} />}
+      {scanOpen && <CameraScanSheet deckId={deck.id} onClose={() => setScanOpen(false)} />}
     </Sheet>
   );
 }
