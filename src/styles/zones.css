@@ -877,6 +877,29 @@ input[type='range'] {
   padding: 0 2px;
 }
 
+/* Count bubble on the card itself — shown only on collapsed players' minis,
+   where the controls row (and its ×N) is hidden entirely. */
+.thumb-count {
+  display: none;
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: rgba(0, 0, 0, 0.8);
+  border: 1px solid rgba(200, 168, 75, 0.5);
+  border-radius: 999px;
+  padding: 0 4px;
+  font-size: 0.6rem;
+  font-weight: 700;
+}
+
+.focus-mode .zone:not(.zone--focused) .thumb-count {
+  display: block;
+}
+
+.focus-mode .zone:not(.zone--focused) .count-controls {
+  display: none;
+}
+
 /* New stacks pop onto the battlefield. */
 .board-item {
   animation: spawn-pop 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);

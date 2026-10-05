@@ -47,6 +47,7 @@ function TokenCard({
         </span>
       )}
       {tapped > 0 && <span className="tapped-badge">{tapped}⤵</span>}
+      {item.count > 1 && <span className="thumb-count">×{item.count}</span>}
     </button>
   );
 }

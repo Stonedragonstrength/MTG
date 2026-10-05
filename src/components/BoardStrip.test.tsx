@@ -68,8 +68,8 @@ async function sleep(ms: number) {
 }
 
 test('shows the count badge and computed P/T', () => {
-  render(<BoardStrip playerIdx={0} />);
-  expect(screen.getByText('×8')).toBeInTheDocument();
+  const { container } = render(<BoardStrip playerIdx={0} />);
+  expect(container.querySelector('.count-controls .count-badge')).toHaveTextContent('×8');
   expect(screen.getByText('3/3')).toBeInTheDocument();
 });
 
@@ -113,6 +113,23 @@ test('holding a token card opens details instead of tapping', async () => {
 
   expect(tapItem).not.toHaveBeenCalled();
   expect(await screen.findByRole('button', { name: /one more copy/i })).toBeInTheDocument();
+});
+
+test('the card carries a count bubble for collapsed-player minis', () => {
+  const { container } = render(<BoardStrip playerIdx={0} />);
+  const bubble = container.querySelector('.thumb .thumb-count');
+  expect(bubble).not.toBeNull();
+  expect(bubble!.textContent).toBe('×8');
+});
+
+test('single copies skip the count bubble', () => {
+  const game = useAppStore.getState().game!;
+  const lastOne = { ...soldiers, count: 1 };
+  useAppStore.setState({
+    game: { ...game, players: [{ ...game.players[0], board: [lastOne] }, game.players[1]] },
+  });
+  const { container } = render(<BoardStrip playerIdx={0} />);
+  expect(container.querySelector('.thumb .thumb-count')).toBeNull();
 });
 
 test('a partially tapped stack shows how many are tapped', () => {
