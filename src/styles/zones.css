@@ -1808,21 +1808,24 @@ input[type='checkbox'] {
   flex: 0 0 auto;
 }
 
+/* One slender row of pills; the fill-to-21 bar is an underline. */
 .cmd-gauges {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
 }
 
 .cmd-gauge {
   display: grid;
-  grid-template-columns: 34px 44px 18px;
+  grid-template-columns: auto auto;
   align-items: center;
-  gap: 5px;
+  gap: 2px 4px;
   background: transparent;
   border: none;
-  padding: 1px 4px;
-  font-size: 0.6rem;
+  padding: 2px 5px;
+  font-size: 0.55rem;
   color: #9a9aa5;
   border-radius: 6px;
 }
@@ -1841,7 +1844,10 @@ input[type='checkbox'] {
 }
 
 .cmd-gauge-bar {
-  height: 5px;
+  grid-column: 1 / -1;
+  width: 100%;
+  min-width: 30px;
+  height: 3px;
   border-radius: 3px;
   background: #2c2c35;
   overflow: hidden;
@@ -1881,22 +1887,28 @@ input[type='checkbox'] {
 }
 
 .focus-mode .zone:not(.zone--focused) .cmd-gauge {
-  grid-template-columns: 26px 32px 14px;
-  font-size: 0.55rem;
+  padding: 1px 4px;
+  font-size: 0.5rem;
+}
+
+.focus-mode .zone:not(.zone--focused) .cmd-gauge-bar {
+  min-width: 22px;
+  height: 2px;
 }
 
 @media (min-width: 700px) {
   .zone--focused .cmd-gauge {
-    grid-template-columns: 42px 58px 22px;
-    font-size: 0.7rem;
+    font-size: 0.62rem;
+    padding: 2px 6px;
   }
 
   .zone--focused .cmd-gauge-bar {
-    height: 7px;
+    min-width: 40px;
+    height: 4px;
   }
 
   .zone--focused .cmd-gauge-value {
-    font-size: 0.85rem;
+    font-size: 0.78rem;
   }
 }
 
@@ -1921,6 +1933,14 @@ input[type='checkbox'] {
 /* Landscape has less vertical room: battlefield cards use the moderate
    sizes there; the big treatment stays for portrait. */
 @media (orientation: landscape) {
+  /* Dice clears the life/gauge corner the same way portrait does:
+     lower right, above the lands row. */
+  .zone--focused .zone-dice {
+    top: auto;
+    bottom: 70px;
+    right: 10px;
+  }
+
   .zone--focused .board-strip--sm .thumb,
   .zone--focused .board-strip--sm .add-tile:not(.add-tile--centered) {
     width: 58px;

@@ -35,10 +35,10 @@ function Gauge({
       {...press}
     >
       <span className="cmd-gauge-name">{attackerName.slice(0, 4)}</span>
+      <span className="cmd-gauge-value">{damage}</span>
       <span className="cmd-gauge-bar">
         <i style={{ width: `${pct}%` }} />
       </span>
-      <span className="cmd-gauge-value">{damage}</span>
     </button>
   );
 }
