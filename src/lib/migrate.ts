@@ -1,4 +1,36 @@
-import type { GameState } from './types';
+import type { CardInstance, FeedEntry, GameState, SeatCards } from './types';
+
+function validInstance(c: unknown): c is CardInstance {
+  const i = c as CardInstance | null;
+  return (
+    !!i && typeof i.iid === 'string' && typeof i.cardId === 'string' && typeof i.name === 'string'
+  );
+}
+
+const ZONES: (keyof Pick<
+  SeatCards,
+  'library' | 'hand' | 'battlefield' | 'graveyard' | 'exile' | 'command'
+>)[] = ['library', 'hand', 'battlefield', 'graveyard', 'exile', 'command'];
+
+function validSeatCards(v: unknown): boolean {
+  const s = v as SeatCards | null;
+  if (!s || typeof s !== 'object') return false;
+  if (typeof s.mulligans !== 'number' && s.mulligans !== undefined) return false;
+  return ZONES.every((z) => {
+    const arr = (s as Record<string, unknown>)[z];
+    return arr === undefined || (Array.isArray(arr) && arr.every(validInstance));
+  });
+}
+
+function validFeed(v: unknown): boolean {
+  return (
+    Array.isArray(v) &&
+    v.every(
+      (e: FeedEntry) =>
+        !!e && typeof e.id === 'string' && typeof e.t === 'number' && typeof e.text === 'string',
+    )
+  );
+}
 
 /** Checks every field the components dereference at render time; anything
  * less and a half-corrupted save (or a malformed remote state) becomes a
@@ -26,7 +58,9 @@ export function isValidGame(v: unknown): v is GameState {
     Number.isInteger(g.activePlayerIndex) &&
     g.activePlayerIndex >= 0 &&
     g.activePlayerIndex < g.players.length &&
-    typeof g.turnNumber === 'number'
+    typeof g.turnNumber === 'number' &&
+    g.players.every((p) => p.cards === undefined || validSeatCards(p.cards)) &&
+    (g.feed === undefined || validFeed(g.feed))
   );
 }
 
@@ -37,11 +71,26 @@ export function migrateGame(saved: GameState): GameState {
     monarchIdx: saved.monarchIdx ?? null,
     initiativeIdx: saved.initiativeIdx ?? null,
     turnStartedAt: saved.turnStartedAt ?? Date.now(),
+    config: { ...saved.config, mode: saved.config.mode ?? 'tracker' },
     players: saved.players.map((p) => ({
       ...p,
       counters: p.counters ?? {},
       commanderDeaths: p.commanderDeaths ?? 0,
       board: p.board.map((item) => ({ ...item, zone: item.zone ?? 'board' })),
+      cards:
+        p.cards === undefined
+          ? undefined // a tracker seat STAYS a tracker seat
+          : {
+              mulligans: 0,
+              deckName: '',
+              ...p.cards,
+              library: p.cards.library ?? [],
+              hand: p.cards.hand ?? [],
+              battlefield: p.cards.battlefield ?? [],
+              graveyard: p.cards.graveyard ?? [],
+              exile: p.cards.exile ?? [],
+              command: p.cards.command ?? [],
+            },
     })),
   };
 }

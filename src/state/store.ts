@@ -3,6 +3,7 @@ import { pokeSync } from '../data/cloud';
 import { getDb, kvDelete, kvGet, kvSet } from '../data/db';
 import * as tableSync from '../data/onlineTable';
 import type { SyncOpts, TableStatus } from '../data/onlineTable';
+import * as cardsLib from '../lib/cards';
 import { isValidGame, migrateGame } from '../lib/migrate';
 import { DEFAULT_SETTINGS, getSettings, saveSettings, type Settings } from '../data/settings';
 import * as boardLib from '../lib/board';
@@ -11,7 +12,9 @@ import { playDefeat, playLifeTick, playTurnChime } from '../lib/sound';
 import type {
   BoardItem,
   CardRecord,
+  CardZone,
   Deck,
+  FeedEntry,
   GameConfig,
   GameState,
   GarageCard,
@@ -42,6 +45,26 @@ export interface AppStore {
   joinOnlineGame(code: string): Promise<string | null>;
   leaveOnlineTable(): void;
   setMySeat(seat: number | null): void;
+  // ---- cards mode ----
+  seedSeatFromDeck(seat: number, deck: Deck, seed?: number): void;
+  drawCards(seat: number, n: number): void;
+  playCard(seat: number, iid: string): Promise<void>;
+  tapVirtualCard(seat: number, iid: string): void;
+  setVirtualCounter(seat: number, iid: string, name: string, value: number): void;
+  moveVirtualCard(
+    seat: number,
+    iid: string,
+    from: CardZone,
+    to: CardZone,
+    opts?: { pos?: 'top' | 'bottom'; row?: 'front' | 'lands' },
+  ): void;
+  millCards(seat: number, n: number): void;
+  shuffleSeat(seat: number): void;
+  mulliganSeat(seat: number): void;
+  keepHand(seat: number, bottomIids: string[]): void;
+  castCommander(seat: number): void;
+  commanderDiedAction(seat: number, iid: string): void;
+  peekNotice(seat: number): void;
   undo(): void;
   canUndo(): boolean;
   adjustLife(playerIdx: number, delta: number): void;
@@ -116,6 +139,19 @@ export function createAppStore() {
       appendLog(lines);
     };
 
+    // Feed entries reach the local log exactly once, whether they were
+    // authored here or arrived from a peer.
+    const seenFeedIds = new Set<string>();
+    const mergeFeedToLog = (g: GameState) => {
+      const lines: string[] = [];
+      for (const e of g.feed ?? []) {
+        if (seenFeedIds.has(e.id)) continue;
+        seenFeedIds.add(e.id);
+        lines.push(e.text);
+      }
+      appendLog(lines);
+    };
+
     const mutateGame = (
       fn: (g: GameState) => GameState,
       describe?: (prev: GameState, next: GameState) => string | null,
@@ -126,6 +162,11 @@ export function createAppStore() {
       if (get().online?.status.kind === 'stale-build') return; // refresh first
       const next = fn(game);
       if (next === game) return;
+      // Tripwire: the server refuses >512KB; refuse earlier and louder.
+      if (next.config.mode === 'cards' && JSON.stringify(next).length > 400_000) {
+        appendLog(['That change was too large to sync and was refused']);
+        return;
+      }
       history = [...history.slice(-(HISTORY_CAP - 1)), game];
       set({ game: next });
       persistGame(next);
@@ -133,7 +174,30 @@ export function createAppStore() {
 
       const described = describe?.(game, next);
       if (described) appendLog([described]);
+      mergeFeedToLog(next);
       announceDefeats(game, next);
+    };
+
+    /** Card ops: feed line composed at act time, replay-safe, nap-proof. */
+    const DAY_MS = 24 * 3600_000;
+    const seatName = (g: GameState, seat: number) => g.config.profiles[seat]?.name ?? '?';
+    const feedEntry = (text: string): FeedEntry => ({
+      id: `f${cardsLib.newIid()}`,
+      t: Date.now(),
+      text,
+    });
+    const cardMutate = (
+      reducer: (g: GameState) => GameState,
+      feedText: string | null,
+      guard?: SyncOpts['guard'],
+    ) => {
+      const entry = feedText ? feedEntry(feedText) : null;
+      const fn = (g: GameState) => {
+        const after = reducer(g);
+        if (after === g) return g;
+        return entry ? cardsLib.appendFeed(after, entry) : after;
+      };
+      mutateGame(fn, undefined, { guard: guard ?? (() => true), maxAgeMs: DAY_MS });
     };
 
     return {
@@ -188,6 +252,7 @@ export function createAppStore() {
             history = []; // undo never crosses a remote write
             set({ game: g });
             persistGame(g);
+            mergeFeedToLog(g); // peers' card actions reach this device's log
             if (prev) announceDefeats(prev, g);
           },
           onEnded: () => {
@@ -276,6 +341,176 @@ export function createAppStore() {
         if (o) set({ online: { ...o, mySeat: seat } });
       },
 
+      seedSeatFromDeck(seat, deck, seed = Math.floor(Math.random() * 2 ** 31)) {
+        const g = get().game;
+        if (!g) return;
+        const cards = cardsLib.buildSeatCards(deck, seed);
+        cardMutate(
+          (base) => cardsLib.seedSeat(base, seat, cards),
+          `${seatName(g, seat)} sits down with ${deck.name} (${cards.library.length + cards.hand.length} cards)`,
+          (base) => !base.players[seat]?.cards, // a seated seat never reseeds
+        );
+      },
+
+      drawCards(seat, n) {
+        const g = get().game;
+        const lib = g?.players[seat]?.cards?.library;
+        if (!g || !lib || lib.length === 0) return;
+        const iids = lib.slice(0, Math.min(n, lib.length)).map((c) => c.iid);
+        const actor = seatName(g, get().online?.mySeat ?? seat);
+        const owner = seatName(g, seat);
+        const text =
+          actor === owner
+            ? `${owner} draws ${iids.length}`
+            : `${actor} drew ${iids.length} for ${owner}`;
+        cardMutate(
+          (base) => cardsLib.draw(base, seat, iids),
+          text,
+          (base) => {
+            const baseLib = base.players[seat]?.cards?.library;
+            return !!baseLib && iids.every((i) => baseLib.some((c) => c.iid === i));
+          },
+        );
+      },
+
+      async playCard(seat, iid) {
+        const g = get().game;
+        const card = g?.players[seat]?.cards?.hand.find((c) => c.iid === iid);
+        if (!g || !card) return;
+        // Route by type: lands to the shelf, instants/sorceries straight to
+        // the graveyard ("cast"), everything else to the front row.
+        const record = await import('../data/scryfall').then((m) =>
+          m.getCardById(card.cardId).catch(() => undefined),
+        );
+        const typeLine = record?.typeLine ?? '';
+        const row: 'front' | 'lands' = /Land/.test(typeLine) ? 'lands' : 'front';
+        const isSpell = /Instant|Sorcery/.test(typeLine) && !/Land|Creature/.test(typeLine);
+        const verb = isSpell ? 'casts' : 'plays';
+        cardMutate(
+          (base) =>
+            isSpell
+              ? cardsLib.moveCard(base, seat, iid, 'hand', 'graveyard')
+              : cardsLib.moveCard(base, seat, iid, 'hand', 'battlefield', { row }),
+          `${seatName(g, seat)} ${verb} ${card.name}`,
+          (base) => !!base.players[seat]?.cards?.hand.some((c) => c.iid === iid),
+        );
+      },
+
+      tapVirtualCard(seat, iid) {
+        cardMutate(
+          (base) => cardsLib.tapCard(base, seat, iid),
+          null,
+          (base) => !!base.players[seat]?.cards?.battlefield.some((c) => c.iid === iid),
+        );
+      },
+
+      setVirtualCounter(seat, iid, name, value) {
+        cardMutate(
+          (base) => cardsLib.setCardCounter(base, seat, iid, name, value),
+          null,
+          (base) => !!base.players[seat]?.cards?.battlefield.some((c) => c.iid === iid),
+        );
+      },
+
+      moveVirtualCard(seat, iid, from, to, opts) {
+        const g = get().game;
+        const card = g?.players[seat]?.cards?.[from].find((c) => c.iid === iid);
+        if (!g || !card) return;
+        const hiddenTo = to === 'library' || to === 'hand';
+        const text = hiddenTo
+          ? `${seatName(g, seat)} puts a card ${to === 'hand' ? 'in hand' : opts?.pos === 'bottom' ? 'on the bottom' : 'on top'}`
+          : `${seatName(g, seat)}: ${card.name} → ${to}`;
+        cardMutate(
+          (base) => cardsLib.moveCard(base, seat, iid, from, to, opts),
+          text,
+          (base) => !!base.players[seat]?.cards?.[from].some((c) => c.iid === iid),
+        );
+      },
+
+      millCards(seat, n) {
+        const g = get().game;
+        const lib = g?.players[seat]?.cards?.library;
+        if (!g || !lib || lib.length === 0) return;
+        const iids = lib.slice(0, Math.min(n, lib.length)).map((c) => c.iid);
+        cardMutate(
+          (base) => cardsLib.millN(base, seat, iids),
+          `${seatName(g, seat)} mills ${iids.length}`,
+          (base) => {
+            const baseLib = base.players[seat]?.cards?.library;
+            return !!baseLib && iids.every((i) => baseLib.some((c) => c.iid === i));
+          },
+        );
+      },
+
+      shuffleSeat(seat) {
+        const g = get().game;
+        if (!g) return;
+        const seed = Math.floor(Math.random() * 2 ** 31);
+        cardMutate(
+          (base) => cardsLib.shuffleLibrary(base, seat, seed),
+          `${seatName(g, seat)} shuffles`,
+        );
+      },
+
+      mulliganSeat(seat) {
+        const g = get().game;
+        if (!g) return;
+        const seed = Math.floor(Math.random() * 2 ** 31);
+        cardMutate(
+          (base) => cardsLib.mulligan(base, seat, seed),
+          `${seatName(g, seat)} mulligans`,
+        );
+      },
+
+      keepHand(seat, bottomIids) {
+        const g = get().game;
+        if (!g) return;
+        cardMutate(
+          (base) => cardsLib.bottomCards(base, seat, bottomIids),
+          bottomIids.length > 0
+            ? `${seatName(g, seat)} keeps, bottoms ${bottomIids.length}`
+            : `${seatName(g, seat)} keeps`,
+          (base) => {
+            const hand = base.players[seat]?.cards?.hand;
+            return !!hand && bottomIids.every((i) => hand.some((c) => c.iid === i));
+          },
+        );
+      },
+
+      castCommander(seat) {
+        const g = get().game;
+        const cmd = g?.players[seat]?.cards?.command[0];
+        if (!g || !cmd) return;
+        const tax = (g.players[seat]?.commanderDeaths ?? 0) * 2;
+        cardMutate(
+          (base) =>
+            cardsLib.moveCard(base, seat, cmd.iid, 'command', 'battlefield', { row: 'front' }),
+          `${seatName(g, seat)} casts ${cmd.name}${tax > 0 ? ` (tax +${tax})` : ''}`,
+          (base) => !!base.players[seat]?.cards?.command.some((c) => c.iid === cmd.iid),
+        );
+      },
+
+      commanderDiedAction(seat, iid) {
+        const g = get().game;
+        const card = g?.players[seat]?.cards?.battlefield.find((c) => c.iid === iid);
+        if (!g || !card) return;
+        cardMutate(
+          (base) => cardsLib.commanderDied(base, seat, iid),
+          `${card.name} returns to command (+2 tax next cast)`,
+          (base) => !!base.players[seat]?.cards?.battlefield.some((c) => c.iid === iid),
+        );
+      },
+
+      peekNotice(seat) {
+        const g = get().game;
+        if (!g) return;
+        const actor = seatName(g, get().online?.mySeat ?? seat);
+        cardMutate(
+          (base) => ({ ...base }), // feed-only op: the entry is the payload
+          `${actor} looked at ${seatName(g, seat)}'s hand`,
+        );
+      },
+
       endGame() {
         // Online: ending on any device ends it for everyone (shared-tablet model).
         if (get().online) {
@@ -326,8 +561,10 @@ export function createAppStore() {
         mutateGame(
           (g) => {
             const next = gameLib.passTurn(g);
-            // The incoming player's untap step readies all their permanents.
-            return boardLib.untapAll(next, next.activePlayerIndex);
+            // The incoming player's untap step readies all their permanents —
+            // token stacks and virtual cards alike.
+            const readied = boardLib.untapAll(next, next.activePlayerIndex);
+            return cardsLib.untapAllCards(readied, readied.activePlayerIndex);
           },
           (_prev, next) => `Turn ${next.turnNumber}: ${playerName(next, next.activePlayerIndex)}`,
           {
@@ -345,7 +582,7 @@ export function createAppStore() {
 
       untapAll(playerIdx) {
         mutateGame(
-          (g) => boardLib.untapAll(g, playerIdx),
+          (g) => cardsLib.untapAllCards(boardLib.untapAll(g, playerIdx), playerIdx),
           (prev) => `${playerName(prev, playerIdx)}: untaps`,
         );
       },

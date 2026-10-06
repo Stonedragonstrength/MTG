@@ -60,6 +60,7 @@ export default function GarageScreen({ onBack }: { onBack: () => void }) {
   const setGarageCount = useAppStore((s) => s.setGarageCount);
   const [filter, setFilter] = useState('');
   const [groupBy, setGroupBy] = useState<GroupBy>('type');
+  const [sortBy, setSortBy] = useState<'az' | 'cost'>('az');
   const [colorSel, setColorSel] = useState<ManaColor | null>(null);
   const [viewing, setViewing] = useState<GarageCard | null>(null);
   const [enriched, setEnriched] = useState<Record<string, Enrich>>({});
@@ -137,13 +138,19 @@ export default function GarageScreen({ onBack }: { onBack: () => void }) {
           : groupBy === 'cost'
             ? [...Array.from({ length: 7 }, (_, i) => `${i} mana`), '7+ mana', 'Lands']
             : ['All cards'];
+    // Cost is a standing second axis: within every section, either
+    // alphabet or mana value decides the shelf order.
+    const byCost = (a: GarageCard, b: GarageCard) =>
+      (enriched[a.cardId]?.mv ?? 99) - (enriched[b.cardId]?.mv ?? 99) ||
+      a.name.localeCompare(b.name);
+    const byName = (a: GarageCard, b: GarageCard) => a.name.localeCompare(b.name);
     return order
       .filter((label) => buckets.has(label))
       .map((label) => ({
         label,
-        cards: [...buckets.get(label)!].sort((a, b) => a.name.localeCompare(b.name)),
+        cards: [...buckets.get(label)!].sort(sortBy === 'cost' ? byCost : byName),
       }));
-  }, [shown, groupBy, enriched]);
+  }, [shown, groupBy, enriched, sortBy]);
 
   return (
     <div className="screen deck-editor curation">
@@ -177,6 +184,24 @@ export default function GarageScreen({ onBack }: { onBack: () => void }) {
               {g.label}
             </button>
           ))}
+        </div>
+        <div className="chip-row curation-groups" aria-label="sort inside groups">
+          <button
+            className={`chip${sortBy === 'az' ? ' chip--recent' : ''}`}
+            aria-label="sort alphabetically"
+            aria-pressed={sortBy === 'az'}
+            onClick={() => setSortBy('az')}
+          >
+            A–Z
+          </button>
+          <button
+            className={`chip${sortBy === 'cost' ? ' chip--recent' : ''}`}
+            aria-label="sort by cost"
+            aria-pressed={sortBy === 'cost'}
+            onClick={() => setSortBy('cost')}
+          >
+            By cost
+          </button>
         </div>
         <div className="mana-pick" aria-label="filter by color">
           {MANA_COLORS.map((c) => (

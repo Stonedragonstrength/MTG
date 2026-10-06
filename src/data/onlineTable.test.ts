@@ -153,6 +153,27 @@ describe('push loop', () => {
     expect(f.hooks.notice).toHaveBeenCalled();
   });
 
+  test('card ops with a long maxAgeMs survive rebases that kill tracker ops', async () => {
+    const g = freshGame();
+    const f = setup(g);
+    await hostTable(g);
+    const t0 = Date.now();
+    const nowSpy = vi.spyOn(deps, 'now');
+    nowSpy.mockReturnValue(t0);
+    onLocalMutation((s) => adjustLife(s, 0, -1), g); // tracker op: 120s rule
+    onLocalMutation((s) => adjustLife(s, 1, -2), g, { maxAgeMs: 24 * 3600_000 }); // card-style op
+    nowSpy.mockReturnValue(t0 + 7200_000); // two hours asleep
+    const serverState = freshGame();
+    (deps.rpcSave as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ ok: false, gone: false, ended: false, version: 7, state: serverState, app_schema: GAME_SCHEMA })
+      .mockResolvedValueOnce({ ok: true, version: 8 });
+    await flushDebounce();
+    const retry = (deps.rpcSave as ReturnType<typeof vi.fn>).mock.calls[1];
+    const merged = retry[2] as GameState;
+    expect(merged.players[0].life).toBe(40); // tracker op aged out
+    expect(merged.players[1].life).toBe(38); // card op survived the sleep
+  });
+
   test('ops older than 120s are dropped on rebase, younger ones survive', async () => {
     const g = freshGame();
     const f = setup(g);

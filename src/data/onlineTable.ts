@@ -4,8 +4,9 @@ import { getSupabase } from './cloud';
 import { kvDelete, kvGet, kvSet } from './db';
 
 /** Bump ONLY when GameState gains a load-bearing field — peers compare it
- * to decide who is running a stale build at a live table. */
-export const GAME_SCHEMA = 1;
+ * to decide who is running a stale build at a live table.
+ * 2: cards mode (SeatCards zones, feed ring). */
+export const GAME_SCHEMA = 2;
 
 export type TableStatus =
   | { kind: 'connecting' }
@@ -26,9 +27,12 @@ export interface TableHooks {
 }
 
 export interface SyncOpts {
-  /** Replay gate on rebase: false drops the op when the base moved.
-   * Only passTurn / claimMonarch / claimInitiative pass one. */
+  /** Replay gate on rebase: false drops the op when the base moved. */
   guard?: (base: GameState, orig: GameState) => boolean;
+  /** How long this op may wait out an offline stretch before a rebase
+   * drops it. Tracker taps keep the 120s default; card ops pass the
+   * table's lifetime — a player's seen draws must survive a nap. */
+  maxAgeMs?: number;
 }
 
 interface PendingOp {
@@ -37,6 +41,7 @@ interface PendingOp {
   guard: (base: GameState, orig: GameState) => boolean;
   isUndo: boolean;
   queuedAt: number; // deps.now() — Date-based; performance.now can freeze in suspend
+  maxAgeMs: number;
 }
 
 interface SaveResult {
@@ -335,6 +340,7 @@ export function onLocalMutation(
     guard: opts?.guard ?? (() => true),
     isUndo: false,
     queuedAt: deps.now(),
+    maxAgeMs: opts?.maxAgeMs ?? STALE_OPS_MS,
   });
   payloadRebuilt = true;
   if (!maxWaitTimer) {
@@ -356,6 +362,7 @@ export function onLocalUndo(snapshot: GameState): void {
       guard: () => false, // an undo is never replayed onto a moved table
       isUndo: true,
       queuedAt: deps.now(),
+      maxAgeMs: STALE_OPS_MS,
     },
   ];
   payloadRebuilt = true;
@@ -464,7 +471,7 @@ async function push(): Promise<void> {
       const hadUndo = pendingOps.some((p) => p.isUndo);
       const now = deps.now();
       const survivors = pendingOps.filter(
-        (p) => !p.isUndo && now - p.queuedAt < STALE_OPS_MS && p.guard(base, p.orig),
+        (p) => !p.isUndo && now - p.queuedAt < p.maxAgeMs && p.guard(base, p.orig),
       );
       const droppedOther = pendingOps.filter((p) => !p.isUndo).length - survivors.length;
       noticeDrops(hadUndo, droppedOther);
@@ -553,7 +560,7 @@ async function reconcile(): Promise<void> {
     if (r.version > appliedVersion) {
       if (pendingOps.length > 0) {
         const now = deps.now();
-        const kept = pendingOps.filter((p) => p.isUndo || now - p.queuedAt < STALE_OPS_MS);
+        const kept = pendingOps.filter((p) => p.isUndo || now - p.queuedAt < p.maxAgeMs);
         if (kept.length < pendingOps.length)
           hooks.notice('Table moved on while this device was away');
         pendingOps = kept;

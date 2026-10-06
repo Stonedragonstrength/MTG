@@ -9,6 +9,7 @@ const records: Record<string, Partial<CardRecord>> = {
   bolt: { colorIdentity: ['R'], manaCost: '{R}' },
   sol: { colorIdentity: [], manaCost: '{1}' },
   elves: { colorIdentity: ['G'], manaCost: '{G}' },
+  hoof: { colorIdentity: ['G'], manaCost: '{5}{G}{G}{G}' },
 };
 
 vi.mock('../data/scryfall', () => ({
@@ -56,6 +57,7 @@ beforeEach(() => {
       row('bolt', 'Lightning Bolt', 'Instant', 4),
       row('sol', 'Sol Ring', 'Artifact', 2),
       row('elves', 'Llanowar Elves', 'Creature — Elf Druid', 1),
+      row('hoof', 'Craterhoof Behemoth', 'Creature — Beast', 1),
     ],
     setGarageCount: vi.fn(async () => {}),
   });
@@ -63,7 +65,7 @@ beforeEach(() => {
 
 test('shows totals and full card art grouped by type', () => {
   render(<GarageScreen onBack={() => {}} />);
-  expect(screen.getByText(/7 cards · 3 unique/i)).toBeInTheDocument();
+  expect(screen.getByText(/8 cards · 4 unique/i)).toBeInTheDocument();
   expect(screen.getByText('Creatures')).toBeInTheDocument();
   const art = screen.getByRole('img', { name: 'Lightning Bolt' });
   expect(art).toHaveAttribute('src', 'https://img.example/bolt.jpg');
@@ -90,6 +92,26 @@ test('grouping by cost buckets on mana value', async () => {
   render(<GarageScreen onBack={() => {}} />);
   await user.click(screen.getByRole('button', { name: /group by cost/i }));
   expect(await screen.findByText('1 mana')).toBeInTheDocument();
+});
+
+test('cost works as a second axis inside any grouping', async () => {
+  const user = userEvent.setup();
+  const { container } = render(<GarageScreen onBack={() => {}} />);
+  // Alphabetical default: Craterhoof before Llanowar inside Creatures.
+  await screen.findByRole('img', { name: 'Craterhoof Behemoth' });
+  const namesBefore = [...container.querySelectorAll('.curation-card img')].map((i) =>
+    i.getAttribute('alt'),
+  );
+  expect(namesBefore.indexOf('Craterhoof Behemoth')).toBeLessThan(
+    namesBefore.indexOf('Llanowar Elves'),
+  );
+  await user.click(screen.getByRole('button', { name: /sort by cost/i }));
+  const namesAfter = [...container.querySelectorAll('.curation-card img')].map((i) =>
+    i.getAttribute('alt'),
+  );
+  expect(namesAfter.indexOf('Llanowar Elves')).toBeLessThan(
+    namesAfter.indexOf('Craterhoof Behemoth'),
+  ); // 1-drop before 8-drop within the same section
 });
 
 test('steppers adjust counts through the store', async () => {

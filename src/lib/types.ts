@@ -21,6 +21,40 @@ export interface GameConfig {
   startingLife: number;
   commanderDamageThreshold: number;
   profiles: PlayerProfile[];
+  mode?: 'tracker' | 'cards'; // absent = 'tracker' (every pre-cards save)
+}
+
+export type CardZone = 'library' | 'hand' | 'battlefield' | 'graveyard' | 'exile' | 'command';
+
+/** One physical card from a deck. It lives in exactly one SeatCards array —
+ * the array IS the zone, the index IS the pile order (0 = top). Reducers
+ * delete tapped/counters/row on zone exit and never write defaults (wire size). */
+export interface CardInstance {
+  iid: string; // per-game instance id
+  cardId: string; // local card-DB id; resolved via getCardById
+  name: string; // feed text + findCardByName fallback (printing drift)
+  tapped?: boolean; // battlefield only; omitted = untapped (per CARD)
+  counters?: Record<string, number>; // battlefield only
+  row?: 'front' | 'lands'; // battlefield shelf
+}
+
+export interface SeatCards {
+  library: CardInstance[]; // hidden by UI contract; index 0 = top
+  hand: CardInstance[]; // hidden by UI contract; rendered for claimed seats
+  battlefield: CardInstance[]; // public; order = play order
+  graveyard: CardInstance[]; // public; last = top
+  exile: CardInstance[]; // public
+  command: CardInstance[]; // public; commander starts here
+  mulligans: number; // London bottoming count
+  deckName: string; // provenance label
+  handHeld?: boolean; // synced hint: a phone holds this hand
+}
+
+/** Synced announcement ring — the trust model's deterrent. Cap 30. */
+export interface FeedEntry {
+  id: string;
+  t: number;
+  text: string;
 }
 
 export interface BoardItem {
@@ -51,6 +85,7 @@ export interface PlayerState {
   board: BoardItem[];
   counters: Record<string, number>; // poison, energy, experience…
   commanderDeaths: number; // tax = deaths × 2
+  cards?: SeatCards; // absent = tracker-style seat (mixed tables are legal)
 }
 
 export interface GameState {
@@ -61,6 +96,7 @@ export interface GameState {
   monarchIdx: number | null;
   initiativeIdx: number | null;
   turnStartedAt: number;
+  feed?: FeedEntry[]; // synced announcement ring, cap 30, deduped by id
 }
 
 export interface DeckCard {

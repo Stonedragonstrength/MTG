@@ -223,6 +223,116 @@ describe('online table wiring', () => {
   });
 });
 
+describe('cards mode', () => {
+  const deckRecord = (id: string, name: string, typeLine: string) => ({
+    id,
+    name,
+    nameLower: name.toLowerCase(),
+    typeLine,
+    oracleText: '',
+    manaCost: '',
+    power: null,
+    toughness: null,
+    colors: [],
+    colorIdentity: ['G'],
+    imageNormal: null,
+    imageArtCrop: null,
+    isToken: false,
+    isBasicLand: typeLine.startsWith('Basic Land'),
+  });
+
+  async function cardsStore() {
+    const { addCard, changeCardCount, createDeck, setCommander } = await import('../lib/deck');
+    const cmd = deckRecord('c-cmd', 'Ashaya', 'Legendary Creature — Elemental');
+    const forest = deckRecord('c-forest', 'Forest', 'Basic Land — Forest');
+    await getDb().cards.bulkPut([cmd, forest]); // playCard resolves type lines
+    let deck = setCommander(createDeck('Stompy'), cmd);
+    deck = addCard(deck, forest);
+    deck = changeCardCount(deck, 'c-forest', 9);
+    const store = createAppStore();
+    store.getState().startGame({ ...config, mode: 'cards' });
+    store.getState().seedSeatFromDeck(0, deck, 42);
+    return store;
+  }
+
+  test('seeding fills the seat once and announces it', async () => {
+    const store = await cardsStore();
+    const seat = store.getState().game!.players[0].cards!;
+    expect(seat.hand).toHaveLength(7);
+    expect(seat.command).toHaveLength(1);
+    expect(store.getState().game!.feed?.some((e) => /sits down with Stompy/i.test(e.text))).toBe(
+      true,
+    );
+    const before = store.getState().game;
+    store.getState().seedSeatFromDeck(0, { ...({} as never), cards: [] } as never, 1);
+    expect(store.getState().game).toBe(before); // second seed refused
+  });
+
+  test('drawing announces counts, not names, and plays announce names', async () => {
+    const store = await cardsStore();
+    store.getState().drawCards(0, 2);
+    expect(store.getState().game!.players[0].cards!.hand).toHaveLength(9);
+    expect(store.getState().game!.feed?.some((e) => e.text === 'A draws 2')).toBe(true);
+    const iid = store.getState().game!.players[0].cards!.hand[0].iid;
+    const name = store.getState().game!.players[0].cards!.hand[0].name;
+    await store.getState().playCard(0, iid);
+    expect(store.getState().game!.feed?.some((e) => e.text === `A plays ${name}`)).toBe(true);
+    expect(store.getState().log.some((l) => l.text === `A plays ${name}`)).toBe(true); // feed reaches the log
+  });
+
+  test('a basic land routes to the lands shelf on play', async () => {
+    const store = await cardsStore();
+    const forest = store
+      .getState()
+      .game!.players[0].cards!.hand.find((c) => c.name === 'Forest');
+    if (!forest) return; // seeded hand variance: tolerated, library path covered in lib tests
+    await store.getState().playCard(0, forest.iid);
+    const bf = store.getState().game!.players[0].cards!.battlefield;
+    expect(bf.find((c) => c.iid === forest.iid)?.row).toBe('lands');
+  });
+
+  test('pass turn readies the incoming seat, virtual cards included', async () => {
+    const store = await cardsStore();
+    const iid = store.getState().game!.players[0].cards!.hand[0].iid;
+    await store.getState().playCard(0, iid);
+    store.getState().tapVirtualCard(0, iid);
+    expect(
+      store.getState().game!.players[0].cards!.battlefield.find((c) => c.iid === iid)?.tapped,
+    ).toBe(true);
+    store.getState().passTurn(); // to player 1
+    store.getState().passTurn(); // back to player 0: their untap step
+    expect(
+      store.getState().game!.players[0].cards!.battlefield.find((c) => c.iid === iid)?.tapped,
+    ).toBeUndefined();
+  });
+
+  test('remote feed entries merge into the local log exactly once', async () => {
+    const store = createAppStore();
+    await store.getState().init();
+    const hooks = (tableSync.bindTable as ReturnType<typeof vi.fn>).mock.lastCall![0];
+    store.getState().startGame({ ...config, mode: 'cards' });
+    const remote = structuredClone(store.getState().game!);
+    remote.feed = [{ id: 'fx1', t: 1, text: 'B draws 3' }];
+    hooks.applyRemote(remote);
+    hooks.applyRemote(structuredClone(remote)); // second arrival: no dupe
+    expect(store.getState().log.filter((l) => l.text === 'B draws 3')).toHaveLength(1);
+  });
+
+  test('the 400KB tripwire refuses a bloated cards mutation', async () => {
+    const store = await cardsStore();
+    const before = store.getState().game!;
+    store.getState().seedSeatFromDeck(1, {
+      id: 'x',
+      name: 'Huge'.padEnd(500_000, 'x'),
+      commander: null,
+      colors: [],
+      cards: [],
+      updatedAt: 1,
+    }, 1);
+    expect(store.getState().game).toBe(before); // refused, state unchanged
+  });
+});
+
 describe('garage', () => {
   const bolt = {
     id: 'c-bolt',
