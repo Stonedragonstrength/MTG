@@ -79,6 +79,12 @@ async function flushDebounce() {
   await vi.advanceTimersByTimeAsync(0);
 }
 
+/** Drains multi-await push chains (several RPC round-trips) under the
+ * scoped fake timers, where one tick only settles one await. */
+async function drain() {
+  for (let i = 0; i < 8; i++) await vi.advanceTimersByTimeAsync(0);
+}
+
 beforeEach(async () => {
   await getDb().kv.clear();
   // Fake ONLY the four timer fns: fake-indexeddb schedules its work on
@@ -155,7 +161,7 @@ describe('push loop', () => {
 
   test('card ops with a long maxAgeMs survive rebases that kill tracker ops', async () => {
     const g = freshGame();
-    const f = setup(g);
+    setup(g);
     await hostTable(g);
     const t0 = Date.now();
     const nowSpy = vi.spyOn(deps, 'now');
@@ -251,6 +257,91 @@ describe('push loop', () => {
     await flushDebounce();
     expect(f.hooks.setStatus).toHaveBeenCalledWith({ kind: 'stale-build' });
     expect(deps.rpcSave).toHaveBeenCalledTimes(1); // queue dropped, no retry
+  });
+});
+
+describe('rebase correctness (review findings)', () => {
+  test('a chained op whose precondition an earlier queued op creates survives the rebase', async () => {
+    const g = freshGame();
+    const f = setup(g);
+    await hostTable(g);
+    const op1 = (s: GameState) => ({
+      ...s,
+      players: s.players.map((p, i) => (i === 0 ? { ...p, life: 10 } : p)),
+    });
+    const op2 = (s: GameState) => ({
+      ...s,
+      players: s.players.map((p, i) => (i === 0 ? { ...p, life: p.life + 1 } : p)),
+    });
+    onLocalMutation(op1, g);
+    onLocalMutation(op2, g, { guard: (base) => base.players[0].life === 10 }); // depends on op1
+    (deps.rpcSave as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ ok: false, gone: false, ended: false, version: 4, state: freshGame(), app_schema: GAME_SCHEMA })
+      .mockResolvedValueOnce({ ok: true, version: 5 });
+    await flushDebounce();
+    const merged = (deps.rpcSave as ReturnType<typeof vi.fn>).mock.calls[1][2] as GameState;
+    expect(merged.players[0].life).toBe(11); // chain intact: guards see the folded state
+    expect(f.hooks.notice).not.toHaveBeenCalled();
+  });
+
+  test('the duplicate path honors guards for ops that joined mid-flight', async () => {
+    const g = freshGame();
+    const f = setup(g);
+    await hostTable(g);
+    const saveMock = deps.rpcSave as ReturnType<typeof vi.fn>;
+    const landed = adjustLife(freshGame(), 0, -3);
+    let resolveSave: (v: unknown) => void = () => {};
+    saveMock
+      .mockImplementationOnce(() => new Promise((r) => (resolveSave = r)))
+      .mockResolvedValue({ ok: true, version: 4 });
+    onLocalMutation((s) => adjustLife(s, 0, -3), g);
+    await flushDebounce(); // first push in flight, hanging
+    onLocalMutation((s) => adjustLife(s, 1, -1), g, {
+      guard: (base) => base.players[0].life === 40, // false vs the landed state
+    });
+    resolveSave({ ok: true, duplicate: true, version: 3, state: landed, app_schema: GAME_SCHEMA });
+    await drain();
+    const applied = f.hooks.applyRemote.mock.lastCall![0] as GameState;
+    expect(applied.players[1].life).toBe(40); // mid-flight op dropped by its guard
+    expect(f.hooks.notice).toHaveBeenCalled();
+  });
+
+  test('an undo queued behind a card op keeps the op alive on conflict', async () => {
+    vi.useRealTimers(); // multi-roundtrip push chain: fake ticks stall microtasks
+    const g = freshGame();
+    const f = setup(g);
+    await hostTable(g);
+    const serverState = adjustLife(freshGame(), 1, -5);
+    (deps.rpcSave as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ ok: false, gone: false, ended: false, version: 6, state: serverState, app_schema: GAME_SCHEMA })
+      .mockResolvedValueOnce({ ok: true, version: 7 });
+    const afterDraw = adjustLife(g, 0, -1); // stands in for a draw
+    f.game.current = afterDraw;
+    onLocalMutation((s) => adjustLife(s, 0, -1), g, { maxAgeMs: 24 * 3600_000 });
+    onLocalUndo(afterDraw); // undo of a LATER action must not kill the draw
+    await new Promise((r) => setTimeout(r, 100));
+    const merged = (deps.rpcSave as ReturnType<typeof vi.fn>).mock.calls[1][2] as GameState;
+    expect(merged.players[0].life).toBe(39); // the draw survived
+    expect(merged.players[1].life).toBe(35); // on the server's base
+    expect(f.hooks.notice).toHaveBeenCalledWith(expect.stringMatching(/undo skipped/i));
+  });
+
+  test('an undo arriving while a push is in flight is not spliced away', async () => {
+    const g = freshGame();
+    setup(g);
+    await hostTable(g);
+    let resolveSave: (v: unknown) => void = () => {};
+    (deps.rpcSave as ReturnType<typeof vi.fn>)
+      .mockImplementationOnce(() => new Promise((r) => (resolveSave = r)))
+      .mockResolvedValue({ ok: true, version: 3 });
+    onLocalMutation((s) => adjustLife(s, 0, -1), g);
+    await flushDebounce(); // push in flight, hanging
+    onLocalUndo(g); // user undoes while the save hangs
+    resolveSave({ ok: true, version: 2 });
+    await vi.advanceTimersByTimeAsync(50);
+    const calls = (deps.rpcSave as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls.length).toBe(2); // the undo got its own push
+    expect(calls[1][2]).toBe(g); // carrying the undone snapshot
   });
 });
 

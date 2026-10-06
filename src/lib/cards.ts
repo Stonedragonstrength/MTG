@@ -142,8 +142,14 @@ export function moveCard(
     const source = cards[from];
     const card = source.find((c) => c.iid === iid);
     if (!card) return null; // identity rule: the SOURCE zone must hold it
+    // A same-zone move is a shelf/position change, not a zone exit: the
+    // card keeps its tapped state and counters (review finding).
     const moved: CardInstance =
-      to === 'battlefield' ? { ...stripped(card), ...(opts?.row ? { row: opts.row } : {}) } : stripped(card);
+      from === to
+        ? { ...card, ...(opts?.row ? { row: opts.row } : {}) }
+        : to === 'battlefield'
+          ? { ...stripped(card), ...(opts?.row ? { row: opts.row } : {}) }
+          : stripped(card);
     const without = source.filter((c) => c.iid !== iid);
     const dest = to === from ? without : cards[to];
     const placed =
@@ -156,13 +162,17 @@ export function moveCard(
   });
 }
 
-export function tapCard(g: GameState, seat: number, iid: string): GameState {
+/** Direction is explicit (never a toggle): a replay onto a base that
+ * already holds the desired state is a clean no-op, so a rebase can
+ * never invert a tap (review finding). */
+export function tapCard(g: GameState, seat: number, iid: string, tapped: boolean): GameState {
   return updateSeat(g, seat, (cards) => {
-    const idx = cards.battlefield.findIndex((c) => c.iid === iid);
-    if (idx === -1) return null;
+    const card = cards.battlefield.find((c) => c.iid === iid);
+    if (!card) return null;
+    if ((card.tapped ?? false) === tapped) return null; // already there
     const battlefield = cards.battlefield.map((c) => {
       if (c.iid !== iid) return c;
-      if (c.tapped) {
+      if (!tapped) {
         const { tapped: _t, ...rest } = c; // omit, never write false
         return rest;
       }

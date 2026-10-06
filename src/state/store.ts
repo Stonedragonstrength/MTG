@@ -190,6 +190,7 @@ export function createAppStore() {
       reducer: (g: GameState) => GameState,
       feedText: string | null,
       guard?: SyncOpts['guard'],
+      maxAgeMs: number = DAY_MS,
     ) => {
       const entry = feedText ? feedEntry(feedText) : null;
       const fn = (g: GameState) => {
@@ -197,7 +198,7 @@ export function createAppStore() {
         if (after === g) return g;
         return entry ? cardsLib.appendFeed(after, entry) : after;
       };
-      mutateGame(fn, undefined, { guard: guard ?? (() => true), maxAgeMs: DAY_MS });
+      mutateGame(fn, undefined, { guard: guard ?? (() => true), maxAgeMs });
     };
 
     return {
@@ -397,10 +398,20 @@ export function createAppStore() {
       },
 
       tapVirtualCard(seat, iid) {
+        const g = get().game;
+        const card = g?.players[seat]?.cards?.battlefield.find((c) => c.iid === iid);
+        if (!g || !card) return;
+        const wasTapped = card.tapped ?? false;
+        const desired = !wasTapped;
         cardMutate(
-          (base) => cardsLib.tapCard(base, seat, iid),
+          (base) => cardsLib.tapCard(base, seat, iid, desired),
           null,
-          (base) => !!base.players[seat]?.cards?.battlefield.some((c) => c.iid === iid),
+          // Replay only onto a base still in the observed pre-state: a
+          // rebase can confirm a tap but never invert one.
+          (base) => {
+            const baseCard = base.players[seat]?.cards?.battlefield.find((c) => c.iid === iid);
+            return !!baseCard && (baseCard.tapped ?? false) === wasTapped;
+          },
         );
       },
 
@@ -446,19 +457,27 @@ export function createAppStore() {
         const g = get().game;
         if (!g) return;
         const seed = Math.floor(Math.random() * 2 ** 31);
+        // A stale queued shuffle must not scramble a library someone has
+        // since stacked — short age, dropping it costs nothing.
         cardMutate(
           (base) => cardsLib.shuffleLibrary(base, seat, seed),
           `${seatName(g, seat)} shuffles`,
+          undefined,
+          120_000,
         );
       },
 
       mulliganSeat(seat) {
         const g = get().game;
-        if (!g) return;
+        const origMulls = g?.players[seat]?.cards?.mulligans;
+        if (!g || origMulls === undefined) return;
         const seed = Math.floor(Math.random() * 2 ** 31);
         cardMutate(
           (base) => cardsLib.mulligan(base, seat, seed),
           `${seatName(g, seat)} mulligans`,
+          // Once the base has counted this mulligan, a replay would scramble
+          // a hand the player already saw — drop instead.
+          (base) => base.players[seat]?.cards?.mulligans === origMulls,
         );
       },
 

@@ -17,7 +17,7 @@ function validSeatCards(v: unknown): boolean {
   if (!s || typeof s !== 'object') return false;
   if (typeof s.mulligans !== 'number' && s.mulligans !== undefined) return false;
   return ZONES.every((z) => {
-    const arr = (s as Record<string, unknown>)[z];
+    const arr = (s as unknown as Record<string, unknown>)[z];
     return arr === undefined || (Array.isArray(arr) && arr.every(validInstance));
   });
 }
@@ -81,9 +81,10 @@ export function migrateGame(saved: GameState): GameState {
         p.cards === undefined
           ? undefined // a tracker seat STAYS a tracker seat
           : {
-              mulligans: 0,
-              deckName: '',
               ...p.cards,
+              // After the spread: a partial seat's undefineds must not win.
+              mulligans: p.cards.mulligans ?? 0,
+              deckName: p.cards.deckName ?? '',
               library: p.cards.library ?? [],
               hand: p.cards.hand ?? [],
               battlefield: p.cards.battlefield ?? [],

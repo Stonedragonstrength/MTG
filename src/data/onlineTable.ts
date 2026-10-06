@@ -355,7 +355,12 @@ export function onLocalMutation(
 
 export function onLocalUndo(snapshot: GameState): void {
   if (!session) return;
+  // APPEND, never replace: earlier queued ops (a draw the player already
+  // saw) must survive a conflicted undo, and an undo arriving while a
+  // push is in flight must not be spliced away with the acked prefix
+  // (review findings). Only stale older undos are superseded.
   pendingOps = [
+    ...pendingOps.filter((p) => !p.isUndo),
     {
       op: () => snapshot,
       orig: snapshot,
@@ -380,6 +385,41 @@ function noticeDrops(droppedUndo: boolean, droppedOther: number) {
         ? 'One change was overtaken by the table and skipped'
         : `${droppedOther} changes were overtaken by the table and skipped`,
     );
+}
+
+/** Progressive rebase: each op's guard sees the state AFTER the ops kept
+ * before it, so chains (draw → play the drawn card) survive intact —
+ * guards against the raw base would mass-drop everything downstream of
+ * the first queued op (review finding). Undo entries never replay. */
+function rebaseQueue(base: GameState): {
+  state: GameState;
+  kept: PendingOp[];
+  droppedUndo: boolean;
+  droppedOther: number;
+} {
+  const now = deps.now();
+  let state = base;
+  const kept: PendingOp[] = [];
+  let droppedUndo = false;
+  let droppedOther = 0;
+  for (const p of pendingOps) {
+    if (p.isUndo) {
+      droppedUndo = true;
+      continue;
+    }
+    if (now - p.queuedAt >= p.maxAgeMs || !p.guard(state, p.orig)) {
+      droppedOther += 1;
+      continue;
+    }
+    try {
+      state = p.op(state);
+      kept.push(p);
+    } catch {
+      droppedOther += 1;
+      hooks?.notice('One change could not be replayed and was skipped');
+    }
+  }
+  return { state, kept, droppedUndo, droppedOther };
 }
 
 async function push(): Promise<void> {
@@ -444,8 +484,10 @@ async function push(): Promise<void> {
         if ((r.version ?? 0) > appliedVersion && r.state && isValidGame(r.state)) {
           const base = migrateGame(r.state);
           appliedVersion = r.version!;
-          const rebased = replayOnto(base);
-          hooks.applyRemote(rebased);
+          const rb = rebaseQueue(base); // guards apply here too
+          noticeDrops(rb.droppedUndo, rb.droppedOther);
+          pendingOps = rb.kept;
+          hooks.applyRemote(rb.state);
         }
         if (pendingOps.length === 0) return;
         continue;
@@ -468,23 +510,10 @@ async function push(): Promise<void> {
       }
       const base = migrateGame(r.state);
       appliedVersion = r.version ?? appliedVersion;
-      const hadUndo = pendingOps.some((p) => p.isUndo);
-      const now = deps.now();
-      const survivors = pendingOps.filter(
-        (p) => !p.isUndo && now - p.queuedAt < p.maxAgeMs && p.guard(base, p.orig),
-      );
-      const droppedOther = pendingOps.filter((p) => !p.isUndo).length - survivors.length;
-      noticeDrops(hadUndo, droppedOther);
-      pendingOps = survivors;
-      const rebased = survivors.reduce((g, p) => {
-        try {
-          return p.op(g);
-        } catch {
-          hooks?.notice('One change could not be replayed and was skipped');
-          return g;
-        }
-      }, base);
-      hooks.applyRemote(rebased);
+      const rb = rebaseQueue(base);
+      noticeDrops(rb.droppedUndo, rb.droppedOther);
+      pendingOps = rb.kept;
+      hooks.applyRemote(rb.state);
       payloadRebuilt = true;
       rebaseRetries += 1;
       if (pendingOps.length === 0) return;
@@ -502,17 +531,6 @@ async function push(): Promise<void> {
       void push();
     }
   }
-}
-
-/** Replays the current queue onto a base (used by the duplicate path). */
-function replayOnto(base: GameState): GameState {
-  return pendingOps.reduce((g, p) => {
-    try {
-      return p.op(g);
-    } catch {
-      return g;
-    }
-  }, base);
 }
 
 function onBump(payload: Record<string, unknown>): void {

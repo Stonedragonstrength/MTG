@@ -12,7 +12,6 @@ import {
   newIid,
   seedSeat,
   setCardCounter,
-  shuffleLibrary,
   tapCard,
   untapAllCards,
 } from './cards';
@@ -129,7 +128,7 @@ describe('moveCard + battlefield state', () => {
     const iid = g.players[0].cards!.hand[0].iid;
     g = moveCard(g, 0, iid, 'hand', 'battlefield', { row: 'front' });
     expect(g.players[0].cards!.battlefield[0].row).toBe('front');
-    g = tapCard(g, 0, iid);
+    g = tapCard(g, 0, iid, true);
     expect(g.players[0].cards!.battlefield[0].tapped).toBe(true);
     g = setCardCounter(g, 0, iid, 'p1p1', 2);
     g = moveCard(g, 0, iid, 'battlefield', 'graveyard');
@@ -140,13 +139,29 @@ describe('moveCard + battlefield state', () => {
     expect(dead.row).toBeUndefined();
   });
 
-  test('tap untoggle deletes the field instead of writing false', () => {
+  test('tap sets an explicit direction; untap deletes the field instead of writing false', () => {
     let g = seeded();
     const iid = g.players[0].cards!.hand[0].iid;
     g = moveCard(g, 0, iid, 'hand', 'battlefield', { row: 'front' });
-    g = tapCard(g, 0, iid);
-    g = tapCard(g, 0, iid);
+    g = tapCard(g, 0, iid, true);
+    expect(g.players[0].cards!.battlefield[0].tapped).toBe(true);
+    const same = tapCard(g, 0, iid, true); // already there: no-op, replay-safe
+    expect(same).toBe(g);
+    g = tapCard(g, 0, iid, false);
     expect('tapped' in g.players[0].cards!.battlefield[0]).toBe(false);
+  });
+
+  test('a same-zone battlefield move keeps tapped state and counters', () => {
+    let g = seeded();
+    const iid = g.players[0].cards!.hand[0].iid;
+    g = moveCard(g, 0, iid, 'hand', 'battlefield', { row: 'front' });
+    g = tapCard(g, 0, iid, true);
+    g = setCardCounter(g, 0, iid, 'p1p1', 3);
+    g = moveCard(g, 0, iid, 'battlefield', 'battlefield', { row: 'lands' });
+    const card = g.players[0].cards!.battlefield.find((c) => c.iid === iid)!;
+    expect(card.row).toBe('lands');
+    expect(card.tapped).toBe(true);
+    expect(card.counters?.p1p1).toBe(3);
   });
 
   test('moving to library top vs bottom lands at the right end', () => {
@@ -170,8 +185,8 @@ describe('moveCard + battlefield state', () => {
     const [a, b] = g.players[0].cards!.hand.slice(0, 2).map((c) => c.iid);
     g = moveCard(g, 0, a, 'hand', 'battlefield', { row: 'front' });
     g = moveCard(g, 0, b, 'hand', 'battlefield', { row: 'front' });
-    g = tapCard(g, 0, a);
-    g = tapCard(g, 0, b);
+    g = tapCard(g, 0, a, true);
+    g = tapCard(g, 0, b, true);
     g = untapAllCards(g, 0);
     expect(g.players[0].cards!.battlefield.some((c) => c.tapped)).toBe(false);
   });

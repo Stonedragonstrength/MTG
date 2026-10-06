@@ -264,7 +264,13 @@ describe('cards mode', () => {
       true,
     );
     const before = store.getState().game;
-    store.getState().seedSeatFromDeck(0, { ...({} as never), cards: [] } as never, 1);
+    store
+      .getState()
+      .seedSeatFromDeck(
+        0,
+        { id: 'x', name: 'Nope', commander: null, colors: [], cards: [], updatedAt: 1 },
+        1,
+      );
     expect(store.getState().game).toBe(before); // second seed refused
   });
 
@@ -304,6 +310,32 @@ describe('cards mode', () => {
     expect(
       store.getState().game!.players[0].cards!.battlefield.find((c) => c.iid === iid)?.tapped,
     ).toBeUndefined();
+  });
+
+  test('tap carries a direction guard so replays cannot invert it', async () => {
+    const store = await cardsStore();
+    const iid = store.getState().game!.players[0].cards!.hand[0].iid;
+    await store.getState().playCard(0, iid);
+    (tableSync.onLocalMutation as ReturnType<typeof vi.fn>).mockClear();
+    store.getState().tapVirtualCard(0, iid); // untapped -> wants tapped
+    const call = (tableSync.onLocalMutation as ReturnType<typeof vi.fn>).mock.lastCall!;
+    const guard = (call[2] as { guard: (b: GameState, o: GameState) => boolean }).guard;
+    const orig = call[1] as GameState;
+    expect(guard(orig, orig)).toBe(true); // base still untapped: replay fine
+    const alreadyTapped = store.getState().game!; // tap applied locally
+    expect(guard(alreadyTapped, orig)).toBe(false); // base already tapped: drop
+  });
+
+  test('mulligan is guarded by its own count so a lost ack cannot double it', async () => {
+    const store = await cardsStore();
+    (tableSync.onLocalMutation as ReturnType<typeof vi.fn>).mockClear();
+    store.getState().mulliganSeat(0);
+    const call = (tableSync.onLocalMutation as ReturnType<typeof vi.fn>).mock.lastCall!;
+    const guard = (call[2] as { guard: (b: GameState, o: GameState) => boolean }).guard;
+    const orig = call[1] as GameState; // mulligans 0 there
+    expect(guard(orig, orig)).toBe(true);
+    const counted = store.getState().game!; // mulligans 1 after local apply
+    expect(guard(counted, orig)).toBe(false);
   });
 
   test('remote feed entries merge into the local log exactly once', async () => {
