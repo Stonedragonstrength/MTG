@@ -148,7 +148,7 @@ describe('push loop', () => {
     // guard failed: nothing left to save, server state adopted, notice shown
     expect(deps.rpcSave).toHaveBeenCalledTimes(1);
     expect(f.hooks.applyRemote).toHaveBeenCalled();
-    const applied = f.hooks.applyRemote.mock.calls.at(-1)![0] as GameState;
+    const applied = f.hooks.applyRemote.mock.lastCall![0] as GameState;
     expect(applied.activePlayerIndex).toBe(serverState.activePlayerIndex); // no double advance
     expect(f.hooks.notice).toHaveBeenCalled();
   });
@@ -191,7 +191,7 @@ describe('push loop', () => {
     onLocalMutation((s) => adjustLife(s, 0, -3), g);
     await flushDebounce();
     expect(deps.rpcSave).toHaveBeenCalledTimes(1); // nothing re-sent
-    const applied = f.hooks.applyRemote.mock.calls.at(-1)![0] as GameState;
+    const applied = f.hooks.applyRemote.mock.lastCall![0] as GameState;
     expect(applied.players[0].life).toBe(37); // server truth, not 34
   });
 
@@ -260,7 +260,7 @@ describe('undo', () => {
     onLocalUndo(g);
     await vi.advanceTimersByTimeAsync(10);
     expect(deps.rpcSave).toHaveBeenCalledTimes(1); // no second attempt
-    const applied = f.hooks.applyRemote.mock.calls.at(-1)![0] as GameState;
+    const applied = f.hooks.applyRemote.mock.lastCall![0] as GameState;
     expect(applied.players[1].life).toBe(36); // peer's write preserved
     expect(f.hooks.notice).toHaveBeenCalledWith(expect.stringMatching(/undo skipped/i));
   });
@@ -284,7 +284,7 @@ describe('doorbell + reconcile', () => {
     f.fireBump({ v: 3, by: 'someone-else' });
     await vi.advanceTimersByTimeAsync(10);
     expect(deps.rpcGet).toHaveBeenCalled();
-    const applied = f.hooks.applyRemote.mock.calls.at(-1)![0] as GameState;
+    const applied = f.hooks.applyRemote.mock.lastCall![0] as GameState;
     expect(applied.players[0].life).toBe(33);
   });
 

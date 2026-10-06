@@ -153,7 +153,7 @@ describe('online table wiring', () => {
     const before = store.getState().game!;
     store.getState().adjustLife(0, -4);
     expect(tableSync.onLocalMutation).toHaveBeenCalled();
-    const [fn, orig] = (tableSync.onLocalMutation as ReturnType<typeof vi.fn>).mock.calls.at(-1)!;
+    const [fn, orig] = (tableSync.onLocalMutation as ReturnType<typeof vi.fn>).mock.lastCall!;
     expect(orig).toBe(before);
     expect((fn as (g: GameState) => GameState)(before).players[0].life).toBe(36);
   });
@@ -163,7 +163,7 @@ describe('online table wiring', () => {
     store.getState().startGame(config);
     const before = store.getState().game!;
     store.getState().passTurn();
-    const call = (tableSync.onLocalMutation as ReturnType<typeof vi.fn>).mock.calls.at(-1)!;
+    const call = (tableSync.onLocalMutation as ReturnType<typeof vi.fn>).mock.lastCall!;
     const guard = (call[2] as { guard: (b: GameState, o: GameState) => boolean }).guard;
     expect(guard(before, before)).toBe(true);
     const moved = { ...before, turnNumber: before.turnNumber + 1 };
@@ -184,7 +184,7 @@ describe('online table wiring', () => {
   test('applyRemote validates, migrates, clears undo, and never echoes to the module', async () => {
     const store = createAppStore();
     await store.getState().init();
-    const hooks = (tableSync.bindTable as ReturnType<typeof vi.fn>).mock.calls.at(-1)![0];
+    const hooks = (tableSync.bindTable as ReturnType<typeof vi.fn>).mock.lastCall![0];
     store.getState().startGame(config);
     store.getState().adjustLife(0, -1); // build some undo history
     expect(store.getState().canUndo()).toBe(true);
