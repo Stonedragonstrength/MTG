@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { useAppStore } from '../state/store';
 import HomeScreen from './HomeScreen';
@@ -7,6 +8,8 @@ vi.mock('../data/scryfall', () => ({
   loadNameIndex: vi.fn(async () => []),
   getCardById: vi.fn(async () => undefined),
   findCardByName: vi.fn(async () => undefined),
+  findBasicLand: vi.fn(async () => undefined),
+  importBulkData: vi.fn(async () => 0),
 }));
 
 beforeEach(() => {
@@ -23,6 +26,13 @@ beforeEach(() => {
       },
     ],
   });
+});
+
+test('settings open straight from the home screen', async () => {
+  const user = userEvent.setup();
+  render(<HomeScreen />);
+  await user.click(screen.getByRole('button', { name: /settings/i }));
+  expect(await screen.findByRole('heading', { name: /settings/i })).toBeInTheDocument();
 });
 
 test('a player tile shows their chosen commander card', () => {

@@ -7,6 +7,7 @@ import DecksScreen from './DecksScreen';
 import GarageScreen from './GarageScreen';
 import NewGameScreen from './NewGameScreen';
 import ProfileEditor from './ProfileEditor';
+import SettingsSheet from './SettingsSheet';
 
 function profileAccent(profile: PlayerProfile): string {
   const colors = profile.commanderColors ?? [];
@@ -23,6 +24,7 @@ export default function HomeScreen() {
   const garage = useAppStore((s) => s.garage);
   const [editing, setEditing] = useState<PlayerProfile | null>(null);
   const [creating, setCreating] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Older profiles picked a commander before we stored its card image.
   useEffect(() => {
@@ -51,6 +53,13 @@ export default function HomeScreen() {
 
   return (
     <div className="screen home">
+      <button
+        className="ghost home-settings"
+        aria-label="settings"
+        onClick={() => setSettingsOpen(true)}
+      >
+        ⚙ Settings
+      </button>
       <h1 className="home-title">
         <span className="home-title-main">MTG Battlefield</span>
         <span className="home-title-sub">Hub &amp; Tracker</span>
@@ -140,6 +149,7 @@ export default function HomeScreen() {
           }}
         />
       )}
+      {settingsOpen && <SettingsSheet onClose={() => setSettingsOpen(false)} />}
     </div>
   );
 }

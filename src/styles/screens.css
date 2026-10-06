@@ -765,3 +765,12 @@ label {
   border-radius: 8px;
   padding: 8px 10px;
 }
+
+/* Settings gets a front door on the home screen. */
+.home-settings {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  font-size: 0.85rem;
+  color: #9a9aa5;
+}
