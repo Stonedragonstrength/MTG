@@ -22,10 +22,9 @@ export const COLOR_HEX: Record<string, string> = {
   C: '#a8a8b2',
 };
 
-/** What a land can produce, read from its rules text: specific colors in
+/** What a card can produce, read from its rules text: specific colors in
  * order of appearance, ['any'] for any-color sources, [] for none. */
-export function manaColors(item: BoardItem): (ManaColor | 'any')[] {
-  const text = item.oracleText;
+export function manaColorsFromText(text: string): (ManaColor | 'any')[] {
   if (/add (one|two|three|\w+) mana of any/i.test(text)) return ['any'];
 
   const produced: (ManaColor | 'any')[] = [];
@@ -36,6 +35,10 @@ export function manaColors(item: BoardItem): (ManaColor | 'any')[] {
     }
   }
   return produced;
+}
+
+export function manaColors(item: BoardItem): (ManaColor | 'any')[] {
+  return manaColorsFromText(item.oracleText);
 }
 
 /** Treasure-style sources: sacrificing is part of the mana ability, so
@@ -58,11 +61,21 @@ export interface LandSummary {
   any: number;
 }
 
+/** A virtual (cards-mode) land on the shelf: its record's rules text when
+ * resolved, null while the card DB lookup is still in flight. */
+export interface VirtualManaSource {
+  oracleText: string | null;
+}
+
 /** Capability tally over the whole board: how many sources can make each
  * color (duals count toward both — it's "what could you produce").
  * Board-zone sources (dorks, Ashaya-fied creatures) count toward the color
- * pips but not the land total. */
-export function landSummary(items: BoardItem[]): LandSummary {
+ * pips but not the land total. Virtual lands each count 1 toward the total;
+ * unresolved ones still count but can't feed a pip yet. */
+export function landSummary(
+  items: BoardItem[],
+  virtualLands: VirtualManaSource[] = [],
+): LandSummary {
   const colors: Record<ManaColor, number> = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
   let total = 0;
   let any = 0;
@@ -71,6 +84,13 @@ export function landSummary(items: BoardItem[]): LandSummary {
     const produced = effectiveManaColors(item);
     if (produced[0] === 'any') any += item.count;
     else for (const color of produced) colors[color as ManaColor] += item.count;
+  }
+  for (const v of virtualLands) {
+    total += 1;
+    if (v.oracleText === null) continue;
+    const produced = manaColorsFromText(v.oracleText);
+    if (produced[0] === 'any') any += 1;
+    else for (const color of produced) colors[color as ManaColor] += 1;
   }
   return { total, colors, any };
 }

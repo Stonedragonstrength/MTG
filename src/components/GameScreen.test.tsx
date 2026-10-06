@@ -49,6 +49,36 @@ test('standard games show no commander damage strip', () => {
   expect(container.querySelectorAll('.cmd-gauge')).toHaveLength(0);
 });
 
+test('a virtual-cards seat shows hand and library counts in its header', () => {
+  const game = createGame(config(2));
+  game.players[0] = {
+    ...game.players[0],
+    cards: {
+      library: [
+        { iid: 'l1', cardId: 'c1', name: 'Forest' },
+        { iid: 'l2', cardId: 'c1', name: 'Forest' },
+        { iid: 'l3', cardId: 'c2', name: 'Island' },
+      ],
+      hand: [],
+      battlefield: [],
+      graveyard: [],
+      exile: [],
+      command: [],
+      mulligans: 0,
+      deckName: 'Stompy',
+    },
+  };
+  useAppStore.setState({ game });
+  const { container } = render(<GameScreen />);
+  const chips = Array.from(container.querySelectorAll('.zone.seat-0 .player-chip')).map(
+    (el) => el.textContent,
+  );
+  expect(chips).toContain('✋0');
+  expect(chips).toContain('📚3');
+  // tracker seats stay chip-free
+  expect(container.querySelectorAll('.zone.seat-1 .player-chip')).toHaveLength(0);
+});
+
 test('eliminated players get the dead treatment', () => {
   const game = createGame(config(4));
   game.players[2] = { ...game.players[2], eliminated: true };

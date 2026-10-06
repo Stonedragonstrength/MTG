@@ -54,6 +54,11 @@ export default function PlayerZone({
     .join(' ');
 
   const chips: { key: string; label: string; className?: string }[] = [];
+  // Virtual seats wear their card counts up top — table-glance info.
+  if (player.cards) {
+    chips.push({ key: 'hand', label: `✋${player.cards.hand.length}` });
+    chips.push({ key: 'library', label: `📚${player.cards.library.length}` });
+  }
   const poison = player.counters['poison'] ?? 0;
   const energy = player.counters['energy'] ?? 0;
   const experience = player.counters['experience'] ?? 0;

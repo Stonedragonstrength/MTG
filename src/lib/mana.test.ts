@@ -132,3 +132,35 @@ describe('landSummary', () => {
     });
   });
 });
+
+describe('landSummary with virtual lands', () => {
+  test('resolved virtual lands count toward the total and the pips', () => {
+    const summary = landSummary(
+      [],
+      [
+        { oracleText: '({T}: Add {G}.)' },
+        { oracleText: '({T}: Add {G}.)' },
+        { oracleText: '{T}: Add one mana of any color.' },
+      ],
+    );
+    expect(summary.total).toBe(3);
+    expect(summary.colors.G).toBe(2);
+    expect(summary.any).toBe(1);
+  });
+
+  test('an unresolved virtual land counts toward the total but shows no pip', () => {
+    const summary = landSummary([], [{ oracleText: null }]);
+    expect(summary.total).toBe(1);
+    expect(summary.colors).toEqual({ W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 });
+    expect(summary.any).toBe(0);
+  });
+
+  test('virtual lands combine with tracker stacks and board dorks', () => {
+    const summary = landSummary(
+      [land('Forest', '({T}: Add {G}.)', 2), creature('Llanowar Elves', '{T}: Add {G}.')],
+      [{ oracleText: '({T}: Add {G}.)' }],
+    );
+    expect(summary.total).toBe(3); // the elf feeds a pip, not the land count
+    expect(summary.colors.G).toBe(4);
+  });
+});
