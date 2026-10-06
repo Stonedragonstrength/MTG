@@ -16,31 +16,50 @@ export async function getCloudConfig(): Promise<CloudConfig | undefined> {
   return kvGet<CloudConfig>(CFG_KEY);
 }
 
+/** "xyz.supabase.co/" and friends become a URL the client accepts. */
+export function normalizeProjectUrl(raw: string): string {
+  let url = raw.trim().replace(/\/+$/, '');
+  if (url && !/^https?:\/\//i.test(url)) url = `https://${url}`;
+  return url;
+}
+
 export async function setCloudConfig(cfg: CloudConfig): Promise<void> {
-  await kvSet(CFG_KEY, cfg);
+  await kvSet(CFG_KEY, { url: normalizeProjectUrl(cfg.url), anonKey: cfg.anonKey.trim() });
   clientPromise = null; // next call builds a client against the new project
 }
 
 /** Lazy client: supabase-js stays out of the main bundle, and no client
- * exists at all until a config is saved. */
+ * exists at all until a config is saved. A config the client rejects
+ * (mangled URL) yields null rather than a cached rejection. */
 async function getClient(): Promise<Supabase | null> {
   clientPromise ??= (async () => {
-    const cfg = await getCloudConfig();
-    if (!cfg?.url || !cfg.anonKey) return null;
-    const { createClient } = await import('@supabase/supabase-js');
-    return createClient(cfg.url, cfg.anonKey);
+    try {
+      const cfg = await getCloudConfig();
+      if (!cfg?.url || !cfg.anonKey) return null;
+      const { createClient } = await import('@supabase/supabase-js');
+      return createClient(normalizeProjectUrl(cfg.url), cfg.anonKey);
+    } catch {
+      clientPromise = null; // let a corrected config try again
+      return null;
+    }
   })();
   return clientPromise;
 }
 
 export async function sendMagicLink(email: string): Promise<string | null> {
-  const client = await getClient();
-  if (!client) return 'Save your project URL and key first.';
-  const { error } = await client.auth.signInWithOtp({
-    email,
-    options: { emailRedirectTo: window.location.origin },
-  });
-  return error ? error.message : null;
+  try {
+    const cfg = await getCloudConfig();
+    if (!cfg?.url || !cfg.anonKey) return 'Save your project URL and key first.';
+    const client = await getClient();
+    if (!client) return "That project URL doesn't look right — double-check it and Save again.";
+    const { error } = await client.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: window.location.origin },
+    });
+    return error ? error.message : null;
+  } catch (err) {
+    return `Couldn't reach the project: ${err instanceof Error ? err.message : 'network error'}`;
+  }
 }
 
 export async function signedInEmail(): Promise<string | null> {

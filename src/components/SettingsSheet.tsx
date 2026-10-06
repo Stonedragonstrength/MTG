@@ -55,8 +55,13 @@ export default function SettingsSheet({ onClose }: Props) {
   }
 
   async function magicLink() {
-    const err = await sendMagicLink(cloudEmail.trim());
-    setCloudMsg(err ?? `Link sent to ${cloudEmail.trim()} — open it on this device.`);
+    setCloudMsg('Sending…');
+    try {
+      const err = await sendMagicLink(cloudEmail.trim());
+      setCloudMsg(err ?? `Link sent to ${cloudEmail.trim()} — check spam, open it on this device.`);
+    } catch (err) {
+      setCloudMsg(err instanceof Error ? err.message : 'Something went wrong sending the link.');
+    }
   }
 
   async function syncNow() {
