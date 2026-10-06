@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useAppStore } from '../state/store';
 import BattlefieldRow from './BattlefieldRow';
 import HandTray from './HandTray';
+import LandsRow from './LandsRow';
 import LifeCounter from './LifeCounter';
 
 interface Props {
@@ -71,6 +72,7 @@ export default function HandScreen({ seatIdx, onShowTable }: Props) {
       </header>
       <section className="hs-board">
         <BattlefieldRow playerIdx={seatIdx} />
+        <LandsRow playerIdx={seatIdx} />
       </section>
       <section className="hs-life-row" aria-label="my life">
         <LifeCounter life={me.life} onAdjust={(delta) => adjustLife(seatIdx, delta)} />

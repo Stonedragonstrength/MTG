@@ -36,6 +36,10 @@ export interface CardInstance {
   tapped?: boolean; // battlefield only; omitted = untapped (per CARD)
   counters?: Record<string, number>; // battlefield only
   row?: 'front' | 'lands'; // battlefield shelf
+  /** Battlefield only, meaningful only while tapped: mana units a payment
+   * has drawn from this tap. A tapped card with nothing spent is floating
+   * its whole yield (the player tapped it by hand). */
+  spent?: number;
 }
 
 export interface SeatCards {

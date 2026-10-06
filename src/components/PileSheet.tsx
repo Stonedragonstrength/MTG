@@ -6,13 +6,15 @@ import { useCardRecords } from './useCardRecords';
 interface Props {
   playerIdx: number;
   zone: Extract<CardZone, 'graveyard' | 'exile' | 'command'>;
+  /** Command zone only: the mana gate said no, so casting is an override. */
+  short?: boolean;
   onClose: () => void;
 }
 
 const TITLES = { graveyard: 'Graveyard', exile: 'Exile', command: 'Command zone' };
 
 /** Public pile browser: graveyard (top first), exile, command. */
-export default function PileSheet({ playerIdx, zone, onClose }: Props) {
+export default function PileSheet({ playerIdx, zone, short = false, onClose }: Props) {
   const game = useAppStore((s) => s.game);
   const moveVirtualCard = useAppStore((s) => s.moveVirtualCard);
   const castCommander = useAppStore((s) => s.castCommander);
@@ -27,6 +29,9 @@ export default function PileSheet({ playerIdx, zone, onClose }: Props) {
 
   return (
     <Sheet title={TITLES[zone]} onClose={onClose} size="wide">
+      {short && shown.length > 0 && (
+        <p className="hint">Not enough mana ready (tax included) — cast it anyway?</p>
+      )}
       {shown.length === 0 ? (
         <p className="hint">Empty.</p>
       ) : (
@@ -47,7 +52,7 @@ export default function PileSheet({ playerIdx, zone, onClose }: Props) {
                       onClose();
                     }}
                   >
-                    Cast
+                    {short ? 'Cast anyway' : 'Cast'}
                   </button>
                 ) : (
                   <>

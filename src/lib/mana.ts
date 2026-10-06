@@ -41,10 +41,54 @@ export function manaColors(item: BoardItem): (ManaColor | 'any')[] {
   return manaColorsFromText(item.oracleText);
 }
 
+const NUMBER_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 };
+
+/** What one tap actually yields, for paying costs: only real `{T}: Add …`
+ * abilities count (a triggered "adds an additional {G}" is not a source),
+ * abilities a card merely grants in quotes are ignored here, and mana the
+ * ability costs comes off the top (a Signet nets one). Several abilities
+ * report the best net amount and every color any of them offers. */
+export function tapManaFromText(text: string): {
+  produces: (ManaColor | 'any')[];
+  amount: number;
+} {
+  const produces: (ManaColor | 'any')[] = [];
+  let amount = 0;
+  const own = text.replace(/"[^"]*"/g, ''); // granted abilities belong to other permanents
+  for (const line of own.split('\n')) {
+    const m = line.match(/([^.(]*\{T\}[^:]*):\s*[^.]*?\badd\s+([^.]*)/i);
+    if (!m) continue;
+    const [, cost, phrase] = m;
+    const paid =
+      [...cost.matchAll(/\{(\d+)\}/g)].reduce((sum, [, n]) => sum + Number(n), 0) +
+      [...cost.matchAll(/\{[WUBRGC]\}/g)].length;
+
+    let yielded: number;
+    if (/any (one )?color|any combination of colors|any type/i.test(phrase)) {
+      const word = phrase.match(/\b(one|two|three|four|five)\b/i)?.[1].toLowerCase();
+      yielded = word ? NUMBER_WORDS[word] : 1;
+      if (!produces.includes('any')) produces.push('any');
+    } else {
+      const symbols = [...phrase.matchAll(/\{([WUBRGC])\}/g)].map(([, s]) => s as ManaColor);
+      if (symbols.length === 0) continue;
+      for (const s of symbols) if (!produces.includes(s)) produces.push(s);
+      // "{G} or {W}" is a choice of one; "{C}{C}" is that many.
+      yielded = /\bor\b/i.test(phrase) ? 1 : symbols.length;
+    }
+    amount = Math.max(amount, yielded - paid);
+  }
+  return amount > 0 ? { produces, amount } : { produces: [], amount: 0 };
+}
+
+/** Sacrificing is part of the mana ability — spending it destroys it. */
+export function isOneShotText(text: string): boolean {
+  return /sacrifice[^.:]*:[^.]*add/i.test(text);
+}
+
 /** Treasure-style sources: sacrificing is part of the mana ability, so
  * "tapping" one in the app spends it instead of marking it tapped. */
 export function isOneShotSource(item: BoardItem): boolean {
-  return /sacrifice[^.:]*:[^.]*add/i.test(item.oracleText);
+  return isOneShotText(item.oracleText);
 }
 
 /** What this stack taps for right now: the manual override when set

@@ -89,7 +89,7 @@ export function seedSeat(g: GameState, seat: number, cards: SeatCards): GameStat
 
 /** Battlefield-only fields never travel to other zones. */
 function stripped(c: CardInstance): CardInstance {
-  const { tapped: _t, counters: _c, row: _r, ...rest } = c;
+  const { tapped: _t, counters: _c, row: _r, spent: _s, ...rest } = c;
   return rest;
 }
 
@@ -181,13 +181,28 @@ export function tapCard(g: GameState, seat: number, iid: string, tapped: boolean
     if ((card.tapped ?? false) === tapped) return null; // already there
     const battlefield = cards.battlefield.map((c) => {
       if (c.iid !== iid) return c;
-      if (!tapped) {
-        const { tapped: _t, ...rest } = c; // omit, never write false
-        return rest;
-      }
-      return { ...c, tapped: true };
+      // Either direction starts the card's mana over: an untap forgets
+      // what was spent, and a tap by hand floats the whole yield.
+      const { tapped: _t, spent: _s, ...rest } = c; // omit, never write false
+      return tapped ? { ...rest, tapped: true } : rest;
     });
     return { ...cards, battlefield };
+  });
+}
+
+/** A payment draws `units` of mana from this card, tapping it if it is
+ * not already. Whatever the card yields beyond `spent` keeps floating. */
+export function spendMana(g: GameState, seat: number, iid: string, units: number): GameState {
+  return updateSeat(g, seat, (cards) => {
+    const card = cards.battlefield.find((c) => c.iid === iid);
+    if (!card || units <= 0) return null;
+    const spent = (card.tapped ? (card.spent ?? 0) : 0) + units;
+    return {
+      ...cards,
+      battlefield: cards.battlefield.map((c) =>
+        c.iid === iid ? { ...c, tapped: true, spent } : c,
+      ),
+    };
   });
 }
 
@@ -273,7 +288,7 @@ export function untapAllCards(g: GameState, seat: number): GameState {
       ...cards,
       battlefield: cards.battlefield.map((c) => {
         if (!c.tapped) return c;
-        const { tapped: _t, ...rest } = c;
+        const { tapped: _t, spent: _s, ...rest } = c;
         return rest;
       }),
     };

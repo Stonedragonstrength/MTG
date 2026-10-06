@@ -1,6 +1,56 @@
 import { describe, expect, test } from 'vitest';
 import type { BoardItem } from './types';
-import { effectiveManaColors, isOneShotSource, landSummary, manaColors } from './mana';
+import {
+  effectiveManaColors,
+  isOneShotSource,
+  landSummary,
+  manaColors,
+  tapManaFromText,
+} from './mana';
+
+describe('tapManaFromText', () => {
+  test('a basic taps for one of its color', () => {
+    expect(tapManaFromText('({T}: Add {G}.)')).toEqual({ produces: ['G'], amount: 1 });
+  });
+
+  test('alternatives are one mana, listed symbols are that many', () => {
+    expect(tapManaFromText('{T}: Add {G} or {W}.')).toEqual({ produces: ['G', 'W'], amount: 1 });
+    expect(tapManaFromText('{T}: Add {R}, {G}, or {W}.')).toEqual({
+      produces: ['R', 'G', 'W'],
+      amount: 1,
+    });
+    expect(tapManaFromText('{T}: Add {C}{C}.')).toEqual({ produces: ['C'], amount: 2 }); // Sol Ring
+    expect(tapManaFromText('{T}: Add {G}{U}.')).toEqual({ produces: ['G', 'U'], amount: 2 }); // bounce land
+  });
+
+  test('any-color wording reads its count', () => {
+    expect(tapManaFromText('{T}: Add one mana of any color.')).toEqual({
+      produces: ['any'],
+      amount: 1,
+    });
+    expect(tapManaFromText('{T}: Add three mana of any one color.')).toEqual({
+      produces: ['any'],
+      amount: 3,
+    });
+  });
+
+  test('mana the ability itself costs comes off the top', () => {
+    // Signet: pay 1, get 2 — one net mana
+    expect(tapManaFromText('{1}, {T}: Add {G}{W}.')).toEqual({ produces: ['G', 'W'], amount: 1 });
+  });
+
+  test('several abilities: best net amount, every color they offer', () => {
+    const grotto = '{T}: Add {C}.\n{1}, {T}: Add one mana of any color.';
+    expect(tapManaFromText(grotto)).toEqual({ produces: ['C', 'any'], amount: 1 });
+  });
+
+  test('"add" without a tap cost is not a mana ability', () => {
+    expect(
+      tapManaFromText('Whenever a Forest is tapped for mana, its controller adds an additional {G}.'),
+    ).toEqual({ produces: [], amount: 0 });
+    expect(tapManaFromText('Flying')).toEqual({ produces: [], amount: 0 });
+  });
+});
 
 function land(name: string, oracleText: string, count = 1): BoardItem {
   return {

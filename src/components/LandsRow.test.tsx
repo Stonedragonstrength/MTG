@@ -263,6 +263,52 @@ test('a fully tapped virtual stack ignores taps and surfaces untap-all', async (
   expect(untapAll).toHaveBeenCalledWith(0);
 });
 
+test('a virtual seat hides the quick-add basics — deck lands carry the mana now', () => {
+  const game = createGame(config);
+  game.players[0] = {
+    ...game.players[0],
+    cards: seatWith([{ iid: 'i1', cardId: 'c-forest', name: 'Forest', row: 'lands' }]),
+  };
+  useAppStore.setState({ game });
+  render(<LandsRow playerIdx={0} />);
+  expect(screen.queryByRole('button', { name: /add forest/i })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /add a land/i })).not.toBeInTheDocument();
+});
+
+test('a deck seat reads how much mana is ready: untapped lands plus what floats', async () => {
+  const game = createGame(config);
+  game.players[0] = {
+    ...game.players[0],
+    cards: seatWith([
+      { iid: 'i1', cardId: 'c-forest', name: 'Forest', row: 'lands' }, // fresh
+      { iid: 'i2', cardId: 'c-forest', name: 'Forest', row: 'lands', tapped: true }, // tapped by hand
+      { iid: 'i3', cardId: 'c-forest', name: 'Forest', row: 'lands', tapped: true, spent: 1 }, // paid away
+    ]),
+  };
+  useAppStore.setState({ game });
+  render(<LandsRow playerIdx={0} />);
+  expect(await screen.findByLabelText('2 mana ready')).toBeInTheDocument();
+});
+
+test('a tapped front-row card surfaces untap-all too', () => {
+  const game = createGame(config);
+  game.players[0] = {
+    ...game.players[0],
+    cards: seatWith([{ iid: 'b1', cardId: 'c-bear', name: 'Grizzly Bears', row: 'front', tapped: true }]),
+  };
+  useAppStore.setState({ game });
+  render(<LandsRow playerIdx={0} />);
+  expect(screen.getByRole('button', { name: /untap all/i })).toBeInTheDocument();
+});
+
+test('tracker seats show no mana-ready readout', () => {
+  const game = createGame(config);
+  game.players[0] = { ...game.players[0], board: [landItem('Forest', '({T}: Add {G}.)', 3)] };
+  useAppStore.setState({ game });
+  render(<LandsRow playerIdx={0} />);
+  expect(screen.queryByLabelText(/mana ready/i)).not.toBeInTheDocument();
+});
+
 test('holding a virtual land stack opens its card sheet', async () => {
   const game = createGame(config);
   game.players[0] = {

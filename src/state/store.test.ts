@@ -343,7 +343,10 @@ describe('cards mode', () => {
 
   test('a commander stranded in the graveyard returns to command with its tax', async () => {
     const store = await cardsStore();
-    store.getState().castCommander(0);
+    store.getState().castCommander(0); // resolves its cost off the card DB first
+    await vi.waitFor(() =>
+      expect(store.getState().game!.players[0].cards!.battlefield).toHaveLength(1),
+    );
     const iid = store.getState().game!.players[0].cards!.battlefield[0].iid;
     store.getState().moveVirtualCard(0, iid, 'battlefield', 'graveyard'); // board wipe gesture
     store.getState().commanderReturned(0, iid, 'graveyard');
@@ -351,6 +354,161 @@ describe('cards mode', () => {
     expect(after.players[0].cards!.command.some((c) => c.iid === iid)).toBe(true);
     expect(after.players[0].commanderDeaths).toBe(1);
     expect(after.feed?.some((e) => /returns to the command zone/i.test(e.text))).toBe(true);
+  });
+
+  test('casting auto-taps the lands that pay the cost', async () => {
+    const store = await cardsStore(); // first: its bulkPut would stomp the enriched records
+    const forest = {
+      ...deckRecord('c-forest', 'Forest', 'Basic Land — Forest'),
+      oracleText: '({T}: Add {G}.)',
+    };
+    const bear = {
+      ...deckRecord('c-bear', 'Grizzly Bears', 'Creature — Bear'),
+      manaCost: '{1}{G}',
+    };
+    await getDb().cards.bulkPut([forest, bear]);
+    const g = store.getState().game!;
+    const seat = g.players[0].cards!;
+    store.setState({
+      game: {
+        ...g,
+        players: g.players.map((p, i) =>
+          i === 0
+            ? {
+                ...p,
+                cards: {
+                  ...seat,
+                  hand: [{ iid: 'h-bear', cardId: 'c-bear', name: 'Grizzly Bears' }],
+                  battlefield: [
+                    { iid: 'f1', cardId: 'c-forest', name: 'Forest', row: 'lands' },
+                    { iid: 'f2', cardId: 'c-forest', name: 'Forest', row: 'lands' },
+                    { iid: 'f3', cardId: 'c-forest', name: 'Forest', row: 'lands' },
+                  ],
+                },
+              }
+            : p,
+        ),
+      },
+    });
+    await store.getState().playCard(0, 'h-bear');
+    const bf = store.getState().game!.players[0].cards!.battlefield;
+    expect(bf.find((c) => c.iid === 'h-bear')?.row).toBe('front');
+    expect(bf.filter((c) => c.tapped).length).toBe(2); // {1}{G} = two forests tapped
+  });
+
+  test('mana from lands you tapped yourself pays for the cast — no extra land taps', async () => {
+    const store = await cardsStore();
+    await getDb().cards.bulkPut([
+      { ...deckRecord('c-forest', 'Forest', 'Basic Land — Forest'), oracleText: '({T}: Add {G}.)' },
+      { ...deckRecord('c-bear', 'Grizzly Bears', 'Creature — Bear'), manaCost: '{1}{G}' },
+    ]);
+    const g = store.getState().game!;
+    store.setState({
+      game: {
+        ...g,
+        players: g.players.map((p, i) =>
+          i === 0
+            ? {
+                ...p,
+                cards: {
+                  ...p.cards!,
+                  hand: [{ iid: 'h-bear', cardId: 'c-bear', name: 'Grizzly Bears' }],
+                  battlefield: [
+                    { iid: 'f1', cardId: 'c-forest', name: 'Forest', row: 'lands' as const },
+                    { iid: 'f2', cardId: 'c-forest', name: 'Forest', row: 'lands' as const },
+                    { iid: 'f3', cardId: 'c-forest', name: 'Forest', row: 'lands' as const },
+                  ],
+                },
+              }
+            : p,
+        ),
+      },
+    });
+    store.getState().tapVirtualCard(0, 'f1', true); // the natural way: tap lands first
+    store.getState().tapVirtualCard(0, 'f2', true);
+    await store.getState().playCard(0, 'h-bear');
+    const bf = store.getState().game!.players[0].cards!.battlefield;
+    expect(bf.find((c) => c.iid === 'f3')?.tapped).toBeUndefined(); // third land left alone
+    expect(bf.find((c) => c.iid === 'f1')?.spent).toBe(1);
+    expect(bf.find((c) => c.iid === 'f2')?.spent).toBe(1);
+  });
+
+  test('a cast nothing can pay still resolves, tapping nothing (trust model)', async () => {
+    const store = await cardsStore();
+    const bolt = {
+      ...deckRecord('c-bolt', 'Lightning Bolt', 'Instant'),
+      manaCost: '{R}',
+    };
+    const forest = {
+      ...deckRecord('c-forest', 'Forest', 'Basic Land — Forest'),
+      oracleText: '({T}: Add {G}.)',
+    };
+    await getDb().cards.bulkPut([bolt, forest]);
+    const g = store.getState().game!;
+    const seat = g.players[0].cards!;
+    store.setState({
+      game: {
+        ...g,
+        players: g.players.map((p, i) =>
+          i === 0
+            ? {
+                ...p,
+                cards: {
+                  ...seat,
+                  hand: [{ iid: 'h-bolt', cardId: 'c-bolt', name: 'Lightning Bolt' }],
+                  battlefield: [{ iid: 'f1', cardId: 'c-forest', name: 'Forest', row: 'lands' }],
+                },
+              }
+            : p,
+        ),
+      },
+    });
+    await store.getState().playCard(0, 'h-bolt'); // forest makes G, bolt wants R
+    const after = store.getState().game!.players[0].cards!;
+    expect(after.graveyard.some((c) => c.iid === 'h-bolt')).toBe(true); // instant resolved
+    expect(after.battlefield.some((c) => c.tapped)).toBe(false); // no half-payments
+  });
+
+  test('casting the commander taps its mana too', async () => {
+    const store = await cardsStore();
+    const cmdCost = {
+      ...deckRecord('c-cmd', 'Ashaya', 'Legendary Creature — Elemental'),
+      manaCost: '{3}{G}{G}',
+    };
+    const forest = {
+      ...deckRecord('c-forest', 'Forest', 'Basic Land — Forest'),
+      oracleText: '({T}: Add {G}.)',
+    };
+    await getDb().cards.bulkPut([cmdCost, forest]);
+    const g = store.getState().game!;
+    const seat = g.players[0].cards!;
+    store.setState({
+      game: {
+        ...g,
+        players: g.players.map((p, i) =>
+          i === 0
+            ? {
+                ...p,
+                cards: {
+                  ...seat,
+                  battlefield: Array.from({ length: 6 }, (_, k) => ({
+                    iid: `f${k}`,
+                    cardId: 'c-forest',
+                    name: 'Forest',
+                    row: 'lands' as const,
+                  })),
+                },
+              }
+            : p,
+        ),
+      },
+    });
+    store.getState().castCommander(0);
+    await vi.waitFor(() => {
+      const bf = store.getState().game!.players[0].cards!.battlefield;
+      expect(bf.some((c) => c.name === 'Ashaya')).toBe(true);
+      expect(bf.filter((c) => c.tapped).length).toBe(5); // {3}{G}{G}
+    });
   });
 
   test('pass turn readies the incoming seat, virtual cards included', async () => {

@@ -49,6 +49,7 @@ export default function PlayerZone({
     player.eliminated ? 'zone--dead' : '',
     isActive && !player.eliminated ? 'zone--active' : '',
     focused ? 'zone--focused' : '',
+    player.cards ? 'zone--cards' : '', // compact chrome: the cards need the room
   ]
     .filter(Boolean)
     .join(' ');

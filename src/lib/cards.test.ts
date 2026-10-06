@@ -14,6 +14,7 @@ import {
   seedSeat,
   setCardCounter,
   setHandHeld,
+  spendMana,
   tapCard,
   untapAllCards,
 } from './cards';
@@ -88,6 +89,44 @@ describe('seedSeat', () => {
     expect(g.players[0].cards?.hand).toHaveLength(7);
     const again = seedSeat(g, 0, buildSeatCards(sampleDeck(), 99));
     expect(again).toBe(g);
+  });
+});
+
+describe('spendMana', () => {
+  function withLand(): { g: GameState; iid: string } {
+    const g = seeded();
+    const iid = g.players[0].cards!.hand[0].iid;
+    return { g: moveCard(g, 0, iid, 'hand', 'battlefield', { row: 'lands' }), iid };
+  }
+  const card = (g: GameState, iid: string) =>
+    g.players[0].cards!.battlefield.find((c) => c.iid === iid)!;
+
+  test('taps a fresh card and records the units it paid', () => {
+    const { g, iid } = withLand();
+    const paid = spendMana(g, 0, iid, 1);
+    expect(card(paid, iid)).toMatchObject({ tapped: true, spent: 1 });
+  });
+
+  test('draws down a card that was already tapped by hand', () => {
+    const { g, iid } = withLand();
+    const floating = tapCard(g, 0, iid, true); // manual tap: nothing spent yet
+    expect(card(floating, iid).spent).toBeUndefined();
+    const once = spendMana(floating, 0, iid, 1);
+    expect(card(spendMana(once, 0, iid, 1), iid).spent).toBe(2);
+  });
+
+  test('untapping or leaving the battlefield forgets the spend', () => {
+    const { g, iid } = withLand();
+    const paid = spendMana(g, 0, iid, 1);
+    expect(card(tapCard(paid, 0, iid, false), iid).spent).toBeUndefined();
+    expect(card(untapAllCards(paid, 0), iid).spent).toBeUndefined();
+    const bounced = moveCard(paid, 0, iid, 'battlefield', 'hand');
+    expect(bounced.players[0].cards!.hand.find((c) => c.iid === iid)).not.toHaveProperty('spent');
+  });
+
+  test('no-ops on a card that is not on the battlefield', () => {
+    const g = seeded();
+    expect(spendMana(g, 0, 'nope', 1)).toBe(g);
   });
 });
 

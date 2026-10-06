@@ -8,6 +8,7 @@ import { isValidGame, migrateGame } from '../lib/migrate';
 import { DEFAULT_SETTINGS, getSettings, saveSettings, type Settings } from '../data/settings';
 import * as boardLib from '../lib/board';
 import * as gameLib from '../lib/game';
+import * as payLib from '../lib/pay';
 import { playDefeat, playLifeTick, playTurnChime } from '../lib/sound';
 import type {
   BoardItem,
@@ -118,6 +119,32 @@ export function flushPersistence(): Promise<unknown> {
 
 const HISTORY_CAP = 100;
 const LOG_CAP = 200;
+
+/** Every ready mana activation a seat could tap right now, with records
+ * resolved through the same id→name chain the UI uses. */
+async function seatSources(g: GameState, seat: number): Promise<payLib.ManaSource[]> {
+  const battlefield = g.players[seat]?.cards?.battlefield ?? [];
+  const m = await import('../data/scryfall');
+  const records: Record<string, CardRecord | undefined> = {};
+  for (const c of battlefield) {
+    if (c.cardId in records) continue; // tapped cards still float mana and grant abilities
+    const byId = await m.getCardById(c.cardId).catch(() => undefined);
+    records[c.cardId] = byId ?? (await m.findCardByName(c.name).catch(() => undefined));
+  }
+  return payLib.sourcesFrom(battlefield, records, g.players[seat]?.board ?? []);
+}
+
+/** Runs a payment inside the cast's own op, so undo and rebase treat the
+ * card and its mana as one move. Every step no-ops on a missing target. */
+function applyPayment(g: GameState, seat: number, plan: payLib.PaymentPlan | null): GameState {
+  if (!plan) return g; // nothing can pay it (or it was forced): tap nothing
+  let next = g;
+  for (const [iid, units] of Object.entries(plan.spend))
+    next = cardsLib.spendMana(next, seat, iid, units);
+  for (const [itemId, copies] of Object.entries(plan.boardTaps))
+    next = boardLib.tapItem(next, seat, itemId, copies);
+  return next;
+}
 
 export function createAppStore() {
   return create<AppStore>()((set, get) => {
@@ -391,14 +418,22 @@ export function createAppStore() {
           return m.findCardByName(card.name).catch(() => undefined);
         });
         const typeLine = record?.typeLine ?? '';
-        const row: 'front' | 'lands' = /Land/.test(typeLine) ? 'lands' : 'front';
+        const isLand = /Land/.test(typeLine);
+        const row: 'front' | 'lands' = isLand ? 'lands' : 'front';
         const isSpell = /Instant|Sorcery/.test(typeLine) && !/Land|Creature/.test(typeLine);
         const verb = isSpell ? 'casts' : 'plays';
+        // Auto-payment: the untapped table pays the cost as the card lands.
+        // No plan (cost-reducers, treasures, bare trust) = play, tap nothing.
+        const plan = isLand
+          ? null
+          : payLib.planPayment(payLib.parseCost(record?.manaCost ?? ''), await seatSources(g, seat));
         cardMutate(
-          (base) =>
-            isSpell
+          (base) => {
+            const moved = isSpell
               ? cardsLib.moveCard(base, seat, iid, 'hand', 'graveyard')
-              : cardsLib.moveCard(base, seat, iid, 'hand', 'battlefield', { row }),
+              : cardsLib.moveCard(base, seat, iid, 'hand', 'battlefield', { row });
+            return moved === base ? base : applyPayment(moved, seat, plan);
+          },
           `${seatName(g, seat)} ${verb} ${card.name}`,
           (base) => !!base.players[seat]?.cards?.hand.some((c) => c.iid === iid),
         );
@@ -515,12 +550,27 @@ export function createAppStore() {
         const cmd = g?.players[seat]?.cards?.command[0];
         if (!g || !cmd) return;
         const tax = (g.players[seat]?.commanderDeaths ?? 0) * 2;
-        cardMutate(
-          (base) =>
-            cardsLib.moveCard(base, seat, cmd.iid, 'command', 'battlefield', { row: 'front' }),
-          `${seatName(g, seat)} casts ${cmd.name}${tax > 0 ? ` (tax +${tax})` : ''}`,
-          (base) => !!base.players[seat]?.cards?.command.some((c) => c.iid === cmd.iid),
-        );
+        void (async () => {
+          // Same auto-payment as playCard, with the tax riding as generic.
+          const record = await import('../data/scryfall').then(async (m) => {
+            const byId = await m.getCardById(cmd.cardId).catch(() => undefined);
+            if (byId) return byId;
+            return m.findCardByName(cmd.name).catch(() => undefined);
+          });
+          const cost = payLib.parseCost(record?.manaCost ?? '');
+          cost.generic += tax;
+          const plan = payLib.planPayment(cost, await seatSources(g, seat));
+          cardMutate(
+            (base) => {
+              const moved = cardsLib.moveCard(base, seat, cmd.iid, 'command', 'battlefield', {
+                row: 'front',
+              });
+              return moved === base ? base : applyPayment(moved, seat, plan);
+            },
+            `${seatName(g, seat)} casts ${cmd.name}${tax > 0 ? ` (tax +${tax})` : ''}`,
+            (base) => !!base.players[seat]?.cards?.command.some((c) => c.iid === cmd.iid),
+          );
+        })();
       },
 
       commanderDiedAction(seat, iid) {

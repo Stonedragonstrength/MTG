@@ -3,6 +3,7 @@ import { randomBasicArt } from '../data/images';
 import { findBasicLand } from '../data/scryfall';
 import { createBoardItem } from '../lib/board';
 import { COLOR_NAMES, isOneShotSource, landSummary, MANA_COLORS, type ManaColor } from '../lib/mana';
+import { availableMana, sourcesFrom } from '../lib/pay';
 import type { BoardItem, CardInstance } from '../lib/types';
 import { useAppStore } from '../state/store';
 import BattlefieldCardSheet from './BattlefieldCardSheet';
@@ -147,7 +148,9 @@ export default function LandsRow({ playerIdx }: Props) {
   // Virtual deck lands live on the battlefield's lands shelf (cards mode).
   const seat = game?.players[playerIdx]?.cards;
   const vLands = seat ? seat.battlefield.filter((c) => c.row === 'lands') : [];
-  const records = useCardRecords(vLands);
+  // Every battlefield card, not just the shelf: rocks and dorks up front
+  // are mana too, and the ready count has to see them.
+  const records = useCardRecords(seat?.battlefield ?? []);
 
   if (!game) return null;
   const lands = game.players[playerIdx].board.filter((it) => it.zone === 'lands');
@@ -161,7 +164,11 @@ export default function LandsRow({ playerIdx }: Props) {
   // Untap-all readies the whole board now, so any tapped permanent surfaces it.
   const anyTapped =
     game.players[playerIdx].board.some((it) => (it.tapped ?? 0) > 0) ||
-    vLands.some((c) => c.tapped);
+    (seat?.battlefield.some((c) => c.tapped) ?? false);
+  // What the cast gate sees: untapped sources plus mana still floating.
+  const ready = seat
+    ? availableMana(sourcesFrom(seat.battlefield, records, game.players[playerIdx].board))
+    : null;
 
   async function quickAdd(name: string) {
     const existing = lands.find((it) => it.name === name);
@@ -198,6 +205,11 @@ export default function LandsRow({ playerIdx }: Props) {
         {summary.any > 0 && (
           <span className="mana-pip mana-any" aria-label={`${summary.any} any-color sources`}>
             {summary.any}
+          </span>
+        )}
+        {ready !== null && (
+          <span className="mana-ready" aria-label={`${ready} mana ready`}>
+            {ready} ready
           </span>
         )}
         {anyTapped && (
@@ -243,25 +255,28 @@ export default function LandsRow({ playerIdx }: Props) {
             onDetail={() => setDetailId(item.id)}
           />
         ))}
-        <span className="basic-adds">
-          {BASICS.map((b) => (
+        {/* Deck seats draw their lands — the quick-add chips are tracker-only. */}
+        {!seat && (
+          <span className="basic-adds">
+            {BASICS.map((b) => (
+              <button
+                key={b.name}
+                className={`basic-add swatch-${b.color}`}
+                aria-label={`add ${b.name}`}
+                onClick={() => void quickAdd(b.name)}
+              >
+                +
+              </button>
+            ))}
             <button
-              key={b.name}
-              className={`basic-add swatch-${b.color}`}
-              aria-label={`add ${b.name}`}
-              onClick={() => void quickAdd(b.name)}
+              className="basic-add land-search"
+              aria-label="add a land"
+              onClick={() => setSearchOpen(true)}
             >
-              +
+              🔍
             </button>
-          ))}
-          <button
-            className="basic-add land-search"
-            aria-label="add a land"
-            onClick={() => setSearchOpen(true)}
-          >
-            🔍
-          </button>
-        </span>
+          </span>
+        )}
       </div>
 
       {searchOpen && (

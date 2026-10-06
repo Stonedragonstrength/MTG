@@ -40,7 +40,12 @@ function rec(id: string, name: string, typeLine: string): CardRecord {
 
 const RECORDS: Record<string, CardRecord> = {
   'c-cmd': rec('c-cmd', 'Ashaya', 'Legendary Creature — Elemental'),
-  'c-forest': rec('c-forest', 'Forest', 'Basic Land — Forest'),
+  'c-forest': { ...rec('c-forest', 'Forest', 'Basic Land — Forest'), oracleText: '({T}: Add {G}.)' },
+  'c-bolt': { ...rec('c-bolt', 'Lightning Bolt', 'Instant'), manaCost: '{R}' },
+  'c-mountain': {
+    ...rec('c-mountain', 'Mountain', 'Basic Land — Mountain'),
+    oracleText: '({T}: Add {R}.)',
+  },
 };
 
 vi.mock('../data/scryfall', () => ({
@@ -144,6 +149,117 @@ test('a kept hand shows no mulligan controls at all', async () => {
   await user.click(screen.getByRole('button', { name: /hand, 7 cards/i }));
   expect(screen.queryByRole('button', { name: /mulligan/i })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /keep/i })).not.toBeInTheDocument();
+});
+
+test('a spell you cannot pay for is dimmed and will not play', async () => {
+  const playCard = vi.fn(async () => {});
+  const g = seededGame();
+  g.players[0] = {
+    ...g.players[0],
+    cards: {
+      ...g.players[0].cards!,
+      hand: [{ iid: 'h1', cardId: 'c-bolt', name: 'Lightning Bolt' }],
+      battlefield: [], // no mana at all
+    },
+  };
+  useAppStore.setState({ game: g, playCard });
+  const user = userEvent.setup();
+  render(<HandTray playerIdx={0} />);
+  await user.click(screen.getByRole('button', { name: /hand, 1 card/i }));
+  const card = await screen.findByRole('button', { name: /play lightning bolt/i });
+  await vi.waitFor(() => expect(card.className).toContain('hand-card--poor'));
+  await user.click(card);
+  expect(playCard).not.toHaveBeenCalled();
+});
+
+test('the same spell plays once the mana sits untapped', async () => {
+  const playCard = vi.fn(async () => {});
+  const g = seededGame();
+  g.players[0] = {
+    ...g.players[0],
+    cards: {
+      ...g.players[0].cards!,
+      hand: [{ iid: 'h1', cardId: 'c-bolt', name: 'Lightning Bolt' }],
+      battlefield: [{ iid: 'm1', cardId: 'c-mountain', name: 'Mountain', row: 'lands' }],
+    },
+  };
+  useAppStore.setState({ game: g, playCard });
+  const user = userEvent.setup();
+  render(<HandTray playerIdx={0} />);
+  await user.click(screen.getByRole('button', { name: /hand, 1 card/i }));
+  const card = await screen.findByRole('button', { name: /play lightning bolt/i });
+  await vi.waitFor(() => expect(card.className).not.toContain('hand-card--poor'));
+  await user.click(card);
+  expect(playCard).toHaveBeenCalledWith(0, 'h1');
+});
+
+test('a land you already tapped still pays: its mana is floating', async () => {
+  const playCard = vi.fn(async () => {});
+  const g = seededGame();
+  g.players[0] = {
+    ...g.players[0],
+    cards: {
+      ...g.players[0].cards!,
+      hand: [{ iid: 'h1', cardId: 'c-bolt', name: 'Lightning Bolt' }],
+      battlefield: [
+        { iid: 'm1', cardId: 'c-mountain', name: 'Mountain', row: 'lands', tapped: true },
+      ],
+    },
+  };
+  useAppStore.setState({ game: g, playCard });
+  const user = userEvent.setup();
+  render(<HandTray playerIdx={0} />);
+  await user.click(screen.getByRole('button', { name: /hand, 1 card/i }));
+  const card = await screen.findByRole('button', { name: /play lightning bolt/i });
+  await vi.waitFor(() => expect(card.className).not.toContain('hand-card--poor'));
+  await user.click(card);
+  expect(playCard).toHaveBeenCalledWith(0, 'h1');
+});
+
+test('mana a payment already spent does not pay twice', async () => {
+  const playCard = vi.fn(async () => {});
+  const g = seededGame();
+  g.players[0] = {
+    ...g.players[0],
+    cards: {
+      ...g.players[0].cards!,
+      hand: [{ iid: 'h1', cardId: 'c-bolt', name: 'Lightning Bolt' }],
+      battlefield: [
+        { iid: 'm1', cardId: 'c-mountain', name: 'Mountain', row: 'lands', tapped: true, spent: 1 },
+      ],
+    },
+  };
+  useAppStore.setState({ game: g, playCard });
+  const user = userEvent.setup();
+  render(<HandTray playerIdx={0} />);
+  await user.click(screen.getByRole('button', { name: /hand, 1 card/i }));
+  const card = await screen.findByRole('button', { name: /play lightning bolt/i });
+  await vi.waitFor(() => expect(card.className).toContain('hand-card--poor'));
+  await user.click(card);
+  expect(playCard).not.toHaveBeenCalled();
+});
+
+test('Play anyway waits behind the hold for the cards the gate cannot read', async () => {
+  const playCard = vi.fn(async () => {});
+  const g = seededGame();
+  g.players[0] = {
+    ...g.players[0],
+    cards: {
+      ...g.players[0].cards!,
+      hand: [{ iid: 'h1', cardId: 'c-bolt', name: 'Lightning Bolt' }],
+      battlefield: [],
+    },
+  };
+  useAppStore.setState({ game: g, playCard });
+  const user = userEvent.setup();
+  render(<HandTray playerIdx={0} />);
+  await user.click(screen.getByRole('button', { name: /hand, 1 card/i }));
+  const card = await screen.findByRole('button', { name: /play lightning bolt/i });
+  await user.pointer({ keys: '[MouseLeft>]', target: card });
+  await new Promise((r) => setTimeout(r, 650));
+  await user.pointer({ keys: '[/MouseLeft]', target: card });
+  await user.click(await screen.findByRole('button', { name: /play anyway/i }));
+  expect(playCard).toHaveBeenCalledWith(0, 'h1');
 });
 
 test('forceFanned shows the cards straight away, with no pill or collapse', () => {

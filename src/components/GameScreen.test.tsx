@@ -50,6 +50,15 @@ test('standard games show no commander damage strip', () => {
   expect(container.querySelectorAll('.cmd-gauge')).toHaveLength(0);
 });
 
+test('a virtual-cards seat wears the compact cards-mode class', () => {
+  const game = createGame(config(2));
+  game.players[0] = { ...game.players[0], cards: cardsSeat() };
+  useAppStore.setState({ game });
+  const { container } = render(<GameScreen />);
+  expect(container.querySelector('.zone.seat-0')!.className).toContain('zone--cards');
+  expect(container.querySelector('.zone.seat-1')!.className).not.toContain('zone--cards');
+});
+
 test('a virtual-cards seat shows hand and library counts in its header', () => {
   const game = createGame(config(2));
   game.players[0] = {

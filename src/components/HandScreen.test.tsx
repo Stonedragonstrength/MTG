@@ -85,6 +85,20 @@ test('marks the hand as phone-held while open and releases it on leave', () => {
   expect(useAppStore.getState().setHandHeld).toHaveBeenCalledWith(0, false);
 });
 
+test('the phone shows your lands too, so you can see and tap your mana', () => {
+  const g = seededGame();
+  g.players[0] = {
+    ...g.players[0],
+    cards: {
+      ...g.players[0].cards!,
+      battlefield: [{ iid: 'land1', cardId: 'c-forest', name: 'Forest', row: 'lands' }],
+    },
+  };
+  useAppStore.setState({ game: g });
+  render(<HandScreen seatIdx={0} onShowTable={() => {}} />);
+  expect(screen.getByRole('button', { name: 'Forest' })).toBeInTheDocument();
+});
+
 test('pagehide releases the hand so a killed phone cannot wedge it', () => {
   render(<HandScreen seatIdx={0} onShowTable={() => {}} />);
   window.dispatchEvent(new Event('pagehide'));

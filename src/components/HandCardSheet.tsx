@@ -6,13 +6,16 @@ import { useCardRecords } from './useCardRecords';
 interface Props {
   playerIdx: number;
   iid: string;
+  /** The mana gate said no — offer the override here. */
+  poor?: boolean;
   onClose: () => void;
 }
 
 /** Hold on a hand card: everything that isn't playing it. */
-export default function HandCardSheet({ playerIdx, iid, onClose }: Props) {
+export default function HandCardSheet({ playerIdx, iid, poor = false, onClose }: Props) {
   const game = useAppStore((s) => s.game);
   const moveVirtualCard = useAppStore((s) => s.moveVirtualCard);
+  const playCard = useAppStore((s) => s.playCard);
   const card = game?.players[playerIdx]?.cards?.hand.find((c) => c.iid === iid);
   const records = useCardRecords(card ? [card] : []);
   // The card left the hand (drawn away, discarded remotely): really close.
@@ -36,6 +39,17 @@ export default function HandCardSheet({ playerIdx, iid, onClose }: Props) {
         {record?.typeLine && <p className="type-line">{record.typeLine}</p>}
       </div>
       <div className="chip-row">
+        {poor && (
+          <button
+            className="chip"
+            onClick={() => {
+              void playCard(playerIdx, iid); // free spells, reducers, treasure math
+              onClose();
+            }}
+          >
+            Play anyway
+          </button>
+        )}
         <button className="chip" onClick={go('graveyard')}>Discard</button>
         <button className="chip" onClick={go('exile')}>Exile</button>
         <button

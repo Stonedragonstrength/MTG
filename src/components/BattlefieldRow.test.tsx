@@ -41,7 +41,7 @@ function rec(id: string, name: string, typeLine: string): CardRecord {
 const RECORDS: Record<string, CardRecord> = {
   'c-cmd': rec('c-cmd', 'Ashaya', 'Legendary Creature — Elemental'),
   'c-bear': rec('c-bear', 'Grizzly Bears', 'Creature — Bear'),
-  'c-forest': rec('c-forest', 'Forest', 'Basic Land — Forest'),
+  'c-forest': { ...rec('c-forest', 'Forest', 'Basic Land — Forest'), oracleText: '({T}: Add {G}.)' },
 };
 
 vi.mock('../data/scryfall', () => ({
@@ -90,11 +90,46 @@ test('tapping the library draws one for your own seat', async () => {
   expect(useAppStore.getState().drawCards).toHaveBeenCalledWith(0, 1);
 });
 
-test('tapping the pedestal casts the commander', async () => {
+/** The seeded game with a Forest already on the lands shelf. */
+function gameWithForest() {
+  const g = seededGame();
+  g.players[0] = {
+    ...g.players[0],
+    cards: {
+      ...g.players[0].cards!,
+      battlefield: [{ iid: 'land1', cardId: 'c-forest', name: 'Forest', row: 'lands' }],
+    },
+  };
+  return g;
+}
+
+test('tapping the pedestal casts the commander when the mana is there', async () => {
+  useAppStore.setState({ game: gameWithForest() }); // Ashaya costs {1} in this fixture
   const user = userEvent.setup();
   render(<BattlefieldRow playerIdx={0} />);
-  await user.click(screen.getByLabelText(/commander Ashaya/i));
+  const pedestal = screen.getByLabelText(/commander Ashaya/i);
+  const { waitFor } = await import('@testing-library/react');
+  await waitFor(() => expect(pedestal.querySelector('img')).not.toBeNull()); // records in
+  await user.click(pedestal);
   expect(useAppStore.getState().castCommander).toHaveBeenCalledWith(0);
+});
+
+test('a commander you cannot pay for asks before casting', async () => {
+  const user = userEvent.setup();
+  render(<BattlefieldRow playerIdx={0} />); // no lands at all
+  const pedestal = await screen.findByLabelText(/commander Ashaya — not enough mana/i);
+  await user.click(pedestal);
+  expect(useAppStore.getState().castCommander).not.toHaveBeenCalled();
+  await user.click(await screen.findByRole('button', { name: /cast anyway/i }));
+  expect(useAppStore.getState().castCommander).toHaveBeenCalledWith(0);
+});
+
+test('commander tax counts against the mana on the table', async () => {
+  const g = gameWithForest();
+  g.players[0] = { ...g.players[0], commanderDeaths: 1 }; // {1} + 2 tax, one Forest
+  useAppStore.setState({ game: g });
+  render(<BattlefieldRow playerIdx={0} />);
+  expect(await screen.findByLabelText(/commander Ashaya — not enough mana/i)).toBeInTheDocument();
 });
 
 test('battlefield cards render with art and tap to tap', async () => {

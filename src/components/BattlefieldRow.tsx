@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { affordable, parseCost, sourcesFrom } from '../lib/pay';
 import type { CardInstance } from '../lib/types';
 import { useAppStore } from '../state/store';
 import BattlefieldCardSheet from './BattlefieldCardSheet';
@@ -6,6 +7,7 @@ import LibrarySheet from './LibrarySheet';
 import PileSheet from './PileSheet';
 import Sheet from './Sheet';
 import { useCardRecords } from './useCardRecords';
+import { useFitCards } from './useFitCards';
 import { useLongPress } from './useLongPress';
 
 /** One real card on the shared battlefield: tap = tap it, hold = sheet. */
@@ -66,11 +68,16 @@ export default function BattlefieldRow({ playerIdx }: Props) {
   const seat = game?.players[playerIdx]?.cards;
   const profiles = game?.config.profiles;
   const front = seat ? seat.battlefield.filter((c) => c.row !== 'lands') : [];
+  // The whole battlefield, not just the front row: the lands shelf is
+  // where the commander's mana comes from.
   const records = useCardRecords([
-    ...front,
+    ...(seat?.battlefield ?? []),
     ...(seat?.command ?? []),
     ...(seat ? seat.graveyard.slice(-1) : []),
   ]);
+  // The front row fills whatever the zone leaves it, at any card count.
+  const cardsRef = useRef<HTMLDivElement>(null);
+  useFitCards(cardsRef, front.length, 300);
   const armTimer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(armTimer.current), []);
   const holdLibrary = useLongPress(
@@ -101,10 +108,17 @@ export default function BattlefieldRow({ playerIdx }: Props) {
   const size = front.length <= 3 ? 'lg' : front.length <= 8 ? 'md' : 'sm';
   const commander = seat.command[0];
   const topGrave = seat.graveyard[seat.graveyard.length - 1];
+  // The mana gate, tax included. An unread record never blocks the cast.
+  const player = game.players[playerIdx];
+  const cmdRecord = commander ? records[commander.cardId] : null;
+  const cmdCost = cmdRecord ? parseCost(cmdRecord.manaCost) : null;
+  if (cmdCost) cmdCost.generic += player.commanderDeaths * 2;
+  const cmdPoor =
+    !!cmdCost && !affordable(cmdCost, sourcesFrom(seat.battlefield, records, player.board));
 
   return (
     <div className={`bf-row bf-row--${size}`}>
-      <div className="bf-cards">
+      <div className="bf-cards" ref={cardsRef}>
         {front.map((c) => (
           <VCard
             key={c.iid}
@@ -159,9 +173,13 @@ export default function BattlefieldRow({ playerIdx }: Props) {
         )}
         {commander ? (
           <button
-            className="dock-pile dock-command"
-            aria-label={`commander ${commander.name} — tap to cast`}
-            onClick={() => castCommander(playerIdx)}
+            className={`dock-pile dock-command${cmdPoor ? ' dock-command--poor' : ''}`}
+            aria-label={
+              cmdPoor
+                ? `commander ${commander.name} — not enough mana`
+                : `commander ${commander.name} — tap to cast`
+            }
+            onClick={() => (cmdPoor ? setPile('command') : castCommander(playerIdx))}
           >
             {records[commander.cardId]?.imageNormal ? (
               <img src={records[commander.cardId]!.imageNormal!} alt="" loading="lazy" />
@@ -190,7 +208,14 @@ export default function BattlefieldRow({ playerIdx }: Props) {
         )}
       </div>
 
-      {pile && <PileSheet playerIdx={playerIdx} zone={pile} onClose={() => setPile(null)} />}
+      {pile && (
+        <PileSheet
+          playerIdx={playerIdx}
+          zone={pile}
+          short={pile === 'command' && cmdPoor}
+          onClose={() => setPile(null)}
+        />
+      )}
       {cardSheet && (
         <BattlefieldCardSheet playerIdx={playerIdx} iid={cardSheet} onClose={() => setCardSheet(null)} />
       )}

@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { affordable, parseCost, sourcesFrom } from '../lib/pay';
+import type { CardInstance } from '../lib/types';
 import { useAppStore } from '../state/store';
 import HandCardSheet from './HandCardSheet';
 import { useCardRecords } from './useCardRecords';
@@ -8,21 +10,23 @@ function HandCard({
   name,
   art,
   selected,
+  poor,
   onPlay,
   onDetail,
 }: {
   name: string;
   art: string | null;
   selected: boolean;
+  poor: boolean;
   onPlay: () => void;
   onDetail: () => void;
 }) {
   const press = useLongPress(onPlay, onDetail);
   return (
     <button
-      className={`hand-card${selected ? ' hand-card--selected' : ''}`}
+      className={`hand-card${selected ? ' hand-card--selected' : ''}${poor ? ' hand-card--poor' : ''}`}
       aria-label={`play ${name}`}
-      title="Tap to play · hold for options"
+      title={poor ? 'Not enough untapped mana · hold for options' : 'Tap to play · hold for options'}
       {...press}
     >
       {art ? <img src={art} alt="" loading="lazy" /> : <span className="vcard-placeholder">{name}</span>}
@@ -60,7 +64,19 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
 
   const seat = game?.players[playerIdx]?.cards;
   const records = useCardRecords(seat?.hand ?? []);
+  const bfRecords = useCardRecords(seat?.battlefield ?? []);
   if (!game || !seat) return null;
+
+  // The mana gate: a card lights up only while the untapped table can pay
+  // it. Lands and unread records never block; "Play anyway" lives in the
+  // hold sheet for cost-reducers and treasure math the gate can't see.
+  const sources = sourcesFrom(seat.battlefield, bfRecords, game.players[playerIdx]?.board ?? []);
+  const payable = (c: CardInstance): boolean => {
+    const r = records[c.cardId];
+    if (!r) return true;
+    if (/Land/.test(r.typeLine)) return true;
+    return affordable(parseCost(r.manaCost), sources);
+  };
   const claimed = !online || online.mySeat === playerIdx || online.mySeat === null;
   if (!claimed) return null; // unclaimed hands live behind the dock's peek gate
   // A phone holds this hand: every other device shows a hint, not cards.
@@ -114,7 +130,11 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
                 name={c.name}
                 art={records[c.cardId]?.imageNormal ?? null}
                 selected={selected.includes(c.iid)}
-                onPlay={() => (bottoming ? toggleSelect(c.iid) : void playCard(playerIdx, c.iid))}
+                poor={!bottoming && !payable(c)}
+                onPlay={() => {
+                  if (bottoming) toggleSelect(c.iid);
+                  else if (payable(c)) void playCard(playerIdx, c.iid);
+                }}
                 onDetail={() => !bottoming && setDetail(c.iid)}
               />
             ))}
@@ -175,7 +195,17 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
           </div>
         </div>
       )}
-      {detail && <HandCardSheet playerIdx={playerIdx} iid={detail} onClose={() => setDetail(null)} />}
+      {detail && (
+        <HandCardSheet
+          playerIdx={playerIdx}
+          iid={detail}
+          poor={(() => {
+            const c = seat.hand.find((x) => x.iid === detail);
+            return c ? !payable(c) : false;
+          })()}
+          onClose={() => setDetail(null)}
+        />
+      )}
     </div>
   );
 }
