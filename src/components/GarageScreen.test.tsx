@@ -61,7 +61,55 @@ beforeEach(() => {
       row('hoof', 'Craterhoof Behemoth', 'Creature — Beast', 1),
     ],
     setGarageCount: vi.fn(async () => {}),
+    removedGarage: vi.fn(async () => []),
+    restoreGarage: vi.fn(async () => {}),
   });
+});
+
+/** House long-press idiom: pointer down, wait out the hold, release. */
+async function hold(el: HTMLElement, user: ReturnType<typeof userEvent.setup>) {
+  await user.pointer({ keys: '[MouseLeft>]', target: el });
+  await new Promise((r) => setTimeout(r, 650));
+  await user.pointer({ keys: '[/MouseLeft]', target: el });
+}
+
+test('the binder face carries no bare count or delete controls', () => {
+  render(<GarageScreen onBack={() => {}} />);
+  expect(screen.queryByRole('button', { name: /one fewer/i })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /one more/i })).not.toBeInTheDocument();
+});
+
+test('holding a card opens manage, where the stepper adjusts counts', async () => {
+  const user = userEvent.setup();
+  render(<GarageScreen onBack={() => {}} />);
+  await hold(screen.getByRole('button', { name: /lightning bolt details/i }), user);
+  await user.click(await screen.findByRole('button', { name: /one more lightning bolt/i }));
+  expect(useAppStore.getState().setGarageCount).toHaveBeenCalledWith('bolt', 5);
+});
+
+test('removing a card demands a confirm first', async () => {
+  const user = userEvent.setup();
+  render(<GarageScreen onBack={() => {}} />);
+  await hold(screen.getByRole('button', { name: /sol ring details/i }), user);
+  await user.click(await screen.findByRole('button', { name: /remove from curation/i }));
+  expect(useAppStore.getState().setGarageCount).not.toHaveBeenCalled(); // not yet
+  await user.click(screen.getByRole('button', { name: /yes, remove/i }));
+  expect(useAppStore.getState().setGarageCount).toHaveBeenCalledWith('sol', 0);
+});
+
+test('recently removed cards wait with a Restore button', async () => {
+  const restoreGarage = vi.fn(async () => {});
+  useAppStore.setState({
+    removedGarage: vi.fn(async () => [
+      { ...row('hoof', 'Craterhoof Behemoth', 'Creature — Beast', 1), deleted: true },
+    ]),
+    restoreGarage,
+  });
+  const user = userEvent.setup();
+  render(<GarageScreen onBack={() => {}} />);
+  expect(await screen.findByText(/recently removed/i)).toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: /restore craterhoof behemoth/i }));
+  expect(restoreGarage).toHaveBeenCalledWith('hoof');
 });
 
 test('shows totals and full card art grouped by type', () => {
@@ -131,9 +179,12 @@ test('cost works as a second axis inside any grouping', async () => {
   ); // 1-drop before 8-drop within the same section
 });
 
-test('steppers adjust counts through the store', async () => {
+test('the manage stepper never drops below one — removal is its own gesture', async () => {
   const user = userEvent.setup();
   render(<GarageScreen onBack={() => {}} />);
-  await user.click(screen.getByRole('button', { name: /one more Sol Ring/i }));
-  expect(useAppStore.getState().setGarageCount).toHaveBeenCalledWith('sol', 3);
+  await hold(screen.getByRole('button', { name: /llanowar elves details/i }), user);
+  // ×1 card: minus is disabled; only the confirmed Remove can zero it
+  expect(await screen.findByRole('button', { name: /one fewer llanowar elves/i })).toBeDisabled();
+  await user.click(screen.getByRole('button', { name: /one more llanowar elves/i }));
+  expect(useAppStore.getState().setGarageCount).toHaveBeenCalledWith('elves', 2);
 });

@@ -96,6 +96,8 @@ export interface AppStore {
   ): Promise<void>;
   setGarageCount(cardId: string, count: number): Promise<void>;
   refreshGarage(): Promise<void>;
+  removedGarage(): Promise<GarageCard[]>;
+  restoreGarage(cardId: string): Promise<void>;
 }
 
 // Serialized writes so saves never interleave; flushPersistence() awaits the tail.
@@ -791,8 +793,33 @@ export function createAppStore() {
         if (!existing) return;
         await db.garage.put({
           ...existing,
-          count: Math.max(0, count),
+          // A removal keeps its count on the tombstone so Restore can
+          // bring back exactly what was lost.
+          count: count <= 0 ? Math.max(1, existing.count) : count,
           deleted: count <= 0,
+          updatedAt: Date.now(),
+          dirty: 1,
+        });
+        await get().refreshGarage();
+        pokeSync(() => void get().refreshGarage());
+      },
+
+      async removedGarage() {
+        const rows = await getDb().garage.toArray();
+        return rows
+          .filter((g) => g.deleted)
+          .sort((a, b) => b.updatedAt - a.updatedAt)
+          .slice(0, 20);
+      },
+
+      async restoreGarage(cardId) {
+        const db = getDb();
+        const existing = await db.garage.get(cardId);
+        if (!existing?.deleted) return;
+        await db.garage.put({
+          ...existing,
+          deleted: false,
+          count: Math.max(1, existing.count),
           updatedAt: Date.now(),
           dirty: 1,
         });

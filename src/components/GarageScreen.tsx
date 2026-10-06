@@ -6,6 +6,8 @@ import { COLOR_NAMES, MANA_COLORS, type ManaColor } from '../lib/mana';
 import type { GarageCard } from '../lib/types';
 import { useAppStore } from '../state/store';
 import DeckCardSheet from './DeckCardSheet';
+import Sheet from './Sheet';
+import { useLongPress } from './useLongPress';
 
 type GroupBy = 'type' | 'color' | 'cost' | 'az';
 
@@ -45,6 +47,42 @@ interface Enrich {
 const money = (n: number) =>
   n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+/** Gesture law: tap = view the card, hold = manage (counts, removal). */
+function BinderCard({
+  card,
+  onView,
+  onManage,
+}: {
+  card: GarageCard;
+  onView: () => void;
+  onManage: () => void;
+}) {
+  const press = useLongPress(onView, onManage);
+  return (
+    <button
+      className="curation-card"
+      aria-label={`${card.name} details`}
+      title="Tap to view · hold to manage"
+      {...press}
+    >
+      {card.imageNormal ? (
+        <img src={card.imageNormal} alt={card.name} loading="lazy" />
+      ) : (
+        <span className="thumb-placeholder color-C curation-placeholder">{card.name}</span>
+      )}
+      {card.count > 1 && <span className="count-badge">×{card.count}</span>}
+    </button>
+  );
+}
+
+function timeAgo(t: number): string {
+  const mins = Math.max(1, Math.round((Date.now() - t) / 60000));
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 48) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
 function typeBucket(typeLine: string): string {
   if (/Creature/.test(typeLine)) return 'Creatures';
   if (/Land/.test(typeLine)) return 'Lands';
@@ -62,12 +100,28 @@ function typeBucket(typeLine: string): string {
 export default function GarageScreen({ onBack }: { onBack: () => void }) {
   const garage = useAppStore((s) => s.garage);
   const setGarageCount = useAppStore((s) => s.setGarageCount);
+  const removedGarage = useAppStore((s) => s.removedGarage);
+  const restoreGarage = useAppStore((s) => s.restoreGarage);
   const [filter, setFilter] = useState('');
   const [groupBy, setGroupBy] = useState<GroupBy>('type');
   const [sortBy, setSortBy] = useState<'az' | 'cost'>('az');
   const [colorSel, setColorSel] = useState<ManaColor | null>(null);
   const [viewing, setViewing] = useState<GarageCard | null>(null);
+  const [managing, setManaging] = useState<string | null>(null); // cardId
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [removed, setRemoved] = useState<GarageCard[]>([]);
   const [enriched, setEnriched] = useState<Record<string, Enrich>>({});
+
+  // The safety shelf: tombstoned cards wait here for a Restore.
+  useEffect(() => {
+    let cancelled = false;
+    void removedGarage().then((rows) => {
+      if (!cancelled) setRemoved(rows);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [removedGarage, garage]);
 
   // Color identity and mana value live in the card database, not the
   // garage rows — enrich once per collection change.
@@ -269,40 +323,41 @@ export default function GarageScreen({ onBack }: { onBack: () => void }) {
             <div className="curation-grid">
               {section.cards.map((card) => (
                 <div key={card.cardId} className="curation-item">
-                  <button
-                    className="curation-card"
-                    aria-label={`${card.name} details`}
-                    onClick={() => setViewing(card)}
-                  >
-                    {card.imageNormal ? (
-                      <img src={card.imageNormal} alt={card.name} loading="lazy" />
-                    ) : (
-                      <span className="thumb-placeholder color-C curation-placeholder">
-                        {card.name}
-                      </span>
-                    )}
-                    {card.count > 1 && <span className="count-badge">×{card.count}</span>}
-                  </button>
-                  <div className="count-controls">
-                    <button
-                      aria-label={`one fewer ${card.name}`}
-                      onClick={() => void setGarageCount(card.cardId, card.count - 1)}
-                    >
-                      −
-                    </button>
-                    <span className="count-badge">×{card.count}</span>
-                    <button
-                      aria-label={`one more ${card.name}`}
-                      onClick={() => void setGarageCount(card.cardId, card.count + 1)}
-                    >
-                      +
-                    </button>
-                  </div>
+                  <BinderCard
+                    card={card}
+                    onView={() => setViewing(card)}
+                    onManage={() => {
+                      setConfirmRemove(false);
+                      setManaging(card.cardId);
+                    }}
+                  />
                 </div>
               ))}
             </div>
           </section>
         ))
+      )}
+
+      {removed.length > 0 && (
+        <section className="deck-group curation-removed">
+          <h2 className="deck-group-title">Recently removed</h2>
+          <p className="hint">Accidents park here — restore brings everything back, counts too.</p>
+          {removed.map((r) => (
+            <div key={r.cardId} className="deck-row">
+              <span className="deck-row-cardname">{r.name}</span>
+              <span className="deck-row-cost">
+                ×{Math.max(1, r.count)} · {timeAgo(r.updatedAt)}
+              </span>
+              <button
+                className="ghost"
+                aria-label={`restore ${r.name}`}
+                onClick={() => void restoreGarage(r.cardId)}
+              >
+                Restore
+              </button>
+            </div>
+          ))}
+        </section>
       )}
 
       {viewing && (
@@ -318,6 +373,63 @@ export default function GarageScreen({ onBack }: { onBack: () => void }) {
           onClose={() => setViewing(null)}
         />
       )}
+
+      {managing &&
+        (() => {
+          const card = garage.find((g) => g.cardId === managing);
+          if (!card) return null; // removed elsewhere: nothing to manage
+          const close = () => {
+            setManaging(null);
+            setConfirmRemove(false);
+          };
+          return (
+            <Sheet title={card.name} onClose={close}>
+              <div className="stepper">
+                <button
+                  aria-label={`one fewer ${card.name}`}
+                  disabled={card.count <= 1}
+                  onClick={() => void setGarageCount(card.cardId, card.count - 1)}
+                >
+                  −
+                </button>
+                <span className="count-badge">×{card.count}</span>
+                <button
+                  aria-label={`one more ${card.name}`}
+                  onClick={() => void setGarageCount(card.cardId, card.count + 1)}
+                >
+                  +
+                </button>
+              </div>
+              {!confirmRemove ? (
+                <div className="modal-actions">
+                  <button className="danger" onClick={() => setConfirmRemove(true)}>
+                    Remove from curation…
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <p className="hint">
+                    Remove ×{card.count} {card.name}? It waits under Recently removed.
+                  </p>
+                  <div className="modal-actions">
+                    <button
+                      className="danger"
+                      onClick={() => {
+                        void setGarageCount(card.cardId, 0);
+                        close();
+                      }}
+                    >
+                      Yes, remove
+                    </button>
+                    <button className="ghost" onClick={() => setConfirmRemove(false)}>
+                      Keep it
+                    </button>
+                  </div>
+                </>
+              )}
+            </Sheet>
+          );
+        })()}
     </div>
   );
 }

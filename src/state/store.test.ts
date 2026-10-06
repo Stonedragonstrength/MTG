@@ -460,6 +460,23 @@ describe('garage', () => {
     expect(row?.deleted).toBe(true);
     expect(row?.dirty).toBe(1);
   });
+
+  test('a removal keeps its count on the tombstone, and restore revives it whole', async () => {
+    const store = createAppStore();
+    await store.getState().init();
+    await store.getState().addToGarage(bolt, 3);
+    await store.getState().setGarageCount('c-bolt', 0);
+    const row = await getDb().garage.get('c-bolt');
+    expect(row?.deleted).toBe(true);
+    expect(row?.count).toBe(3); // what was lost stays remembered
+
+    const removed = await store.getState().removedGarage();
+    expect(removed[0]).toMatchObject({ cardId: 'c-bolt', name: 'Lightning Bolt', count: 3 });
+
+    await store.getState().restoreGarage('c-bolt');
+    expect(store.getState().garage[0]).toMatchObject({ name: 'Lightning Bolt', count: 3 });
+    expect(await store.getState().removedGarage()).toHaveLength(0);
+  });
 });
 
 describe('profiles', () => {
