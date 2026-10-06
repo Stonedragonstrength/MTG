@@ -1,19 +1,53 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, test, vi } from 'vitest';
-import type { GarageCard } from '../lib/types';
+import type { CardRecord, GarageCard } from '../lib/types';
 import { useAppStore } from '../state/store';
 import GarageScreen from './GarageScreen';
 
+const records: Record<string, Partial<CardRecord>> = {
+  bolt: { colorIdentity: ['R'], manaCost: '{R}' },
+  sol: { colorIdentity: [], manaCost: '{1}' },
+  elves: { colorIdentity: ['G'], manaCost: '{G}' },
+};
+
 vi.mock('../data/scryfall', () => ({
   loadNameIndex: vi.fn(async () => []),
-  getCardById: vi.fn(async () => undefined),
+  getCardById: vi.fn(async (id: string) =>
+    records[id]
+      ? ({
+          id,
+          name: id,
+          nameLower: id,
+          typeLine: 'x',
+          oracleText: '',
+          power: null,
+          toughness: null,
+          colors: [],
+          imageNormal: null,
+          imageArtCrop: null,
+          isToken: false,
+          isBasicLand: false,
+          manaCost: records[id].manaCost ?? '',
+          colorIdentity: records[id].colorIdentity,
+        } as CardRecord)
+      : undefined,
+  ),
   findCardByName: vi.fn(async () => undefined),
   findBasicLand: vi.fn(async () => undefined),
 }));
 
 function row(cardId: string, name: string, typeLine: string, count: number): GarageCard {
-  return { cardId, name, typeLine, imageNormal: null, count, updatedAt: 1, deleted: false, dirty: 0 };
+  return {
+    cardId,
+    name,
+    typeLine,
+    imageNormal: `https://img.example/${cardId}.jpg`,
+    count,
+    updatedAt: 1,
+    deleted: false,
+    dirty: 0,
+  };
 }
 
 beforeEach(() => {
@@ -27,19 +61,35 @@ beforeEach(() => {
   });
 });
 
-test('shows the collection grouped by type with a total', () => {
+test('shows totals and full card art grouped by type', () => {
   render(<GarageScreen onBack={() => {}} />);
-  expect(screen.getByText(/7 cards/i)).toBeInTheDocument();
+  expect(screen.getByText(/7 cards · 3 unique/i)).toBeInTheDocument();
   expect(screen.getByText('Creatures')).toBeInTheDocument();
-  expect(screen.getByText('Lightning Bolt')).toBeInTheDocument();
+  const art = screen.getByRole('img', { name: 'Lightning Bolt' });
+  expect(art).toHaveAttribute('src', 'https://img.example/bolt.jpg');
 });
 
-test('the filter narrows the list', async () => {
+test('the filter narrows the binder', async () => {
   const user = userEvent.setup();
   render(<GarageScreen onBack={() => {}} />);
   await user.type(screen.getByRole('searchbox'), 'sol');
-  expect(screen.getByText('Sol Ring')).toBeInTheDocument();
-  expect(screen.queryByText('Lightning Bolt')).not.toBeInTheDocument();
+  expect(screen.getByRole('img', { name: 'Sol Ring' })).toBeInTheDocument();
+  expect(screen.queryByRole('img', { name: 'Lightning Bolt' })).not.toBeInTheDocument();
+});
+
+test('color pips filter to one color identity', async () => {
+  const user = userEvent.setup();
+  render(<GarageScreen onBack={() => {}} />);
+  await user.click(screen.getByRole('button', { name: /only green cards/i }));
+  expect(await screen.findByRole('img', { name: 'Llanowar Elves' })).toBeInTheDocument();
+  expect(screen.queryByRole('img', { name: 'Lightning Bolt' })).not.toBeInTheDocument();
+});
+
+test('grouping by cost buckets on mana value', async () => {
+  const user = userEvent.setup();
+  render(<GarageScreen onBack={() => {}} />);
+  await user.click(screen.getByRole('button', { name: /group by cost/i }));
+  expect(await screen.findByText('1 mana')).toBeInTheDocument();
 });
 
 test('steppers adjust counts through the store', async () => {
