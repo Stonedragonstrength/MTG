@@ -178,6 +178,28 @@ test('paste list and scan open their sheets; scanning explains itself without a 
   expect(await screen.findByText(/no camera here/i)).toBeInTheDocument();
 });
 
+test('a non-basic already in the deck is refused with a message, not stacked', async () => {
+  const user = userEvent.setup();
+  render(<DeckEntrySheet deckId="deck-1" onClose={() => {}} />);
+  const input = screen.getByRole('searchbox');
+  await user.type(input, 'culti');
+  await user.click(await screen.findByRole('button', { name: /cultivate/i }));
+  expect(await screen.findByText('2 / 100')).toBeInTheDocument();
+  await user.type(input, 'culti');
+  await user.click(await screen.findByRole('button', { name: /cultivate/i }));
+  expect(await screen.findByText(/already in the deck/i)).toBeInTheDocument();
+  expect(screen.getByText('2 / 100')).toBeInTheDocument(); // not stacked
+});
+
+test('deck entry feeds the curation', async () => {
+  const user = userEvent.setup();
+  render(<DeckEntrySheet deckId="deck-1" onClose={() => {}} />);
+  await user.type(screen.getByRole('searchbox'), 'culti');
+  await user.click(await screen.findByRole('button', { name: /cultivate/i }));
+  expect(await screen.findByText('2 / 100')).toBeInTheDocument();
+  expect(useAppStore.getState().garage.some((g) => g.name === 'Cultivate')).toBe(true);
+});
+
 test('enter adds the top match', async () => {
   const user = userEvent.setup();
   render(<DeckEntrySheet deckId="deck-1" onClose={() => {}} />);

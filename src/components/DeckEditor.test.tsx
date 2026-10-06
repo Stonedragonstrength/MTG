@@ -149,14 +149,20 @@ test('the commander offers synergy browsing', () => {
   expect(screen.getByRole('button', { name: /goes well with/i })).toBeInTheDocument();
 });
 
-test('send to curation logs the whole deck, commander included', async () => {
+test('send to curation tops up instead of double-counting', async () => {
+  // 5 of the 8 Forests are already logged; only the gap should be added.
+  await useAppStore.getState().addToGarage(
+    { id: 'c-forest', name: 'Forest', typeLine: 'Basic Land — Forest', imageNormal: null },
+    5,
+  );
   const user = userEvent.setup();
   render(<DeckEditor deckId="deck-1" onBack={() => {}} />);
   await user.click(screen.getByRole('button', { name: /send to curation/i }));
-  expect(await screen.findByText(/logged 10 cards/i)).toBeInTheDocument();
+  expect(await screen.findByText(/added 5.*already there/i)).toBeInTheDocument();
   const garage = useAppStore.getState().garage;
-  expect(garage.find((g) => g.name === 'Forest')?.count).toBe(8);
+  expect(garage.find((g) => g.name === 'Forest')?.count).toBe(8); // max, not 13
   expect(garage.some((g) => g.name === 'Ashaya, Soul of the Wild')).toBe(true);
+  expect(garage.find((g) => g.name === 'Llanowar Elves')?.count).toBe(1);
 });
 
 test('delete deck asks the store and goes back', async () => {

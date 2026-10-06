@@ -12,6 +12,12 @@ vi.mock('../data/scryfall', () => ({
   importBulkData: vi.fn(async () => 0),
 }));
 
+vi.mock('../data/cloud', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../data/cloud')>()),
+  getCloudConfig: vi.fn(async () => ({ url: 'https://x.supabase.co', anonKey: 'k' })),
+  signedInEmail: vi.fn(async () => 'nathan@example.com'),
+}));
+
 beforeEach(() => {
   useAppStore.setState({
     game: null,
@@ -26,6 +32,13 @@ beforeEach(() => {
       },
     ],
   });
+});
+
+test('a cloud-ready device offers Join table from home', async () => {
+  const user = userEvent.setup();
+  render(<HomeScreen />);
+  await user.click(await screen.findByRole('button', { name: /join table/i }));
+  expect(await screen.findByPlaceholderText('KQ7M2X')).toBeInTheDocument();
 });
 
 test('settings open straight from the home screen', async () => {

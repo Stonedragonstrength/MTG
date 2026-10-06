@@ -860,3 +860,63 @@ label {
 .deck-curation-msg {
   text-align: center;
 }
+
+/* ---- online table ---- */
+.join-code-input {
+  font-size: 1.6rem;
+  letter-spacing: 0.35em;
+  text-align: center;
+  text-transform: uppercase;
+  font-family: Consolas, Menlo, monospace;
+  width: 100%;
+}
+
+.join-error { color: #d4705a; }
+.join-warn { color: #d4b96a; }
+
+.table-pill {
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 14px;
+  border-radius: 999px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  background: rgba(23, 23, 28, 0.92);
+  border: 1px solid #3a3a44;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+}
+
+.pill-dot { width: 9px; height: 9px; border-radius: 50%; }
+.pill-dot--green { background: #6aa877; box-shadow: 0 0 6px #6aa877; }
+.pill-dot--amber { background: #d4b96a; }
+.pill-dot--red { background: #d4705a; }
+.pill-dot--grey { background: #8c8c99; }
+.pill-peers { color: #9a9aa5; font-weight: 400; }
+
+.table-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 40;
+  text-align: center;
+  padding: 8px;
+  background: #2a2316;
+  border-bottom: 1px solid #5a4a1e;
+  color: #d4b96a;
+}
+
+.table-code-big {
+  font-size: 2.4rem;
+  letter-spacing: 0.3em;
+  text-align: center;
+  font-family: Consolas, Menlo, monospace;
+  color: var(--accent);
+  margin: 4px 0;
+}

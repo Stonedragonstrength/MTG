@@ -200,18 +200,31 @@ export default function DeckEditor({ deckId, onBack }: Props) {
         <button
           className="ghost"
           onClick={async () => {
-            // Backfill for decks that predate the curation (or were typed in):
-            // every card in this deck is a card you own.
-            let logged = 0;
-            if (deck.commander) {
-              await addToGarage({ id: deck.commander.cardId, ...deck.commander }, 1);
-              logged += 1;
+            // Top-up semantics: the curation ends up with AT LEAST the deck's
+            // copies of each card, and never double-counts what's already
+            // logged (safe to tap twice, safe after live entry-feeding).
+            const have = (cardId: string) =>
+              useAppStore.getState().garage.find((g) => g.cardId === cardId)?.count ?? 0;
+            let added = 0;
+            let already = 0;
+            const entries = [
+              ...(deck.commander ? [{ ...deck.commander, count: 1 }] : []),
+              ...deck.cards,
+            ];
+            for (const c of entries) {
+              const existing = have(c.cardId);
+              const gap = Math.max(0, c.count - existing);
+              already += Math.min(existing, c.count);
+              if (gap > 0) {
+                await addToGarage({ id: c.cardId, ...c }, gap);
+                added += gap;
+              }
             }
-            for (const c of deck.cards) {
-              await addToGarage({ id: c.cardId, ...c }, c.count);
-              logged += c.count;
-            }
-            setCurationMsg(`Logged ${logged} cards to the Curation.`);
+            setCurationMsg(
+              added === 0
+                ? 'Everything here is already in the Curation.'
+                : `Added ${added} to the Curation${already > 0 ? ` (${already} copies already there)` : ''}.`,
+            );
           }}
         >
           Send to Curation

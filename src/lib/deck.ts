@@ -27,8 +27,12 @@ function touched(deck: Deck): Deck {
   return { ...deck, updatedAt: Date.now() };
 }
 
+/** Commander is singleton: only basics stack. A duplicate non-basic add
+ * returns the deck unchanged (same reference), so callers can tell and
+ * say so. The row steppers remain the escape hatch for Relentless Rats. */
 export function addCard(deck: Deck, card: CardRecord): Deck {
   const existing = deck.cards.find((c) => c.cardId === card.id);
+  if (existing && !card.typeLine.startsWith('Basic Land')) return deck;
   const cards = existing
     ? deck.cards.map((c) => (c.cardId === card.id ? { ...c, count: c.count + 1 } : c))
     : [...deck.cards, toDeckCard(card)];

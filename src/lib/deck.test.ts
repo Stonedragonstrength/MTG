@@ -33,12 +33,21 @@ function card(name: string, typeLine: string, manaCost = '{1}'): CardRecord {
 }
 
 describe('deck building', () => {
-  test('adding a card twice stacks its count', () => {
+  test('basics stack when added twice', () => {
     let deck = createDeck('Stompy');
     deck = addCard(deck, card('Forest', 'Basic Land — Forest'));
     deck = addCard(deck, card('Forest', 'Basic Land — Forest'));
     expect(deck.cards).toHaveLength(1);
     expect(deck.cards[0].count).toBe(2);
+  });
+
+  test('commander is singleton: a non-basic added twice stays at one', () => {
+    let deck = createDeck('Stompy');
+    const ring = card('Sol Ring', 'Artifact');
+    deck = addCard(deck, ring);
+    const again = addCard(deck, ring);
+    expect(again).toBe(deck); // unchanged reference = recognizable no-op
+    expect(again.cards[0].count).toBe(1);
   });
 
   test('count changes clamp at zero and drop the card', () => {
@@ -130,7 +139,7 @@ describe('mana math', () => {
   test('manaCurve buckets nonland cards by mana value, weighted by count', () => {
     let deck = createDeck('Curve');
     deck = addCard(deck, card('Llanowar Elves', 'Creature — Elf Druid', '{G}'));
-    deck = addCard(deck, card('Llanowar Elves', 'Creature — Elf Druid', '{G}'));
+    deck = changeCardCount(deck, 'id-Llanowar Elves', 1); // 2 copies via stepper
     deck = addCard(deck, card('Craterhoof Behemoth', 'Creature — Beast', '{5}{G}{G}{G}'));
     deck = addCard(deck, card('Forest', 'Basic Land — Forest', ''));
     const curve = manaCurve(deck.cards);

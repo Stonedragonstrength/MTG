@@ -6,6 +6,7 @@ import type { PlayerProfile } from '../lib/types';
 import { useAppStore } from '../state/store';
 import DecksScreen from './DecksScreen';
 import GarageScreen from './GarageScreen';
+import JoinTableSheet from './JoinTableSheet';
 import NewGameScreen from './NewGameScreen';
 import ProfileEditor from './ProfileEditor';
 import SettingsSheet from './SettingsSheet';
@@ -26,6 +27,15 @@ export default function HomeScreen() {
   const [editing, setEditing] = useState<PlayerProfile | null>(null);
   const [creating, setCreating] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [joinOpen, setJoinOpen] = useState(false);
+  const [cloudReady, setCloudReady] = useState(false);
+
+  useEffect(() => {
+    void (async () => {
+      const { getCloudConfig } = await import('../data/cloud');
+      setCloudReady(!!(await getCloudConfig())?.url);
+    })();
+  }, []);
 
   // Sub-screens answer the tablet's back button by returning home.
   useEffect(() => {
@@ -91,6 +101,12 @@ export default function HomeScreen() {
             {profiles.length < 2 ? 'Add two players first' : 'Shuffle up'}
           </span>
         </button>
+        {cloudReady && (
+          <button className="action-card" onClick={() => setJoinOpen(true)}>
+            <span className="action-card-title">Join table</span>
+            <span className="action-card-sub">Enter a friend's code</span>
+          </button>
+        )}
         <button className="action-card" onClick={() => setView('decks')}>
           <span className="action-card-title">Decks</span>
           <span className="action-card-sub">
@@ -157,6 +173,7 @@ export default function HomeScreen() {
         />
       )}
       {settingsOpen && <SettingsSheet onClose={() => setSettingsOpen(false)} />}
+      {joinOpen && <JoinTableSheet onClose={() => setJoinOpen(false)} />}
     </div>
   );
 }

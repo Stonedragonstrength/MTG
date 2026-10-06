@@ -142,12 +142,21 @@ export default function DeckEntrySheet({ deckId, onClose }: Props) {
 
   if (!deck) return null;
 
+  const addToGarage = useAppStore((s) => s.addToGarage);
+
   async function add(card: CardRecord) {
     if (!deck) return;
-    await saveDeck(addCard(deck, card));
-    setLastAdded(card.name);
+    const next = addCard(deck, card);
+    // Clear-and-refocus FIRST: the pile-entry rhythm never waits on disk.
     setQuery('');
     inputRef.current?.focus();
+    if (next === deck) {
+      setLastAdded(`Already in the deck: ${card.name}`);
+      return;
+    }
+    setLastAdded(`Added ${card.name}`);
+    await saveDeck(next);
+    await addToGarage(card); // anything that enters a deck is a card you own
   }
 
   // Hold-to-repeat fires faster than React re-renders, so basics must read
@@ -157,7 +166,8 @@ export default function DeckEntrySheet({ deckId, onClose }: Props) {
     const fresh = useAppStore.getState().decks.find((d) => d.id === deckId);
     if (!card || !fresh) return;
     await saveDeck(addCard(fresh, card));
-    setLastAdded(name);
+    await addToGarage(card);
+    setLastAdded(`Added ${name}`);
   }
 
   const owned = new Set(deck.cards.map((c) => c.cardId));
@@ -168,7 +178,7 @@ export default function DeckEntrySheet({ deckId, onClose }: Props) {
     <Sheet title="Add cards" onClose={onClose} size="wide">
       <div className="entry-status">
         <span className="deck-size">{deckSize(deck)} / 100</span>
-        {lastAdded && <span className="entry-last">Added {lastAdded}</span>}
+        {lastAdded && <span className="entry-last">{lastAdded}</span>}
         <span className="entry-tools">
           <button className="ghost entry-tool" onClick={() => setPasteOpen(true)}>
             📋 Paste list
