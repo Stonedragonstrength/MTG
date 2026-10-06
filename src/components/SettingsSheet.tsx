@@ -3,7 +3,6 @@ import {
   getCloudConfig,
   sendMagicLink,
   setCloudConfig,
-  SETUP_SQL,
   signedInEmail,
   syncGarage,
 } from '../data/cloud';
@@ -39,7 +38,6 @@ export default function SettingsSheet({ onClose }: Props) {
   const [cloudEmail, setCloudEmail] = useState('');
   const [cloudUser, setCloudUser] = useState<string | null>(null);
   const [cloudMsg, setCloudMsg] = useState('');
-  const [sqlShown, setSqlShown] = useState(false);
 
   useEffect(() => {
     getCloudConfig().then((cfg) => {
@@ -240,39 +238,10 @@ export default function SettingsSheet({ onClose }: Props) {
       </div>
       <div className="settings-row">
         <div className="settings-row-text">
-          <small>{cloudMsg || 'One-time setup: paste the table SQL in Supabase first.'}</small>
+          <small>{cloudMsg || 'Changes sync a few seconds after you make them.'}</small>
         </div>
-        <button className="ghost" onClick={() => setSqlShown((v) => !v)}>
-          {sqlShown ? 'Hide SQL' : 'Show SQL'}
-        </button>
         <button onClick={() => void syncNow()}>Sync now</button>
       </div>
-      {sqlShown && (
-        <>
-          <div className="settings-row">
-            <div className="settings-row-text">
-              <small>Supabase dashboard → SQL Editor → paste → Run. Once, ever.</small>
-            </div>
-            <button
-              onClick={() => {
-                navigator.clipboard
-                  ?.writeText(SETUP_SQL)
-                  .then(() => setCloudMsg('SQL copied — paste it in the Supabase SQL editor.'))
-                  .catch(() => setCloudMsg('Copy failed — long-press the text below instead.'));
-              }}
-            >
-              Copy SQL
-            </button>
-          </div>
-          <textarea
-            className="paste-box paste-box--sql"
-            readOnly
-            rows={10}
-            value={SETUP_SQL}
-            onFocus={(e) => e.currentTarget.select()}
-          />
-        </>
-      )}
     </Sheet>
   );
 }
