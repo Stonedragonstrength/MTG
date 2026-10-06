@@ -63,6 +63,15 @@ test('the active player zone is highlighted', () => {
   expect(container.querySelector('.zone.seat-1')!.className).not.toContain('zone--active');
 });
 
+test('an online game shows the table pill with its code', () => {
+  useAppStore.setState({
+    online: { code: 'KQ7M2X', status: { kind: 'live', peers: 3 }, mySeat: null },
+  });
+  render(<GameScreen />);
+  expect(screen.getByText(/KQ7M2X/)).toBeInTheDocument();
+  useAppStore.setState({ online: null });
+});
+
 test('tapping a commander damage bubble applies damage from that commander', async () => {
   const spy = vi.fn();
   useAppStore.setState({ applyCommanderDamage: spy });

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Format, PlayerProfile } from '../lib/types';
 import { useAppStore } from '../state/store';
 
@@ -10,11 +10,24 @@ export default function NewGameScreen({ onBack }: Props) {
   const profiles = useAppStore((s) => s.profiles);
   const decks = useAppStore((s) => s.decks);
   const startGame = useAppStore((s) => s.startGame);
+  const hostOnlineGame = useAppStore((s) => s.hostOnlineGame);
   const saveProfile = useAppStore((s) => s.saveProfile);
   const [format, setFormat] = useState<Format>('commander');
+  const [where, setWhere] = useState<'local' | 'online'>('local');
+  const [cloudReady, setCloudReady] = useState(false);
+  const [hostBusy, setHostBusy] = useState(false);
+  const [hostError, setHostError] = useState('');
   const [threshold, setThreshold] = useState('21');
   const [selected, setSelected] = useState<string[]>([]);
   const [deckChoice, setDeckChoice] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    void (async () => {
+      const { getCloudConfig, signedInEmail } = await import('../data/cloud');
+      const cfg = await getCloudConfig();
+      setCloudReady(!!cfg?.url && !!(await signedInEmail()));
+    })();
+  }, []);
 
   function toggle(id: string) {
     setSelected((prev) =>
@@ -37,19 +50,51 @@ export default function NewGameScreen({ onBack }: Props) {
     return patched;
   }
 
-  function start() {
+  async function start() {
     const n = Number(threshold);
-    startGame({
+    const config = {
       format,
-      startingLife: format === 'commander' ? 40 : 20,
+      startingLife: format === 'commander' ? (40 as const) : (20 as const),
       commanderDamageThreshold: Number.isFinite(n) && n >= 1 ? Math.floor(n) : 21,
       profiles: selected.map((id) => withDeck(profiles.find((p) => p.id === id)!)),
-    });
+    };
+    if (where === 'online') {
+      setHostBusy(true);
+      setHostError('');
+      const err = await hostOnlineGame(config);
+      setHostBusy(false);
+      if (err) setHostError(err);
+      return;
+    }
+    startGame(config);
   }
 
   return (
     <div className="screen new-game">
       <h2>New game</h2>
+      <fieldset className="format-toggle">
+        <legend>Where</legend>
+        <label>
+          <input
+            type="radio"
+            name="where"
+            checked={where === 'local'}
+            onChange={() => setWhere('local')}
+          />
+          This tablet (pass around)
+        </label>
+        <label>
+          <input
+            type="radio"
+            name="where"
+            disabled={!cloudReady}
+            checked={where === 'online'}
+            onChange={() => setWhere('online')}
+          />
+          Online — everyone's own device
+          {!cloudReady && <small> (sign in under Settings → Curation cloud sync first)</small>}
+        </label>
+      </fieldset>
       <fieldset className="format-toggle">
         <legend>Format</legend>
         <label>
@@ -123,9 +168,10 @@ export default function NewGameScreen({ onBack }: Props) {
           })}
         </div>
       )}
+      {hostError && <p className="hint join-error">{hostError}</p>}
       <div className="modal-actions">
-        <button disabled={selected.length < 2} onClick={start}>
-          Start game
+        <button disabled={selected.length < 2 || hostBusy} onClick={() => void start()}>
+          {hostBusy ? 'Opening table…' : 'Start game'}
         </button>
         <button className="ghost" onClick={onBack}>
           Back

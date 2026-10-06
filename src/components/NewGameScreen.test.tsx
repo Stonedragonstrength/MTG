@@ -5,6 +5,12 @@ import type { GameConfig } from '../lib/types';
 import { useAppStore } from '../state/store';
 import NewGameScreen from './NewGameScreen';
 
+vi.mock('../data/cloud', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../data/cloud')>()),
+  getCloudConfig: vi.fn(async () => ({ url: 'https://x.supabase.co', anonKey: 'k' })),
+  signedInEmail: vi.fn(async () => 'nathan@example.com'),
+}));
+
 const profiles = [
   { id: 'p0', name: 'Nate', avatarUrl: null, commanderName: null },
   { id: 'p1', name: 'Sam', avatarUrl: null, commanderName: null },
@@ -77,6 +83,19 @@ test('picking a deck for a player carries its commander into the game', async ()
   expect(startedWith?.profiles[0].commanderColors).toEqual(['G']);
   expect(startedWith?.profiles[1].commanderName).toBeNull();
   expect(saveProfile).toHaveBeenCalledTimes(1);
+});
+
+test('online mode hosts a table instead of starting locally', async () => {
+  const hostOnlineGame = vi.fn(async () => null);
+  useAppStore.setState({ hostOnlineGame });
+  const user = userEvent.setup();
+  render(<NewGameScreen onBack={() => {}} />);
+  await user.click(await screen.findByRole('radio', { name: /online/i }));
+  await user.click(screen.getByRole('button', { name: 'Nate' }));
+  await user.click(screen.getByRole('button', { name: 'Sam' }));
+  await user.click(screen.getByRole('button', { name: /start game/i }));
+  expect(hostOnlineGame).toHaveBeenCalled();
+  expect(startedWith).toBeNull(); // local path untouched
 });
 
 test('start is disabled with fewer than 2 players selected', async () => {

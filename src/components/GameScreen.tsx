@@ -3,6 +3,7 @@ import { registerBack } from '../lib/backstack';
 import { useAppStore } from '../state/store';
 import LandBackground from './LandBackground';
 import PlayerZone from './PlayerZone';
+import TablePill from './TablePill';
 import '../styles/zones.css';
 
 // Seats run clockwise from the near edge; 3+ players wrap the table's sides.
@@ -15,6 +16,7 @@ const EDGE_LAYOUTS: Record<number, string[]> = {
 /** The active player always holds the big board; passing the turn moves it. */
 export default function GameScreen() {
   const game = useAppStore((s) => s.game);
+  const online = useAppStore((s) => s.online);
   const exitToHome = useAppStore((s) => s.exitToHome);
   // Tablet back = leave to home (game stays saved), not close the app.
   useEffect(() => registerBack(exitToHome), [exitToHome]);
@@ -24,6 +26,8 @@ export default function GameScreen() {
   const n = game.players.length;
   const edges = EDGE_LAYOUTS[n] ?? EDGE_LAYOUTS[4];
   const table360 = n > 2;
+  // Online: rotate the table so YOUR zone sits at your own bottom edge.
+  const shift = online?.mySeat ?? 0;
 
   return (
     <div className={`game-screen players-${n} focus-mode${table360 ? ' table-360' : ''}`}>
@@ -32,11 +36,12 @@ export default function GameScreen() {
         <PlayerZone
           key={p.profileId}
           playerIdx={i}
-          edge={edges[i]}
+          edge={edges[(i - shift + n) % n]}
           focused={i === activeIdx}
           showHub={i === activeIdx}
         />
       ))}
+      {online && <TablePill />}
     </div>
   );
 }

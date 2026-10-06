@@ -1,6 +1,9 @@
 import { create } from 'zustand';
 import { pokeSync } from '../data/cloud';
 import { getDb, kvDelete, kvGet, kvSet } from '../data/db';
+import * as tableSync from '../data/onlineTable';
+import type { SyncOpts, TableStatus } from '../data/onlineTable';
+import { isValidGame, migrateGame } from '../lib/migrate';
 import { DEFAULT_SETTINGS, getSettings, saveSettings, type Settings } from '../data/settings';
 import * as boardLib from '../lib/board';
 import * as gameLib from '../lib/game';
@@ -34,6 +37,11 @@ export interface AppStore {
   enterGame(): void;
   exitToHome(): void;
   endGame(): void;
+  online: { code: string; status: TableStatus; mySeat: number | null } | null;
+  hostOnlineGame(config: GameConfig): Promise<string | null>; // error line or null
+  joinOnlineGame(code: string): Promise<string | null>;
+  leaveOnlineTable(): void;
+  setMySeat(seat: number | null): void;
   undo(): void;
   canUndo(): boolean;
   adjustLife(playerIdx: number, delta: number): void;
@@ -78,50 +86,8 @@ export function flushPersistence(): Promise<unknown> {
   return pending;
 }
 
-// Checks every field the components dereference at render time; anything
-// less and a half-corrupted save becomes a crash loop on launch.
-function isValidGame(v: unknown): v is GameState {
-  const g = v as GameState | null;
-  return (
-    !!g &&
-    Array.isArray(g.players) &&
-    g.players.length > 0 &&
-    g.players.every(
-      (p) =>
-        typeof p?.life === 'number' &&
-        Array.isArray(p.board) &&
-        typeof p.commanderDamage === 'object' &&
-        p.commanderDamage !== null &&
-        typeof p.eliminated === 'boolean',
-    ) &&
-    typeof g.config?.startingLife === 'number' &&
-    typeof g.config.commanderDamageThreshold === 'number' &&
-    (g.config.format === 'commander' || g.config.format === 'standard') &&
-    Array.isArray(g.config.profiles) &&
-    g.config.profiles.length === g.players.length &&
-    g.config.profiles.every((p) => typeof p?.id === 'string' && typeof p.name === 'string') &&
-    Number.isInteger(g.activePlayerIndex) &&
-    g.activePlayerIndex >= 0 &&
-    g.activePlayerIndex < g.players.length &&
-    typeof g.turnNumber === 'number'
-  );
-}
-
-/** Fill in fields added after a save was written. */
-function migrateGame(saved: GameState): GameState {
-  return {
-    ...saved,
-    monarchIdx: saved.monarchIdx ?? null,
-    initiativeIdx: saved.initiativeIdx ?? null,
-    turnStartedAt: saved.turnStartedAt ?? Date.now(),
-    players: saved.players.map((p) => ({
-      ...p,
-      counters: p.counters ?? {},
-      commanderDeaths: p.commanderDeaths ?? 0,
-      board: p.board.map((item) => ({ ...item, zone: item.zone ?? 'board' })),
-    })),
-  };
-}
+// isValidGame/migrateGame moved to src/lib/migrate.ts — shared with the
+// online-table sync, which must heal states sent by older builds too.
 
 const HISTORY_CAP = 100;
 const LOG_CAP = 200;
@@ -138,28 +104,36 @@ export function createAppStore() {
       set({ log: [...get().log, ...entries].slice(-LOG_CAP) });
     };
 
-    const mutateGame = (
-      fn: (g: GameState) => GameState,
-      describe?: (prev: GameState, next: GameState) => string | null,
-    ) => {
-      const game = get().game;
-      if (!game) return;
-      const next = fn(game);
-      if (next === game) return;
-      history = [...history.slice(-(HISTORY_CAP - 1)), game];
-      set({ game: next });
-      persistGame(next);
-
+    // Remote eliminations must announce exactly like local ones.
+    const announceDefeats = (prev: GameState, next: GameState) => {
       const lines: string[] = [];
-      const described = describe?.(game, next);
-      if (described) lines.push(described);
       next.players.forEach((p, i) => {
-        if (p.eliminated && !game.players[i].eliminated) {
+        if (p.eliminated && !prev.players[i]?.eliminated) {
           lines.push(`${playerName(next, i)} is defeated`);
           if (get().settings.soundOn) playDefeat();
         }
       });
       appendLog(lines);
+    };
+
+    const mutateGame = (
+      fn: (g: GameState) => GameState,
+      describe?: (prev: GameState, next: GameState) => string | null,
+      sync?: SyncOpts,
+    ) => {
+      const game = get().game;
+      if (!game) return;
+      if (get().online?.status.kind === 'stale-build') return; // refresh first
+      const next = fn(game);
+      if (next === game) return;
+      history = [...history.slice(-(HISTORY_CAP - 1)), game];
+      set({ game: next });
+      persistGame(next);
+      tableSync.onLocalMutation(fn, game, sync); // no-op without a session
+
+      const described = describe?.(game, next);
+      if (described) appendLog([described]);
+      announceDefeats(game, next);
     };
 
     return {
@@ -169,6 +143,7 @@ export function createAppStore() {
       profiles: [],
       decks: [],
       garage: [],
+      online: null,
       settings: DEFAULT_SETTINGS,
       log: [],
 
@@ -200,6 +175,45 @@ export function createAppStore() {
         }
         set({ setupDone: imported !== undefined, profiles, decks, garage, game, settings });
         pokeSync(() => void get().refreshGarage());
+
+        tableSync.bindTable({
+          getGame: () => get().game,
+          applyRemote: (state) => {
+            if (!isValidGame(state)) {
+              console.error('Ignoring malformed remote state');
+              return;
+            }
+            const prev = get().game;
+            const g = migrateGame(state);
+            history = []; // undo never crosses a remote write
+            set({ game: g });
+            persistGame(g);
+            if (prev) announceDefeats(prev, g);
+          },
+          onEnded: () => {
+            set({ online: null });
+            appendLog(['Online table closed — game kept on this device']);
+          },
+          setStatus: (status) => {
+            const o = get().online;
+            if (o) set({ online: { ...o, status } });
+          },
+          notice: (text) => appendLog([text]),
+        });
+        const resumed = await tableSync.resumeTable();
+        if (resumed) {
+          history = [];
+          const g = migrateGame(resumed.state);
+          set({
+            game: g,
+            online: {
+              code: resumed.code,
+              status: { kind: 'connecting' },
+              mySeat: resumed.mySeat,
+            },
+          });
+          persistGame(g);
+        }
       },
 
       completeSetup() {
@@ -221,7 +235,53 @@ export function createAppStore() {
         set({ inGame: false }); // the game stays saved; home offers Pick up
       },
 
+      async hostOnlineGame(config) {
+        const game = gameLib.createGame(config);
+        const r = await tableSync.hostTable(game);
+        if ('error' in r) return r.error;
+        history = [];
+        set({
+          game,
+          inGame: true,
+          online: { code: r.code, status: { kind: 'connecting' }, mySeat: null },
+          log: [{ t: Date.now(), text: `Online table ${r.code}` }],
+        });
+        persistGame(game);
+        return null;
+      },
+
+      async joinOnlineGame(code) {
+        const r = await tableSync.joinTable(code);
+        if ('error' in r) return r.error;
+        const game = migrateGame(r.state);
+        history = [];
+        set({
+          game,
+          inGame: true,
+          online: { code: code.toUpperCase().trim(), status: { kind: 'connecting' }, mySeat: null },
+          log: [{ t: Date.now(), text: `Joined table ${code.toUpperCase().trim()}` }],
+        });
+        persistGame(game);
+        return null;
+      },
+
+      leaveOnlineTable() {
+        void tableSync.leaveTable();
+        set({ online: null });
+      },
+
+      setMySeat(seat) {
+        tableSync.setMySeat(seat);
+        const o = get().online;
+        if (o) set({ online: { ...o, mySeat: seat } });
+      },
+
       endGame() {
+        // Online: ending on any device ends it for everyone (shared-tablet model).
+        if (get().online) {
+          void tableSync.endTableForEveryone();
+          set({ online: null });
+        }
         history = [];
         set({ game: null, inGame: false, log: [] });
         persistGame(null);
@@ -233,6 +293,7 @@ export function createAppStore() {
         history = history.slice(0, -1);
         set({ game: prev });
         persistGame(prev);
+        tableSync.onLocalUndo(prev); // exact-base push; dropped on conflict
         appendLog(['Undo']);
       },
 
@@ -269,6 +330,12 @@ export function createAppStore() {
             return boardLib.untapAll(next, next.activePlayerIndex);
           },
           (_prev, next) => `Turn ${next.turnNumber}: ${playerName(next, next.activePlayerIndex)}`,
+          {
+            // Online: if someone else already passed, don't double-advance.
+            guard: (base, orig) =>
+              base.activePlayerIndex === orig.activePlayerIndex &&
+              base.turnNumber === orig.turnNumber,
+          },
         );
       },
 
@@ -305,6 +372,7 @@ export function createAppStore() {
             next.monarchIdx === null
               ? 'The crown is released'
               : `${playerName(prev, playerIdx)} takes the crown`,
+          { guard: (base, orig) => base.monarchIdx === orig.monarchIdx },
         );
       },
 
@@ -315,6 +383,7 @@ export function createAppStore() {
             next.initiativeIdx === null
               ? 'The initiative is released'
               : `${playerName(prev, playerIdx)} takes the initiative`,
+          { guard: (base, orig) => base.initiativeIdx === orig.initiativeIdx },
         );
       },
 

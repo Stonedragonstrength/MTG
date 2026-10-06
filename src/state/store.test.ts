@@ -1,13 +1,27 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { getDb, kvGet, kvSet } from '../data/db';
+import * as tableSync from '../data/onlineTable';
 import { createGame } from '../lib/game';
-import type { GameConfig } from '../lib/types';
+import type { GameConfig, GameState } from '../lib/types';
 import { createAppStore, flushPersistence } from './store';
 
 vi.mock('../lib/sound', () => ({
   playLifeTick: vi.fn(),
   playTurnChime: vi.fn(),
   playDefeat: vi.fn(),
+}));
+
+vi.mock('../data/onlineTable', () => ({
+  GAME_SCHEMA: 1,
+  bindTable: vi.fn(),
+  resumeTable: vi.fn(async () => null),
+  hostTable: vi.fn(async () => ({ code: 'KQ7M2X' })),
+  joinTable: vi.fn(async () => ({ error: 'nope' })),
+  leaveTable: vi.fn(async () => {}),
+  endTableForEveryone: vi.fn(async () => {}),
+  setMySeat: vi.fn(),
+  onLocalMutation: vi.fn(),
+  onLocalUndo: vi.fn(),
 }));
 
 const config: GameConfig = {
@@ -129,6 +143,83 @@ describe('decks', () => {
     const storeB = createAppStore();
     await storeB.getState().init();
     expect(storeB.getState().decks).toHaveLength(0);
+  });
+});
+
+describe('online table wiring', () => {
+  test('every mutation notifies the sync module with the pre-state', async () => {
+    const store = createAppStore();
+    store.getState().startGame(config);
+    const before = store.getState().game!;
+    store.getState().adjustLife(0, -4);
+    expect(tableSync.onLocalMutation).toHaveBeenCalled();
+    const [fn, orig] = (tableSync.onLocalMutation as ReturnType<typeof vi.fn>).mock.calls.at(-1)!;
+    expect(orig).toBe(before);
+    expect((fn as (g: GameState) => GameState)(before).players[0].life).toBe(36);
+  });
+
+  test('pass-turn carries a guard that rejects a moved table', () => {
+    const store = createAppStore();
+    store.getState().startGame(config);
+    const before = store.getState().game!;
+    store.getState().passTurn();
+    const call = (tableSync.onLocalMutation as ReturnType<typeof vi.fn>).mock.calls.at(-1)!;
+    const guard = (call[2] as { guard: (b: GameState, o: GameState) => boolean }).guard;
+    expect(guard(before, before)).toBe(true);
+    const moved = { ...before, turnNumber: before.turnNumber + 1 };
+    expect(guard(moved, before)).toBe(false);
+  });
+
+  test('a stale build blocks online edits', () => {
+    const store = createAppStore();
+    store.getState().startGame(config);
+    store.setState({
+      online: { code: 'KQ7M2X', status: { kind: 'stale-build' }, mySeat: null },
+    });
+    const life = store.getState().game!.players[0].life;
+    store.getState().adjustLife(0, -5);
+    expect(store.getState().game!.players[0].life).toBe(life); // unchanged
+  });
+
+  test('applyRemote validates, migrates, clears undo, and never echoes to the module', async () => {
+    const store = createAppStore();
+    await store.getState().init();
+    const hooks = (tableSync.bindTable as ReturnType<typeof vi.fn>).mock.calls.at(-1)![0];
+    store.getState().startGame(config);
+    store.getState().adjustLife(0, -1); // build some undo history
+    expect(store.getState().canUndo()).toBe(true);
+    (tableSync.onLocalMutation as ReturnType<typeof vi.fn>).mockClear();
+
+    hooks.applyRemote({ players: 'garbage' }); // malformed: ignored
+    expect(store.getState().game!.players[0].life).toBe(39);
+
+    const remote = createGame(config);
+    remote.players[1] = { ...remote.players[1], life: 0, eliminated: true };
+    hooks.applyRemote(remote);
+    expect(store.getState().game!.players[1].eliminated).toBe(true);
+    expect(store.getState().canUndo()).toBe(false); // history cleared
+    expect(tableSync.onLocalMutation).not.toHaveBeenCalled(); // no echo
+    expect(store.getState().log.some((l) => /defeated/i.test(l.text))).toBe(true);
+  });
+
+  test('undo notifies the module with the restored snapshot', () => {
+    const store = createAppStore();
+    store.getState().startGame(config);
+    const before = store.getState().game!;
+    store.getState().adjustLife(0, -2);
+    store.getState().undo();
+    expect(tableSync.onLocalUndo).toHaveBeenCalledWith(before);
+  });
+
+  test('hosting sets the online slice; ending online ends for everyone', async () => {
+    const store = createAppStore();
+    const err = await store.getState().hostOnlineGame(config);
+    expect(err).toBeNull();
+    expect(store.getState().online?.code).toBe('KQ7M2X');
+    expect(store.getState().inGame).toBe(true);
+    store.getState().endGame();
+    expect(tableSync.endTableForEveryone).toHaveBeenCalled();
+    expect(store.getState().online).toBeNull();
   });
 });
 
