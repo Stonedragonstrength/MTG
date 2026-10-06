@@ -4,6 +4,7 @@ import { COLOR_HEX } from '../lib/mana';
 import type { PlayerProfile } from '../lib/types';
 import { useAppStore } from '../state/store';
 import DecksScreen from './DecksScreen';
+import GarageScreen from './GarageScreen';
 import NewGameScreen from './NewGameScreen';
 import ProfileEditor from './ProfileEditor';
 
@@ -17,8 +18,9 @@ export default function HomeScreen() {
   const game = useAppStore((s) => s.game);
   const enterGame = useAppStore((s) => s.enterGame);
   const saveProfile = useAppStore((s) => s.saveProfile);
-  const [view, setView] = useState<'home' | 'newgame' | 'decks'>('home');
+  const [view, setView] = useState<'home' | 'newgame' | 'decks' | 'garage'>('home');
   const decks = useAppStore((s) => s.decks);
+  const garage = useAppStore((s) => s.garage);
   const [editing, setEditing] = useState<PlayerProfile | null>(null);
   const [creating, setCreating] = useState(false);
 
@@ -43,6 +45,7 @@ export default function HomeScreen() {
 
   if (view === 'newgame') return <NewGameScreen onBack={() => setView('home')} />;
   if (view === 'decks') return <DecksScreen onBack={() => setView('home')} />;
+  if (view === 'garage') return <GarageScreen onBack={() => setView('home')} />;
 
   const savedNames = game?.config.profiles.map((p) => p.name).join(' · ');
 
@@ -78,6 +81,14 @@ export default function HomeScreen() {
             {decks.length > 0
               ? `${decks.length} ${decks.length === 1 ? 'deck' : 'decks'} saved`
               : 'Build & keep lists'}
+          </span>
+        </button>
+        <button className="action-card" onClick={() => setView('garage')}>
+          <span className="action-card-title">Garage</span>
+          <span className="action-card-sub">
+            {garage.length > 0
+              ? `${garage.reduce((s, g) => s + g.count, 0)} cards swiped`
+              : 'Your collection'}
           </span>
         </button>
       </div>

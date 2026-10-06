@@ -17,6 +17,7 @@ interface Props {
  * forgiving fuzzy index as search — misreads cost one tap. */
 export default function CameraScanSheet({ deckId, onClose }: Props) {
   const saveDeck = useAppStore((s) => s.saveDeck);
+  const addToGarage = useAppStore((s) => s.addToGarage);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [unavailable, setUnavailable] = useState(false);
@@ -124,6 +125,7 @@ export default function CameraScanSheet({ deckId, onClose }: Props) {
     const deck = useAppStore.getState().decks.find((d) => d.id === deckId);
     if (!card || card.isToken || !deck) return;
     await saveDeck(addCard(deck, card));
+    await addToGarage(card); // every swipe lands in the garage
     setLastAdded(card.name);
     lastConfirmed.current = id;
     setGuesses([]);

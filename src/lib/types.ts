@@ -82,6 +82,17 @@ export interface Deck {
   updatedAt: number;
 }
 
+export interface GarageCard {
+  cardId: string;
+  name: string;
+  typeLine: string;
+  imageNormal: string | null;
+  count: number;
+  updatedAt: number; // ms epoch; last-write-wins across devices
+  deleted: boolean; // tombstone so other devices learn about removals
+  dirty: 0 | 1; // awaiting push to the cloud
+}
+
 export interface CardRecord {
   id: string;
   colorIdentity?: string[]; // present on cards imported after this field shipped

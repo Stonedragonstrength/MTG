@@ -26,6 +26,7 @@ beforeEach(async () => {
   await db.kv.clear();
   await db.profiles.clear();
   await db.decks.clear();
+  await db.garage.clear();
 });
 
 describe('game persistence', () => {
@@ -128,6 +129,47 @@ describe('decks', () => {
     const storeB = createAppStore();
     await storeB.getState().init();
     expect(storeB.getState().decks).toHaveLength(0);
+  });
+});
+
+describe('garage', () => {
+  const bolt = {
+    id: 'c-bolt',
+    name: 'Lightning Bolt',
+    nameLower: 'lightning bolt',
+    typeLine: 'Instant',
+    oracleText: '',
+    manaCost: '{R}',
+    power: null,
+    toughness: null,
+    colors: ['R'],
+    imageNormal: null,
+    imageArtCrop: null,
+    isToken: false,
+    isBasicLand: false,
+  };
+
+  test('swipes stack and survive into a fresh store', async () => {
+    const storeA = createAppStore();
+    await storeA.getState().init();
+    await storeA.getState().addToGarage(bolt);
+    await storeA.getState().addToGarage(bolt);
+    expect(storeA.getState().garage[0]).toMatchObject({ name: 'Lightning Bolt', count: 2 });
+
+    const storeB = createAppStore();
+    await storeB.getState().init();
+    expect(storeB.getState().garage[0]).toMatchObject({ name: 'Lightning Bolt', count: 2 });
+  });
+
+  test('setting a count to zero tombstones instead of deleting (sync needs it)', async () => {
+    const store = createAppStore();
+    await store.getState().init();
+    await store.getState().addToGarage(bolt);
+    await store.getState().setGarageCount('c-bolt', 0);
+    expect(store.getState().garage).toHaveLength(0); // hidden from the UI
+    const row = await getDb().garage.get('c-bolt');
+    expect(row?.deleted).toBe(true);
+    expect(row?.dirty).toBe(1);
   });
 });
 

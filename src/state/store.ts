@@ -1,10 +1,19 @@
 import { create } from 'zustand';
+import { pokeSync } from '../data/cloud';
 import { getDb, kvDelete, kvGet, kvSet } from '../data/db';
 import { DEFAULT_SETTINGS, getSettings, saveSettings, type Settings } from '../data/settings';
 import * as boardLib from '../lib/board';
 import * as gameLib from '../lib/game';
 import { playDefeat, playLifeTick, playTurnChime } from '../lib/sound';
-import type { BoardItem, Deck, GameConfig, GameState, PlayerProfile } from '../lib/types';
+import type {
+  BoardItem,
+  CardRecord,
+  Deck,
+  GameConfig,
+  GameState,
+  GarageCard,
+  PlayerProfile,
+} from '../lib/types';
 
 export interface LogEntry {
   t: number;
@@ -46,6 +55,10 @@ export interface AppStore {
   decks: Deck[];
   saveDeck(deck: Deck): Promise<void>;
   deleteDeck(id: string): Promise<void>;
+  garage: GarageCard[]; // live (non-tombstoned) collection, name-sorted
+  addToGarage(card: CardRecord, delta?: number): Promise<void>;
+  setGarageCount(cardId: string, count: number): Promise<void>;
+  refreshGarage(): Promise<void>;
 }
 
 // Serialized writes so saves never interleave; flushPersistence() awaits the tail.
@@ -151,6 +164,7 @@ export function createAppStore() {
       inGame: false,
       profiles: [],
       decks: [],
+      garage: [],
       settings: DEFAULT_SETTINGS,
       log: [],
 
@@ -165,6 +179,9 @@ export function createAppStore() {
         const imported = await kvGet('cardsImportedAt');
         const profiles = await getDb().profiles.toArray();
         const decks = (await getDb().decks.toArray()).sort((a, b) => b.updatedAt - a.updatedAt);
+        const garage = (await getDb().garage.toArray())
+          .filter((g) => !g.deleted)
+          .sort((a, b) => a.name.localeCompare(b.name));
         const settings = await getSettings();
         let game: GameState | null = null;
         try {
@@ -177,7 +194,8 @@ export function createAppStore() {
           console.error('Failed to restore saved game', err);
           await kvDelete('activeGame').catch(() => {});
         }
-        set({ setupDone: imported !== undefined, profiles, decks, game, settings });
+        set({ setupDone: imported !== undefined, profiles, decks, garage, game, settings });
+        pokeSync(() => void get().refreshGarage());
       },
 
       completeSetup() {
@@ -378,6 +396,46 @@ export function createAppStore() {
       async deleteDeck(id) {
         await getDb().decks.delete(id);
         set({ decks: get().decks.filter((d) => d.id !== id) });
+      },
+
+      async refreshGarage() {
+        const garage = (await getDb().garage.toArray())
+          .filter((g) => !g.deleted)
+          .sort((a, b) => a.name.localeCompare(b.name));
+        set({ garage });
+      },
+
+      async addToGarage(card, delta = 1) {
+        const db = getDb();
+        const existing = await db.garage.get(card.id);
+        const row: GarageCard = {
+          cardId: card.id,
+          name: card.name,
+          typeLine: card.typeLine,
+          imageNormal: card.imageNormal,
+          count: Math.max(1, (existing && !existing.deleted ? existing.count : 0) + delta),
+          updatedAt: Date.now(),
+          deleted: false,
+          dirty: 1,
+        };
+        await db.garage.put(row);
+        await get().refreshGarage();
+        pokeSync(() => void get().refreshGarage());
+      },
+
+      async setGarageCount(cardId, count) {
+        const db = getDb();
+        const existing = await db.garage.get(cardId);
+        if (!existing) return;
+        await db.garage.put({
+          ...existing,
+          count: Math.max(0, count),
+          deleted: count <= 0,
+          updatedAt: Date.now(),
+          dirty: 1,
+        });
+        await get().refreshGarage();
+        pokeSync(() => void get().refreshGarage());
       },
     };
   });

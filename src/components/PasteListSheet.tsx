@@ -13,6 +13,7 @@ interface Props {
  * and it resolves against the offline database in one shot. */
 export default function PasteListSheet({ deckId, onClose }: Props) {
   const saveDeck = useAppStore((s) => s.saveDeck);
+  const addToGarage = useAppStore((s) => s.addToGarage);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [report, setReport] = useState<{ added: number; misses: string[] } | null>(null);
@@ -35,6 +36,8 @@ export default function PasteListSheet({ deckId, onClose }: Props) {
       added += hit.count;
     }
     await saveDeck(next);
+    // Pasted lists are cards you physically have — they join the garage.
+    for (const hit of hits) await addToGarage(hit.card, hit.count);
     setBusy(false);
     setReport({ added, misses });
   }

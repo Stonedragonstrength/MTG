@@ -1,4 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import {
+  getCloudConfig,
+  sendMagicLink,
+  setCloudConfig,
+  SETUP_SQL,
+  signedInEmail,
+  syncGarage,
+} from '../data/cloud';
 import { importBulkData } from '../data/scryfall';
 import type { BackgroundMode } from '../data/settings';
 import { useAppStore } from '../state/store';
@@ -23,8 +31,42 @@ export default function SettingsSheet({ onClose }: Props) {
   const game = useAppStore((s) => s.game);
   const settings = useAppStore((s) => s.settings);
   const updateSettings = useAppStore((s) => s.updateSettings);
+  const refreshGarage = useAppStore((s) => s.refreshGarage);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshMsg, setRefreshMsg] = useState('');
+  const [cloudUrl, setCloudUrl] = useState('');
+  const [cloudKey, setCloudKey] = useState('');
+  const [cloudEmail, setCloudEmail] = useState('');
+  const [cloudUser, setCloudUser] = useState<string | null>(null);
+  const [cloudMsg, setCloudMsg] = useState('');
+  const [sqlShown, setSqlShown] = useState(false);
+
+  useEffect(() => {
+    getCloudConfig().then((cfg) => {
+      if (cfg) {
+        setCloudUrl(cfg.url);
+        setCloudKey(cfg.anonKey);
+      }
+    });
+    signedInEmail().then(setCloudUser);
+  }, []);
+
+  async function saveCloud() {
+    await setCloudConfig({ url: cloudUrl.trim(), anonKey: cloudKey.trim() });
+    setCloudMsg('Saved. Now send yourself the sign-in link.');
+  }
+
+  async function magicLink() {
+    const err = await sendMagicLink(cloudEmail.trim());
+    setCloudMsg(err ?? `Link sent to ${cloudEmail.trim()} — open it on this device.`);
+  }
+
+  async function syncNow() {
+    setCloudMsg('Syncing…');
+    const status = await syncGarage();
+    await refreshGarage();
+    setCloudMsg(status);
+  }
 
   async function refreshCards() {
     setRefreshing(true);
@@ -159,6 +201,60 @@ export default function SettingsSheet({ onClose }: Props) {
           {refreshing ? 'Updating…' : 'Update'}
         </button>
       </div>
+
+      <div className="settings-section-label">Garage cloud sync</div>
+      <p className="hint">
+        Syncs your card garage across devices through your own Supabase project.
+        {cloudUser ? ` Signed in as ${cloudUser}.` : ' Not signed in on this device yet.'}
+      </p>
+      <div className="settings-row">
+        <input
+          className="cloud-field"
+          placeholder="Project URL (https://xyz.supabase.co)"
+          value={cloudUrl}
+          onChange={(e) => setCloudUrl(e.target.value)}
+        />
+      </div>
+      <div className="settings-row">
+        <input
+          className="cloud-field"
+          placeholder="anon public key"
+          value={cloudKey}
+          onChange={(e) => setCloudKey(e.target.value)}
+        />
+        <button disabled={!cloudUrl.trim() || !cloudKey.trim()} onClick={() => void saveCloud()}>
+          Save
+        </button>
+      </div>
+      <div className="settings-row">
+        <input
+          className="cloud-field"
+          type="email"
+          placeholder="your email for the sign-in link"
+          value={cloudEmail}
+          onChange={(e) => setCloudEmail(e.target.value)}
+        />
+        <button disabled={!cloudEmail.includes('@')} onClick={() => void magicLink()}>
+          Send link
+        </button>
+      </div>
+      <div className="settings-row">
+        <div className="settings-row-text">
+          <small>{cloudMsg || 'One-time setup: paste the table SQL in Supabase first.'}</small>
+        </div>
+        <button className="ghost" onClick={() => setSqlShown((v) => !v)}>
+          {sqlShown ? 'Hide SQL' : 'Show SQL'}
+        </button>
+        <button onClick={() => void syncNow()}>Sync now</button>
+      </div>
+      {sqlShown && (
+        <>
+          <p className="hint">
+            Supabase dashboard → SQL Editor → paste this → Run. Once, ever.
+          </p>
+          <textarea className="paste-box" readOnly rows={8} value={SETUP_SQL} />
+        </>
+      )}
     </Sheet>
   );
 }

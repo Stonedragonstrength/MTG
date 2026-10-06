@@ -742,3 +742,26 @@ label {
   color: #8c8c99;
   border-style: dashed;
 }
+
+/* ---- garage + cloud sync ---- */
+.settings-section-label {
+  margin-top: 10px;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #8c8c99;
+  border-bottom: 1px solid #2c2c34;
+  padding-bottom: 4px;
+}
+
+.cloud-field {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--fg);
+  background: #1a1a20;
+  border: 1px solid #3a3a44;
+  border-radius: 8px;
+  padding: 8px 10px;
+}

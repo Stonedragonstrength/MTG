@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie';
-import type { CardRecord, Deck, PlayerProfile } from '../lib/types';
+import type { CardRecord, Deck, GarageCard, PlayerProfile } from '../lib/types';
 
 export interface KvEntry {
   key: string;
@@ -11,6 +11,7 @@ export class AppDb extends Dexie {
   profiles!: Table<PlayerProfile, string>;
   kv!: Table<KvEntry, string>;
   decks!: Table<Deck, string>;
+  garage!: Table<GarageCard, string>;
 
   constructor() {
     super('mtg-companion');
@@ -23,6 +24,9 @@ export class AppDb extends Dexie {
     });
     this.version(2).stores({
       decks: 'id',
+    });
+    this.version(3).stores({
+      garage: 'cardId, dirty',
     });
   }
 }

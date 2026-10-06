@@ -62,4 +62,6 @@ test('importing applies cards and commander, and reports misses', async () => {
   const deck = useAppStore.getState().decks[0];
   expect(deck.commander?.name).toBe('Lathril, Blade of the Elves');
   expect(deck.cards.find((c) => c.name === 'Sol Ring')?.count).toBe(1);
+  // Pasted cards are owned cards: they land in the garage too.
+  expect(useAppStore.getState().garage.some((g) => g.name === 'Sol Ring')).toBe(true);
 });
