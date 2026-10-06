@@ -32,34 +32,46 @@ function HandCard({
 
 interface Props {
   playerIdx: number;
+  /** HandScreen mode: always fanned, no pill, no collapse. */
+  forceFanned?: boolean;
 }
 
 /** Your hand, docked at your own edge: a count pill that fans into
  * thumbnails. Tap plays (undo covers misclicks); hold for options.
  * Turn one offers the London mulligan with select-to-bottom on keep. */
-export default function HandTray({ playerIdx }: Props) {
+export default function HandTray({ playerIdx, forceFanned = false }: Props) {
   const game = useAppStore((s) => s.game);
   const online = useAppStore((s) => s.online);
   const playCard = useAppStore((s) => s.playCard);
   const mulliganSeat = useAppStore((s) => s.mulliganSeat);
   const keepHand = useAppStore((s) => s.keepHand);
-  const [fanned, setFanned] = useState(false);
+  const [fanned, setFanned] = useState(forceFanned);
   const [detail, setDetail] = useState<string | null>(null);
   const [bottoming, setBottoming] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
 
   const activeIdx = game?.activePlayerIndex;
   useEffect(() => {
-    setFanned(false); // trays fold when the turn moves (table manners)
+    if (!forceFanned) setFanned(false); // trays fold when the turn moves (table manners)
     setBottoming(false);
     setSelected([]);
-  }, [activeIdx]);
+  }, [activeIdx, forceFanned]);
 
   const seat = game?.players[playerIdx]?.cards;
   const records = useCardRecords(seat?.hand ?? []);
   if (!game || !seat) return null;
   const claimed = !online || online.mySeat === playerIdx || online.mySeat === null;
   if (!claimed) return null; // unclaimed hands live behind the dock's peek gate
+  // A phone holds this hand: every other device shows a hint, not cards.
+  if (seat.handHeld && online && online.mySeat !== playerIdx) {
+    return (
+      <div className="hand-tray">
+        <span className="hand-pill hand-pill--held" title="This hand lives on its player's phone">
+          ✋ {seat.hand.length} 📱
+        </span>
+      </div>
+    );
+  }
 
   const mulliganTime = game.turnNumber === 1 && seat.battlefield.length === 0;
   const needBottom = seat.mulligans;
@@ -95,9 +107,11 @@ export default function HandTray({ playerIdx }: Props) {
             ))}
           </div>
           <div className="hand-tools">
-            <button className="ghost" aria-label="collapse hand" onClick={() => setFanned(false)}>
-              ▾
-            </button>
+            {!forceFanned && (
+              <button className="ghost" aria-label="collapse hand" onClick={() => setFanned(false)}>
+                ▾
+              </button>
+            )}
             {mulliganTime && !bottoming && (
               <>
                 <button className="ghost" onClick={() => mulliganSeat(playerIdx)}>

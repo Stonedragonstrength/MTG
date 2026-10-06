@@ -12,6 +12,7 @@ import {
   newIid,
   seedSeat,
   setCardCounter,
+  setHandHeld,
   tapCard,
   untapAllCards,
 } from './cards';
@@ -86,6 +87,25 @@ describe('seedSeat', () => {
     expect(g.players[0].cards?.hand).toHaveLength(7);
     const again = seedSeat(g, 0, buildSeatCards(sampleDeck(), 99));
     expect(again).toBe(g);
+  });
+});
+
+describe('setHandHeld', () => {
+  test('marks the hand as phone-held and clears the field on release', () => {
+    const g = seeded();
+    const held = setHandHeld(g, 0, true);
+    expect(held.players[0].cards?.handHeld).toBe(true);
+    const released = setHandHeld(held, 0, false);
+    expect(released.players[0].cards?.handHeld).toBeUndefined(); // omit, never write false
+    expect('handHeld' in released.players[0].cards!).toBe(false);
+  });
+
+  test('no-ops when already in that state or the seat has no cards', () => {
+    const g = seeded();
+    expect(setHandHeld(g, 0, false)).toBe(g); // already un-held
+    const held = setHandHeld(g, 0, true);
+    expect(setHandHeld(held, 0, true)).toBe(held); // replay-safe
+    expect(setHandHeld(g, 1, true)).toBe(g); // tracker seat
   });
 });
 

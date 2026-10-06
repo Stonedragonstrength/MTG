@@ -1,6 +1,7 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { registerBack } from '../lib/backstack';
 import { useAppStore } from '../state/store';
+import HandScreen from './HandScreen';
 import LandBackground from './LandBackground';
 import PlayerZone from './PlayerZone';
 import TablePill from './TablePill';
@@ -13,11 +14,31 @@ const EDGE_LAYOUTS: Record<number, string[]> = {
   4: ['bottom', 'right', 'top', 'left'],
 };
 
+const NARROW_QUERY = '(max-width: 640px)';
+
+/** Phone-sized viewport? jsdom has no matchMedia — default to wide. */
+function useNarrow(): boolean {
+  const [narrow, setNarrow] = useState(
+    () => window.matchMedia?.(NARROW_QUERY).matches ?? false,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia?.(NARROW_QUERY);
+    if (!mq) return;
+    const onChange = (e: MediaQueryListEvent) => setNarrow(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+  return narrow;
+}
+
 /** The active player always holds the big board; passing the turn moves it. */
 export default function GameScreen() {
   const game = useAppStore((s) => s.game);
   const online = useAppStore((s) => s.online);
   const exitToHome = useAppStore((s) => s.exitToHome);
+  // auto = phones land on their hand, tablets on the table.
+  const [view, setView] = useState<'auto' | 'table' | 'hand'>('auto');
+  const narrow = useNarrow();
   // Tablet back = leave to home (game stays saved), not close the app.
   useEffect(() => registerBack(exitToHome), [exitToHome]);
   if (!game) return null;
@@ -28,6 +49,22 @@ export default function GameScreen() {
   const table360 = n > 2;
   // Online: rotate the table so YOUR zone sits at your own bottom edge.
   const shift = online?.mySeat ?? 0;
+
+  // Your claimed seat plays virtual cards: the hand view exists for you.
+  const phoneSeat =
+    online?.mySeat != null && game.players[online.mySeat]?.cards !== undefined
+      ? online.mySeat
+      : null;
+  const handView = phoneSeat !== null && (view === 'hand' || (view === 'auto' && narrow));
+
+  if (handView) {
+    return (
+      <div className={`game-screen players-${n} hand-mode`}>
+        <HandScreen seatIdx={phoneSeat} onShowTable={() => setView('table')} />
+        {online && <TablePill />}
+      </div>
+    );
+  }
 
   return (
     <div className={`game-screen players-${n} focus-mode${table360 ? ' table-360' : ''}`}>
@@ -42,6 +79,11 @@ export default function GameScreen() {
         />
       ))}
       {online && <TablePill />}
+      {phoneSeat !== null && (
+        <button className="hand-jump" aria-label="my hand" onClick={() => setView('hand')}>
+          ✋
+        </button>
+      )}
     </div>
   );
 }

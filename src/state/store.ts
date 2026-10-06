@@ -65,6 +65,7 @@ export interface AppStore {
   castCommander(seat: number): void;
   commanderDiedAction(seat: number, iid: string): void;
   peekNotice(seat: number): void;
+  setHandHeld(seat: number, held: boolean): void;
   undo(): void;
   canUndo(): boolean;
   adjustLife(playerIdx: number, delta: number): void;
@@ -528,6 +529,12 @@ export function createAppStore() {
           (base) => ({ ...base }), // feed-only op: the entry is the payload
           `${actor} looked at ${seatName(g, seat)}'s hand`,
         );
+      },
+
+      setHandHeld(seat, held) {
+        // A hint, not an announcement: no feed line, no guard needed —
+        // the reducer no-ops when the flag already matches.
+        cardMutate((base) => cardsLib.setHandHeld(base, seat, held), null);
       },
 
       endGame() {

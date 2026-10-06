@@ -236,6 +236,19 @@ export function commanderDied(g: GameState, seat: number, iid: string): GameStat
   };
 }
 
+/** A phone claimed this hand: shared tables collapse its tray to a hint.
+ * Direction is explicit, so a replay can never flip it back. */
+export function setHandHeld(g: GameState, seat: number, held: boolean): GameState {
+  return updateSeat(g, seat, (cards) => {
+    if ((cards.handHeld ?? false) === held) return null;
+    if (!held) {
+      const { handHeld: _h, ...rest } = cards; // omit, never write false
+      return rest;
+    }
+    return { ...cards, handHeld: true };
+  });
+}
+
 export function untapAllCards(g: GameState, seat: number): GameState {
   return updateSeat(g, seat, (cards) => {
     if (!cards.battlefield.some((c) => c.tapped)) return null;

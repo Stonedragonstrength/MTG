@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { createGame } from '../lib/game';
 import type { GameConfig } from '../lib/types';
@@ -77,6 +78,72 @@ test('a virtual-cards seat shows hand and library counts in its header', () => {
   expect(chips).toContain('📚3');
   // tracker seats stay chip-free
   expect(container.querySelectorAll('.zone.seat-1 .player-chip')).toHaveLength(0);
+});
+
+function cardsSeat() {
+  return {
+    library: [
+      { iid: 'l1', cardId: 'c1', name: 'Forest' },
+      { iid: 'l2', cardId: 'c1', name: 'Forest' },
+    ],
+    hand: [],
+    battlefield: [],
+    graveyard: [],
+    exile: [],
+    command: [],
+    mulligans: 0,
+    deckName: 'Stompy',
+  };
+}
+
+test('a claimed cards seat offers the hand view and switches both ways', async () => {
+  const game = createGame(config(2));
+  game.players[0] = { ...game.players[0], cards: cardsSeat() };
+  useAppStore.setState({
+    game,
+    online: { code: 'KQ7M2X', status: { kind: 'live', peers: 2 }, mySeat: 0 },
+    setHandHeld: vi.fn(),
+  });
+  const user = userEvent.setup();
+  const { container } = render(<GameScreen />);
+  expect(container.querySelectorAll('.zone').length).toBe(2); // table first on a wide screen
+  await user.click(screen.getByRole('button', { name: /my hand/i }));
+  expect(await screen.findByRole('button', { name: /see table/i })).toBeInTheDocument();
+  expect(container.querySelectorAll('.zone')).toHaveLength(0);
+  await user.click(screen.getByRole('button', { name: /see table/i }));
+  expect(container.querySelectorAll('.zone').length).toBe(2);
+  useAppStore.setState({ online: null });
+});
+
+test('a narrow viewport opens straight into the hand view', () => {
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn(() => ({
+      matches: true,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })),
+  );
+  const game = createGame(config(2));
+  game.players[0] = { ...game.players[0], cards: cardsSeat() };
+  useAppStore.setState({
+    game,
+    online: { code: 'KQ7M2X', status: { kind: 'live', peers: 2 }, mySeat: 0 },
+    setHandHeld: vi.fn(),
+  });
+  render(<GameScreen />);
+  expect(screen.getByRole('button', { name: /see table/i })).toBeInTheDocument();
+  vi.unstubAllGlobals();
+  useAppStore.setState({ online: null });
+});
+
+test('tracker-only tables never offer the hand view', () => {
+  useAppStore.setState({
+    online: { code: 'KQ7M2X', status: { kind: 'live', peers: 2 }, mySeat: 0 },
+  });
+  render(<GameScreen />);
+  expect(screen.queryByRole('button', { name: /my hand/i })).not.toBeInTheDocument();
+  useAppStore.setState({ online: null });
 });
 
 test('eliminated players get the dead treatment', () => {

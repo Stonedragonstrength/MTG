@@ -84,3 +84,33 @@ test('turn one offers a mulligan', async () => {
   await user.click(screen.getByRole('button', { name: /mulligan/i }));
   expect(useAppStore.getState().mulliganSeat).toHaveBeenCalledWith(0);
 });
+
+test('forceFanned shows the cards straight away, with no pill or collapse', () => {
+  render(<HandTray playerIdx={0} forceFanned />);
+  expect(screen.queryByRole('button', { name: /hand, 7 cards/i })).not.toBeInTheDocument();
+  expect(screen.getAllByRole('button', { name: /^play / })).toHaveLength(7);
+  expect(screen.queryByRole('button', { name: /collapse hand/i })).not.toBeInTheDocument();
+});
+
+test('a phone-held hand collapses to a hint on other devices', () => {
+  const g = seededGame();
+  g.players[0] = { ...g.players[0], cards: { ...g.players[0].cards!, handHeld: true } };
+  useAppStore.setState({
+    game: g,
+    online: { code: 'KQ7M2X', status: { kind: 'live', peers: 2 }, mySeat: null },
+  });
+  render(<HandTray playerIdx={0} />);
+  expect(screen.getByTitle(/phone/i)).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /hand, 7 cards/i })).not.toBeInTheDocument();
+});
+
+test('the device that claimed the seat keeps its own tray despite handHeld', () => {
+  const g = seededGame();
+  g.players[0] = { ...g.players[0], cards: { ...g.players[0].cards!, handHeld: true } };
+  useAppStore.setState({
+    game: g,
+    online: { code: 'KQ7M2X', status: { kind: 'live', peers: 2 }, mySeat: 0 },
+  });
+  render(<HandTray playerIdx={0} />);
+  expect(screen.getByRole('button', { name: /hand, 7 cards/i })).toBeInTheDocument();
+});
