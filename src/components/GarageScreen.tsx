@@ -9,8 +9,8 @@ interface Props {
   onBack: () => void;
 }
 
-/** The card garage: every card you've swiped or pasted, your whole
- * physical collection, browsable and countable. */
+/** The curation (né garage): every card you've swiped or pasted, your
+ * whole physical collection, browsable and countable. */
 export default function GarageScreen({ onBack }: Props) {
   const garage = useAppStore((s) => s.garage);
   const setGarageCount = useAppStore((s) => s.setGarageCount);
@@ -39,7 +39,7 @@ export default function GarageScreen({ onBack }: Props) {
         <button className="ghost" onClick={onBack}>
           ‹ Home
         </button>
-        <h1>Garage</h1>
+        <h1>Curation</h1>
         <span className="deck-size">{total} cards</span>
       </header>
 
@@ -52,7 +52,8 @@ export default function GarageScreen({ onBack }: Props) {
 
       {garage.length === 0 ? (
         <p className="hint">
-          Empty so far — every card you scan or paste into a deck lands here automatically.
+          Empty so far — every card you swipe or paste into a deck joins the curation
+          automatically.
         </p>
       ) : (
         groups.map((group) => (

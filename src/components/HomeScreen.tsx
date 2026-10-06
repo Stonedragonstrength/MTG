@@ -100,7 +100,7 @@ export default function HomeScreen() {
           </span>
         </button>
         <button className="action-card" onClick={() => setView('garage')}>
-          <span className="action-card-title">Garage</span>
+          <span className="action-card-title">Curation</span>
           <span className="action-card-sub">
             {garage.length > 0
               ? `${garage.reduce((s, g) => s + g.count, 0)} cards swiped`

@@ -202,9 +202,9 @@ export default function SettingsSheet({ onClose }: Props) {
         </button>
       </div>
 
-      <div className="settings-section-label">Garage cloud sync</div>
+      <div className="settings-section-label">Curation cloud sync</div>
       <p className="hint">
-        Syncs your card garage across devices through your own Supabase project.
+        Syncs your curation across devices through your own Supabase project.
         {cloudUser ? ` Signed in as ${cloudUser}.` : ' Not signed in on this device yet.'}
       </p>
       <div className="settings-row">
