@@ -3,8 +3,18 @@
 let workerPromise: Promise<import('tesseract.js').Worker> | null = null;
 
 async function getWorker() {
-  const { createWorker } = await import('tesseract.js');
-  workerPromise ??= createWorker('eng');
+  const { createWorker, PSM } = await import('tesseract.js');
+  workerPromise ??= (async () => {
+    const worker = await createWorker('eng');
+    // Card titles, not documents: hunt sparse text and never guess
+    // characters that card names don't use — art noise stops becoming "3)|".
+    await worker.setParameters({
+      tessedit_pageseg_mode: PSM.SPARSE_TEXT,
+      tessedit_char_whitelist:
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz',- ",
+    });
+    return worker;
+  })();
   return workerPromise;
 }
 

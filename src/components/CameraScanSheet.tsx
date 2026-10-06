@@ -32,8 +32,15 @@ export default function CameraScanSheet({ deckId, onClose }: Props) {
     (async () => {
       try {
         if (!navigator.mediaDevices?.getUserMedia) throw new Error('no camera API');
+        // Without explicit constraints tablets hand over 640×480 — a title
+        // cropped from that is mush. Ask for full HD; browsers downgrade
+        // gracefully when the camera can't.
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' },
+          video: {
+            facingMode: 'environment',
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+          },
           audio: false,
         });
         if (cancelled) {
@@ -90,9 +97,16 @@ export default function CameraScanSheet({ deckId, onClose }: Props) {
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
       ctx.imageSmoothingEnabled = true;
+      // Grayscale + contrast before the engine: glare and foil shimmer
+      // flatten out, letters stand up.
+      ctx.filter = 'grayscale(1) contrast(1.6)';
       ctx.drawImage(video, 0, bandY, video.videoWidth, bandH, 0, 0, canvas.width, canvas.height);
       const lines = await recognizeLines(canvas);
-      setLastRead(lines.join(' · ') || null);
+      setLastRead(
+        lines.length > 0
+          ? `${lines.join(' · ')} (${video.videoWidth}×${video.videoHeight})`
+          : null,
+      );
       const hits = bestScannedMatch(lines, names);
       if (auto && hits[0] && hits[0].id === lastConfirmed.current) {
         setGuesses([]);
