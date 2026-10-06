@@ -17,6 +17,7 @@ export interface Settings {
   soundOn: boolean;
   turnTimerOn: boolean;
   autoFocusOn: boolean; // active player's zone takes the screen each turn
+  deckArtOn: boolean; // thumbnails on deck-builder rows
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -27,6 +28,7 @@ export const DEFAULT_SETTINGS: Settings = {
   soundOn: false,
   turnTimerOn: true,
   autoFocusOn: false,
+  deckArtOn: true,
 };
 
 export async function getSettings(): Promise<Settings> {

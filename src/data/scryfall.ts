@@ -24,6 +24,10 @@ export function slimCard(raw: Raw): CardRecord | null {
   const typeLine = str(raw.type_line) ?? str(face0.type_line) ?? '';
   const imageUris = (raw.image_uris ?? face0.image_uris ?? {}) as Record<string, unknown>;
   const layout = str(raw.layout) ?? '';
+  // Collection pricing: regular printing first, foil as the fallback.
+  const prices = (raw.prices ?? {}) as Record<string, unknown>;
+  const priceStr = str(prices.usd) ?? str(prices.usd_foil);
+  const parsedPrice = priceStr ? Number.parseFloat(priceStr) : NaN;
 
   return {
     id: str(raw.id) ?? name,
@@ -40,6 +44,7 @@ export function slimCard(raw: Raw): CardRecord | null {
     imageArtCrop: str(imageUris.art_crop),
     isToken: layout === 'token' || layout === 'double_faced_token' || typeLine.includes('Token'),
     isBasicLand: typeLine.startsWith('Basic Land'),
+    priceUsd: Number.isFinite(parsedPrice) ? parsedPrice : null,
   };
 }
 

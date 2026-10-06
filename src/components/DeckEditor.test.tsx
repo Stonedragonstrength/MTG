@@ -99,6 +99,45 @@ test('shows type groups, counts, and the running total with commander', () => {
   expect(screen.getByText('Llanowar Elves')).toBeInTheDocument();
 });
 
+test('rows wear their subtype next to the name', () => {
+  const { container } = render(<DeckEditor deckId="deck-1" onBack={() => {}} />);
+  expect(screen.getByText('Elf Druid')).toBeInTheDocument();
+  // Forest's subtype renders too (its group header says Lands, the row says Forest)
+  const typeTags = Array.from(container.querySelectorAll('.deck-row-type')).map(
+    (el) => el.textContent,
+  );
+  expect(typeTags).toContain('Forest');
+});
+
+test('card art rides the rows and the toggle hides it', async () => {
+  const user = userEvent.setup();
+  const { container } = render(<DeckEditor deckId="deck-1" onBack={() => {}} />);
+  expect(container.querySelectorAll('.deck-row-art').length).toBeGreaterThan(0); // on by default
+  await user.click(screen.getByRole('button', { name: /card art/i }));
+  expect(container.querySelectorAll('.deck-row-art')).toHaveLength(0);
+  await user.click(screen.getByRole('button', { name: /card art/i }));
+  expect(container.querySelectorAll('.deck-row-art').length).toBeGreaterThan(0);
+});
+
+test('the deck search counts what you already added', async () => {
+  const user = userEvent.setup();
+  render(<DeckEditor deckId="deck-1" onBack={() => {}} />);
+  const box = screen.getByRole('searchbox', { name: /find in deck/i });
+  await user.type(box, 'fore');
+  expect(screen.getByText(/in the deck: 8 copies \(1 card\)/i)).toBeInTheDocument();
+  expect(screen.queryByText('Llanowar Elves')).not.toBeInTheDocument(); // filtered out
+  await user.clear(box);
+  await user.type(box, 'sol ring');
+  expect(screen.getByText(/not in this deck yet/i)).toBeInTheDocument();
+});
+
+test('the deck search recognizes the commander', async () => {
+  const user = userEvent.setup();
+  render(<DeckEditor deckId="deck-1" onBack={() => {}} />);
+  await user.type(screen.getByRole('searchbox', { name: /find in deck/i }), 'ashaya');
+  expect(screen.getByText(/your commander/i)).toBeInTheDocument();
+});
+
 test('steppers change copy counts through the store', async () => {
   const user = userEvent.setup();
   render(<DeckEditor deckId="deck-1" onBack={() => {}} />);

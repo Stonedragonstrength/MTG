@@ -144,4 +144,5 @@ export interface CardRecord {
   imageArtCrop: string | null;
   isToken: boolean;
   isBasicLand: boolean;
+  priceUsd?: number | null; // present on cards imported after prices shipped
 }

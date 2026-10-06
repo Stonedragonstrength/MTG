@@ -6,8 +6,8 @@ import { useAppStore } from '../state/store';
 import GarageScreen from './GarageScreen';
 
 const records: Record<string, Partial<CardRecord>> = {
-  bolt: { colorIdentity: ['R'], manaCost: '{R}' },
-  sol: { colorIdentity: [], manaCost: '{1}' },
+  bolt: { colorIdentity: ['R'], manaCost: '{R}', priceUsd: 1 },
+  sol: { colorIdentity: [], manaCost: '{1}', priceUsd: 2.5 },
   elves: { colorIdentity: ['G'], manaCost: '{G}' },
   hoof: { colorIdentity: ['G'], manaCost: '{5}{G}{G}{G}' },
 };
@@ -31,6 +31,7 @@ vi.mock('../data/scryfall', () => ({
           isBasicLand: false,
           manaCost: records[id].manaCost ?? '',
           colorIdentity: records[id].colorIdentity,
+          priceUsd: records[id].priceUsd ?? null,
         } as CardRecord)
       : undefined,
   ),
@@ -69,6 +70,22 @@ test('shows totals and full card art grouped by type', () => {
   expect(screen.getByText('Creatures')).toBeInTheDocument();
   const art = screen.getByRole('img', { name: 'Lightning Bolt' });
   expect(art).toHaveAttribute('src', 'https://img.example/bolt.jpg');
+});
+
+test('prices the collection: total, average, and how much is priced', async () => {
+  render(<GarageScreen onBack={() => {}} />);
+  // 4 bolts at $1 + 2 sol rings at $2.50 = $9; elves + hoof have no price yet
+  expect(await screen.findByText(/\$9\.00/)).toBeInTheDocument();
+  expect(screen.getByText(/avg \$1\.50/i)).toBeInTheDocument();
+  expect(screen.getByText(/6 of 8 copies priced/i)).toBeInTheDocument();
+});
+
+test('a collection with no prices points at the card-data refresh', async () => {
+  useAppStore.setState({
+    garage: [row('elves', 'Llanowar Elves', 'Creature — Elf Druid', 1)],
+  });
+  render(<GarageScreen onBack={() => {}} />);
+  expect(await screen.findByText(/refresh the card data/i)).toBeInTheDocument();
 });
 
 test('the filter narrows the binder', async () => {

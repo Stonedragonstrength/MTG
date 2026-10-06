@@ -78,6 +78,15 @@ function bucketOf(typeLine: string): string {
   return 'Other';
 }
 
+/** The display subtype: "Creature — Elf Druid" → "Elf Druid". Cards
+ * without a dash add nothing (the group header already says the type);
+ * double-faced cards read their front face. */
+export function shortType(typeLine: string): string {
+  const face = typeLine.split(' // ')[0];
+  const dash = face.indexOf('—');
+  return dash === -1 ? '' : face.slice(dash + 1).trim();
+}
+
 export function groupCards(cards: DeckCard[]): { label: string; cards: DeckCard[] }[] {
   const order = [...GROUPS.map((g) => g.label).filter((l) => l !== 'Lands'), 'Other', 'Lands'];
   const buckets = new Map<string, DeckCard[]>();

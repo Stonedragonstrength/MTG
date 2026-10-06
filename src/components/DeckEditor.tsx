@@ -9,6 +9,7 @@ import {
   groupCards,
   manaCurve,
   offColorCards,
+  shortType,
   starRatings,
   type DeckStats,
 } from '../lib/deck';
@@ -55,6 +56,9 @@ export default function DeckEditor({ deckId, onBack }: Props) {
   const deck = useAppStore((s) => s.decks.find((d) => d.id === deckId));
   const saveDeck = useAppStore((s) => s.saveDeck);
   const deleteDeck = useAppStore((s) => s.deleteDeck);
+  const settings = useAppStore((s) => s.settings);
+  const updateSettings = useAppStore((s) => s.updateSettings);
+  const [finding, setFinding] = useState('');
   const [adding, setAdding] = useState(false);
   const [viewing, setViewing] = useState<DeckCard | null>(null);
   const addToGarage = useAppStore((s) => s.addToGarage);
@@ -128,6 +132,17 @@ export default function DeckEditor({ deckId, onBack }: Props) {
   const size = deckSize(deck);
   const offColor = new Set(offColorCards(deck).map((c) => c.cardId));
   const extras = compositionExtras(deck.cards);
+
+  // "Do I already have this?" — count copies before typing another one in.
+  const q = finding.trim().toLowerCase();
+  const found = q ? deck.cards.filter((c) => c.name.toLowerCase().includes(q)) : [];
+  const foundCopies = found.reduce((sum, c) => sum + c.count, 0);
+  const commanderMatch = q !== '' && (deck.commander?.name.toLowerCase().includes(q) ?? false);
+  const visibleGroups = q
+    ? groups
+        .map((g) => ({ ...g, cards: g.cards.filter((c) => c.name.toLowerCase().includes(q)) }))
+        .filter((g) => g.cards.length > 0)
+    : groups;
 
   return (
     <div className="screen deck-editor">
@@ -223,7 +238,34 @@ export default function DeckEditor({ deckId, onBack }: Props) {
         + Add cards
       </button>
 
-      {groups.map((group) => (
+      <div className="deck-tools">
+        <input
+          type="search"
+          aria-label="find in deck"
+          placeholder="Already in the deck?"
+          value={finding}
+          onChange={(e) => setFinding(e.target.value)}
+        />
+        <button
+          className="ghost deck-art-toggle"
+          aria-label="toggle card art"
+          aria-pressed={settings.deckArtOn}
+          onClick={() => updateSettings({ ...settings, deckArtOn: !settings.deckArtOn })}
+        >
+          🖼 {settings.deckArtOn ? 'Art on' : 'Art off'}
+        </button>
+      </div>
+      {q !== '' && (
+        <p className="hint deck-find-line">
+          {found.length > 0
+            ? `In the deck: ${foundCopies} ${foundCopies === 1 ? 'copy' : 'copies'} (${found.length} ${found.length === 1 ? 'card' : 'cards'})`
+            : commanderMatch
+              ? `That's your commander — ${deck.commander!.name} leads this deck.`
+              : 'Not in this deck yet.'}
+        </p>
+      )}
+
+      {visibleGroups.map((group) => (
         <section key={group.label} className="deck-group">
           <h2 className="deck-group-title">
             {group.label}
@@ -234,7 +276,23 @@ export default function DeckEditor({ deckId, onBack }: Props) {
           {group.cards.map((card) => (
             <div key={card.cardId} className="deck-row">
               <button className="deck-row-name" onClick={() => setViewing(card)}>
-                {card.name}
+                {settings.deckArtOn &&
+                  ((card.imageNormal ?? records[card.cardId]?.imageNormal) ? (
+                    <img
+                      className="deck-row-art"
+                      src={(card.imageNormal ?? records[card.cardId]?.imageNormal)!}
+                      alt=""
+                      loading="lazy"
+                    />
+                  ) : (
+                    <span className="deck-row-art deck-row-art--empty" />
+                  ))}
+                <span className="deck-row-title">
+                  <span className="deck-row-cardname">{card.name}</span>
+                  {shortType(card.typeLine) !== '' && (
+                    <span className="deck-row-type">{shortType(card.typeLine)}</span>
+                  )}
+                </span>
               </button>
               {(stars[card.cardId] ?? 0) > 0 && (
                 <span

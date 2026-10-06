@@ -13,8 +13,26 @@ import {
   manaValue,
   offColorCards,
   setCommander,
+  shortType,
   starRatings,
 } from './deck';
+
+describe('shortType', () => {
+  test('shows the subtype after the dash', () => {
+    expect(shortType('Creature — Elf Druid')).toBe('Elf Druid');
+    expect(shortType('Legendary Creature — Elemental')).toBe('Elemental');
+    expect(shortType('Artifact — Equipment')).toBe('Equipment');
+  });
+
+  test('cards without a dash add nothing — the group header already says it', () => {
+    expect(shortType('Instant')).toBe('');
+    expect(shortType('Legendary Artifact')).toBe('');
+  });
+
+  test('double-faced cards read their front face', () => {
+    expect(shortType('Creature — Human Wizard // Creature — Human Insect')).toBe('Human Wizard');
+  });
+});
 
 function card(name: string, typeLine: string, manaCost = '{1}'): CardRecord {
   return {

@@ -109,6 +109,13 @@ describe('slimCard', () => {
   test('basic land sets isBasicLand', () => {
     expect(slimCard(forestRaw)!.isBasicLand).toBe(true);
   });
+
+  test('keeps the usd price, falling back to foil, else null', () => {
+    expect(slimCard({ ...creatureRaw, prices: { usd: '0.25' } })!.priceUsd).toBe(0.25);
+    expect(slimCard({ ...creatureRaw, prices: { usd: null, usd_foil: '1.50' } })!.priceUsd).toBe(1.5);
+    expect(slimCard({ ...creatureRaw, prices: { usd: null, usd_foil: null } })!.priceUsd).toBeNull();
+    expect(slimCard(creatureRaw)!.priceUsd).toBeNull(); // no prices object at all
+  });
 });
 
 describe('importBulkData', () => {

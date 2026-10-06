@@ -39,7 +39,11 @@ const COLOR_LABEL: Record<string, string> = {
 interface Enrich {
   identity: string[];
   mv: number;
+  priceUsd: number | null;
 }
+
+const money = (n: number) =>
+  n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 function typeBucket(typeLine: string): string {
   if (/Creature/.test(typeLine)) return 'Creatures';
@@ -79,6 +83,7 @@ export default function GarageScreen({ onBack }: { onBack: () => void }) {
           found[g.cardId] = {
             identity: record.colorIdentity ?? record.colors,
             mv: manaValue(record.manaCost),
+            priceUsd: record.priceUsd ?? null,
           };
         }
       }
@@ -91,6 +96,17 @@ export default function GarageScreen({ onBack }: { onBack: () => void }) {
   }, [idsKey]);
 
   const total = garage.reduce((sum, g) => sum + g.count, 0);
+
+  // Collection value over whatever the card database can price — the
+  // bulk data carries one representative printing's USD price per card.
+  const pricedValue = garage.reduce((sum, g) => {
+    const p = enriched[g.cardId]?.priceUsd;
+    return p != null ? sum + p * g.count : sum;
+  }, 0);
+  const pricedCopies = garage.reduce(
+    (sum, g) => (enriched[g.cardId]?.priceUsd != null ? sum + g.count : sum),
+    0,
+  );
 
   const shown = useMemo(() => {
     let rows = garage;
@@ -163,6 +179,24 @@ export default function GarageScreen({ onBack }: { onBack: () => void }) {
           {total} cards · {garage.length} unique
         </span>
       </header>
+
+      {garage.length > 0 && (
+        <p className="curation-value">
+          {pricedCopies > 0 ? (
+            <>
+              Collection ≈ ${money(pricedValue)} · avg ${money(pricedValue / pricedCopies)}/card
+              {pricedCopies < total && (
+                <span className="curation-value-note">
+                  {' '}
+                  ({pricedCopies} of {total} copies priced)
+                </span>
+              )}
+            </>
+          ) : (
+            'No prices yet — refresh the card data under Settings to price the collection.'
+          )}
+        </p>
+      )}
 
       <input
         type="search"

@@ -33,6 +33,7 @@ const baseSettings = {
   soundOn: false,
   turnTimerOn: true,
   autoFocusOn: false,
+  deckArtOn: true,
 };
 
 beforeEach(async () => {
