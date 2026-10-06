@@ -13,7 +13,21 @@ let stack: Entry[] = [];
 let nextId = 1;
 let listening = false;
 
+/** Expiry times of the popstates we caused ourselves: a layer closed by
+ * its own UI consumes its history entry with history.back(), and the
+ * browser answers with a popstate that is NOT a back press. Unswallowed,
+ * it fired the handler of the layer beneath (closing a sheet exited the
+ * game). The expiry keeps a pop that never arrives from eating a real one. */
+let swallow: number[] = [];
+const SWALLOW_MS = 1000;
+
 function onPop() {
+  const now = Date.now();
+  swallow = swallow.filter((until) => until > now);
+  if (swallow.length > 0) {
+    swallow.shift();
+    return;
+  }
   const entry = stack.pop();
   if (!entry || entry.done) return;
   entry.done = true;
@@ -43,10 +57,11 @@ export function registerBack(handler: () => void): () => void {
     // Consume this layer's history entry only when it's the newest one —
     // popping mid-stack would eat a newer layer's entry instead.
     if (idx === stack.length) {
+      swallow.push(Date.now() + SWALLOW_MS);
       try {
         history.back();
       } catch {
-        // Ignore: worst case one extra back press does nothing.
+        swallow.pop(); // no navigation happened, so no pop is coming
       }
     }
   };
@@ -55,4 +70,5 @@ export function registerBack(handler: () => void): () => void {
 /** Test hook: forgets all layers and listeners state. */
 export function _resetBackStack(): void {
   stack = [];
+  swallow = [];
 }
