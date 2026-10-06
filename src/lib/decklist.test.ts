@@ -72,4 +72,15 @@ describe('bestScannedMatch', () => {
   test('all-noise crops match nothing', () => {
     expect(bestScannedMatch(['###', 'xq zz vv ww pp kk'], names)).toEqual([]);
   });
+
+  test('a title fragmented across lines reassembles', () => {
+    const pool = [
+      { id: 'fa', name: 'Forgotten Ancient' },
+      { id: 'fc', name: 'Forgotten Cave' },
+      { id: 'fl', name: 'Forgotten Lore' },
+      { id: 'ad', name: 'Ancient Den' },
+    ];
+    const hits = bestScannedMatch(['Forgotten', 'Ancient'], pool);
+    expect(hits[0]?.name).toBe('Forgotten Ancient');
+  });
 });

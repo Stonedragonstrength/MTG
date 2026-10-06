@@ -72,8 +72,14 @@ export function bestScannedMatch(
   lines: string[],
   names: { id: string; name: string }[],
 ): { id: string; name: string }[] {
+  // Sparse OCR loves splitting one title into fragments ("Forgotten" /
+  // "Ancient"), so adjacent joins compete alongside the raw lines.
+  const candidates = [...lines];
+  for (let i = 0; i < lines.length - 1; i++) candidates.push(`${lines[i]} ${lines[i + 1]}`);
+  if (lines.length > 2) candidates.push(lines.join(' '));
+
   let best: { hits: { id: string; name: string }[]; score: number } | null = null;
-  for (const line of lines) {
+  for (const line of candidates) {
     const hits = matchScannedTitle(line, names);
     if (hits.length === 0) continue;
     const cleaned = line.replace(/[^A-Za-z',\- ]+/g, ' ').replace(/\s+/g, ' ').trim();
