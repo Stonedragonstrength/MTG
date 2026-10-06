@@ -920,3 +920,37 @@ label {
   color: var(--accent);
   margin: 4px 0;
 }
+
+/* ---- deck composition line + star ratings ---- */
+.deck-made-of {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.made-of-label {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #8c8c99;
+}
+
+.deck-made-of .deck-health-chip {
+  background: #26262e;
+  border-color: #3a3a44;
+  color: var(--fg);
+}
+
+.made-of-colors {
+  display: flex;
+  gap: 5px;
+  margin-left: auto;
+}
+
+.deck-row-stars {
+  color: var(--accent);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}

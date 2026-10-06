@@ -1,3 +1,4 @@
+import { cardThemes, synergyScore } from './themes';
 import type { CardRecord, Deck, DeckCard } from './types';
 
 export function createDeck(name: string): Deck {
@@ -136,6 +137,51 @@ export function deckStats(
     if (/(destroy|exile) target/i.test(e.oracleText)) stats.removal += e.count;
   }
   return stats;
+}
+
+/** How many copies each color appears in (a Golgari card counts toward
+ * both B and G), plus true colorless and identity-unknown tallies. */
+export function colorBreakdown(
+  entries: { count: number; identity?: string[] }[],
+): Record<'W' | 'U' | 'B' | 'R' | 'G', number> & { colorless: number; unknown: number } {
+  const out = { W: 0, U: 0, B: 0, R: 0, G: 0, colorless: 0, unknown: 0 };
+  for (const e of entries) {
+    if (!e.identity) out.unknown += e.count;
+    else if (e.identity.length === 0) out.colorless += e.count;
+    else for (const c of e.identity) if (c in out) out[c as 'W'] += e.count;
+  }
+  return out;
+}
+
+/** Subtypes players track by name that the big buckets hide. */
+export function compositionExtras(cards: DeckCard[]): { equipment: number; auras: number } {
+  let equipment = 0;
+  let auras = 0;
+  for (const c of cards) {
+    if (/\bEquipment\b/.test(c.typeLine)) equipment += c.count;
+    if (/\bAura\b/.test(c.typeLine)) auras += c.count;
+  }
+  return { equipment, auras };
+}
+
+/** 0–5 stars per card: how hard it leans into the commander's themes,
+ * scaled so the deck's best fit anchors five stars. Zero themes shared
+ * (or no commander) = zero stars — honest, not flattering. */
+export function starRatings(
+  commander: CardRecord | null,
+  entries: { cardId: string; record: CardRecord }[],
+): Record<string, number> {
+  if (!commander) return {};
+  const themes = cardThemes(commander);
+  if (themes.length === 0) return {};
+  const raw = entries.map((e) => ({ cardId: e.cardId, score: synergyScore(themes, e.record) }));
+  const max = Math.max(0, ...raw.map((r) => r.score));
+  if (max === 0) return Object.fromEntries(raw.map((r) => [r.cardId, 0]));
+  const stars: Record<string, number> = {};
+  for (const r of raw) {
+    stars[r.cardId] = r.score === 0 ? 0 : Math.max(1, Math.round((r.score / max) * 5));
+  }
+  return stars;
 }
 
 /** Buckets 0–6 and 7+, nonland cards only, weighted by copy count. */

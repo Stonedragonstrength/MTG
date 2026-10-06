@@ -1,15 +1,19 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { getCardById } from '../data/scryfall';
 import {
   changeCardCount,
+  colorBreakdown,
+  compositionExtras,
   deckSize,
   deckStats,
   groupCards,
   manaCurve,
   offColorCards,
+  starRatings,
   type DeckStats,
 } from '../lib/deck';
-import type { DeckCard } from '../lib/types';
+import { COLOR_NAMES, MANA_COLORS } from '../lib/mana';
+import type { CardRecord, DeckCard } from '../lib/types';
 import { useAppStore } from '../state/store';
 import CommanderAlignSheet from './CommanderAlignSheet';
 import DeckCardSheet from './DeckCardSheet';
@@ -59,23 +63,37 @@ export default function DeckEditor({ deckId, onBack }: Props) {
   const [stats, setStats] = useState<DeckStats | null>(null);
   const [curationMsg, setCurationMsg] = useState('');
 
-  // Rules text lives in the card database, not the deck — fetch to count staples.
-  const cardsKey = deck?.cards.map((c) => `${c.cardId}:${c.count}`).join(',');
+  const [records, setRecords] = useState<Record<string, CardRecord>>({});
+  const [cmdRecord, setCmdRecord] = useState<CardRecord | null>(null);
+
+  // Rules text and identities live in the card database, not the deck —
+  // fetch once per deck change, derive everything else from the map.
+  const cardsKey = `${deck?.commander?.cardId ?? ''}|${deck?.cards
+    .map((c) => `${c.cardId}:${c.count}`)
+    .join(',')}`;
   useEffect(() => {
     if (!deck) return;
     let cancelled = false;
     (async () => {
-      const entries = [];
+      const found: Record<string, CardRecord> = {};
+      const statEntries = [];
       for (const c of deck.cards) {
         const record = await getCardById(c.cardId).catch(() => undefined);
-        entries.push({
+        if (cancelled) return;
+        if (record) found[c.cardId] = record;
+        statEntries.push({
           typeLine: c.typeLine,
           oracleText: record?.oracleText ?? '',
           count: c.count,
         });
-        if (cancelled) return;
       }
-      if (!cancelled) setStats(deckStats(entries));
+      const cmd = deck.commander
+        ? ((await getCardById(deck.commander.cardId).catch(() => undefined)) ?? null)
+        : null;
+      if (cancelled) return;
+      setRecords(found);
+      setCmdRecord(cmd);
+      setStats(deckStats(statEntries));
     })();
     return () => {
       cancelled = true;
@@ -83,10 +101,33 @@ export default function DeckEditor({ deckId, onBack }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cardsKey]);
 
+  const stars = useMemo(
+    () =>
+      starRatings(
+        cmdRecord,
+        (deck?.cards ?? [])
+          .filter((c) => records[c.cardId])
+          .map((c) => ({ cardId: c.cardId, record: records[c.cardId] })),
+      ),
+    [cmdRecord, records, deck?.cards],
+  );
+
+  const colors = useMemo(
+    () =>
+      colorBreakdown(
+        (deck?.cards ?? []).map((c) => ({
+          count: c.count,
+          identity: c.colorIdentity ?? records[c.cardId]?.colorIdentity,
+        })),
+      ),
+    [deck?.cards, records],
+  );
+
   if (!deck) return null;
   const groups = groupCards(deck.cards);
   const size = deckSize(deck);
   const offColor = new Set(offColorCards(deck).map((c) => c.cardId));
+  const extras = compositionExtras(deck.cards);
 
   return (
     <div className="screen deck-editor">
@@ -136,6 +177,35 @@ export default function DeckEditor({ deckId, onBack }: Props) {
         </div>
       </div>
 
+      <div className="deck-made-of">
+        <span className="made-of-label">Made of</span>
+        {groups.map((g) => (
+          <span key={g.label} className="deck-health-chip">
+            {g.label} {g.cards.reduce((s, c) => s + c.count, 0)}
+          </span>
+        ))}
+        {extras.equipment > 0 && (
+          <span className="deck-health-chip">Equipment {extras.equipment}</span>
+        )}
+        {extras.auras > 0 && <span className="deck-health-chip">Auras {extras.auras}</span>}
+        <span className="made-of-colors">
+          {MANA_COLORS.filter((c) => c !== 'C' && colors[c as 'W'] > 0).map((c) => (
+            <span
+              key={c}
+              className={`mana-pip mana-${c}`}
+              aria-label={`${colors[c as 'W']} ${COLOR_NAMES[c]} cards`}
+            >
+              {colors[c as 'W']}
+            </span>
+          ))}
+          {colors.colorless > 0 && (
+            <span className="mana-pip mana-C" aria-label={`${colors.colorless} colorless cards`}>
+              {colors.colorless}
+            </span>
+          )}
+        </span>
+      </div>
+
       {stats && (
         <div className="deck-health" aria-label="deck health">
           {HEALTH_TARGETS.map(({ key, label, target }) => (
@@ -166,6 +236,15 @@ export default function DeckEditor({ deckId, onBack }: Props) {
               <button className="deck-row-name" onClick={() => setViewing(card)}>
                 {card.name}
               </button>
+              {(stars[card.cardId] ?? 0) > 0 && (
+                <span
+                  className="deck-row-stars"
+                  aria-label={`${stars[card.cardId]} stars for ${card.name}`}
+                  title={`Synergy with your commander: ${stars[card.cardId]}/5`}
+                >
+                  {'★'.repeat(stars[card.cardId])}
+                </span>
+              )}
               {offColor.has(card.cardId) && (
                 <span
                   className="deck-row-warn"

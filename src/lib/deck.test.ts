@@ -3,6 +3,8 @@ import type { CardRecord } from './types';
 import {
   addCard,
   changeCardCount,
+  colorBreakdown,
+  compositionExtras,
   createDeck,
   deckSize,
   deckStats,
@@ -11,6 +13,7 @@ import {
   manaValue,
   offColorCards,
   setCommander,
+  starRatings,
 } from './deck';
 
 function card(name: string, typeLine: string, manaCost = '{1}'): CardRecord {
@@ -125,6 +128,68 @@ describe('deckStats', () => {
     expect(stats.ramp).toBe(3); // dorks + land search, but not the Forests
     expect(stats.draw).toBe(1);
     expect(stats.removal).toBe(3);
+  });
+});
+
+function record(name: string, typeLine: string, oracleText: string): CardRecord {
+  return { ...card(name, typeLine), oracleText };
+}
+
+describe('colorBreakdown', () => {
+  test('counts copies toward every color in their identity', () => {
+    const counts = colorBreakdown([
+      { count: 4, identity: ['G'] },
+      { count: 2, identity: ['B', 'G'] },
+      { count: 3, identity: [] },
+      { count: 5, identity: undefined },
+    ]);
+    expect(counts.G).toBe(6);
+    expect(counts.B).toBe(2);
+    expect(counts.W).toBe(0);
+    expect(counts.colorless).toBe(3);
+    expect(counts.unknown).toBe(5);
+  });
+});
+
+describe('compositionExtras', () => {
+  test('surfaces equipment and auras out of their buckets', () => {
+    const extras = compositionExtras([
+      addCard(createDeck('x'), card('Skullclamp', 'Artifact — Equipment')).cards[0],
+      addCard(createDeck('x'), card('Sol Ring', 'Artifact')).cards[0],
+      { ...addCard(createDeck('x'), card('Rancor', 'Enchantment — Aura')).cards[0], count: 2 },
+    ]);
+    expect(extras.equipment).toBe(1);
+    expect(extras.auras).toBe(2);
+  });
+});
+
+describe('starRatings', () => {
+  test('rates each card 0-5 against the commander, scaled to the best fit', () => {
+    const commander = record(
+      'Elf Queen',
+      'Legendary Creature — Elf Noble',
+      'Whenever an Elf you control attacks, create a 1/1 Elf token.',
+    );
+    const elves = record('Llanowar Elves', 'Creature — Elf Druid', '');
+    const payoff = record(
+      'Elvish Promenade',
+      'Tribal Sorcery — Elf',
+      'Create a 1/1 Elf token for each Elf you control.',
+    );
+    const forest = record('Forest', 'Basic Land — Forest', '');
+    const stars = starRatings(commander, [
+      { cardId: elves.id, record: elves },
+      { cardId: payoff.id, record: payoff },
+      { cardId: forest.id, record: forest },
+    ]);
+    expect(stars[payoff.id]).toBe(5); // tribe + tokens: the deck's best fit
+    expect(stars[elves.id]).toBeGreaterThanOrEqual(1);
+    expect(stars[elves.id]).toBeLessThan(5);
+    expect(stars[forest.id]).toBe(0);
+  });
+
+  test('no commander or no themes rates nothing', () => {
+    expect(starRatings(null, [])).toEqual({});
   });
 });
 

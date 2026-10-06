@@ -11,7 +11,7 @@ const ashaya: CardRecord = {
   name: 'Ashaya, Soul of the Wild',
   nameLower: 'ashaya, soul of the wild',
   typeLine: 'Legendary Creature — Elemental',
-  oracleText: '',
+  oracleText: 'Whenever a land enters the battlefield under your control, draw a card.',
   manaCost: '{3}{G}{G}',
   power: '*',
   toughness: '*',
@@ -30,7 +30,7 @@ const elves: CardRecord = {
   nameLower: 'llanowar elves',
   typeLine: 'Creature — Elf Druid',
   manaCost: '{G}',
-  oracleText: '{T}: Add {G}.',
+  oracleText: 'Whenever a land enters the battlefield, untap Llanowar Elves.',
 };
 
 const bolt: CardRecord = {
@@ -50,6 +50,7 @@ const forest: CardRecord = {
   name: 'Forest',
   nameLower: 'forest',
   typeLine: 'Basic Land — Forest',
+  oracleText: '', // not ashaya's — a basic has no themes
   manaCost: '',
   isBasicLand: true,
 };
@@ -126,7 +127,7 @@ test('renaming saves the deck', async () => {
 test('the deck health line counts staples from the real card records', async () => {
   render(<DeckEditor deckId="deck-1" onBack={() => {}} />);
   expect(await screen.findByText('Lands 8/36')).toBeInTheDocument();
-  expect(screen.getByText('Ramp 1/10')).toBeInTheDocument();
+  expect(screen.getByText('Ramp 0/10')).toBeInTheDocument();
 });
 
 test('off-color cards wear a warning', () => {
@@ -135,6 +136,14 @@ test('off-color cards wear a warning', () => {
   useAppStore.setState({ decks: [withBolt] });
   render(<DeckEditor deckId="deck-1" onBack={() => {}} />);
   expect(screen.getByLabelText(/Lightning Bolt is outside commander colors/i)).toBeInTheDocument();
+});
+
+test('composition shows color counts and star ratings against the commander', async () => {
+  render(<DeckEditor deckId="deck-1" onBack={() => {}} />);
+  expect(await screen.findByLabelText(/9 green cards/i)).toBeInTheDocument();
+  expect(await screen.findByLabelText(/5 stars for Llanowar Elves/i)).toBeInTheDocument();
+  expect(screen.queryByLabelText(/stars for Forest/i)).not.toBeInTheDocument();
+  expect(screen.getByText(/made of/i)).toBeInTheDocument();
 });
 
 test('align commander opens the suggestion sheet', async () => {
