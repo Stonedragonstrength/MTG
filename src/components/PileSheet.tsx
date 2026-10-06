@@ -16,9 +16,14 @@ export default function PileSheet({ playerIdx, zone, onClose }: Props) {
   const game = useAppStore((s) => s.game);
   const moveVirtualCard = useAppStore((s) => s.moveVirtualCard);
   const castCommander = useAppStore((s) => s.castCommander);
+  const commanderReturned = useAppStore((s) => s.commanderReturned);
   const cards = game?.players[playerIdx]?.cards?.[zone] ?? [];
   const shown = zone === 'graveyard' ? [...cards].reverse() : cards;
   const records = useCardRecords(shown);
+  // CR 903.9: a commander stranded here can go home. Offered only while
+  // the command zone is empty — the feed discloses whatever moves.
+  const commandOpen =
+    zone !== 'command' && (game?.players[playerIdx]?.cards?.command.length ?? 1) === 0;
 
   return (
     <Sheet title={TITLES[zone]} onClose={onClose} size="wide">
@@ -72,6 +77,15 @@ export default function PileSheet({ playerIdx, zone, onClose }: Props) {
                     >
                       Bottom
                     </button>
+                    {commandOpen && (
+                      <button
+                        onClick={() =>
+                          commanderReturned(playerIdx, c.iid, zone as 'graveyard' | 'exile')
+                        }
+                      >
+                        Command
+                      </button>
+                    )}
                   </>
                 )}
               </span>

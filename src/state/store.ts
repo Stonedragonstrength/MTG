@@ -49,7 +49,7 @@ export interface AppStore {
   seedSeatFromDeck(seat: number, deck: Deck, seed?: number): void;
   drawCards(seat: number, n: number): void;
   playCard(seat: number, iid: string): Promise<void>;
-  tapVirtualCard(seat: number, iid: string): void;
+  tapVirtualCard(seat: number, iid: string, wantTapped?: boolean): void;
   setVirtualCounter(seat: number, iid: string, name: string, value: number): void;
   moveVirtualCard(
     seat: number,
@@ -64,6 +64,7 @@ export interface AppStore {
   keepHand(seat: number, bottomIids: string[]): void;
   castCommander(seat: number): void;
   commanderDiedAction(seat: number, iid: string): void;
+  commanderReturned(seat: number, iid: string, from: 'graveyard' | 'exile'): void;
   peekNotice(seat: number): void;
   setHandHeld(seat: number, held: boolean): void;
   undo(): void;
@@ -380,10 +381,13 @@ export function createAppStore() {
         const card = g?.players[seat]?.cards?.hand.find((c) => c.iid === iid);
         if (!g || !card) return;
         // Route by type: lands to the shelf, instants/sorceries straight to
-        // the graveyard ("cast"), everything else to the front row.
-        const record = await import('../data/scryfall').then((m) =>
-          m.getCardById(card.cardId).catch(() => undefined),
-        );
+        // the graveyard ("cast"), everything else to the front row. The id
+        // chain matches useCardRecords: printing drift falls back to name.
+        const record = await import('../data/scryfall').then(async (m) => {
+          const byId = await m.getCardById(card.cardId).catch(() => undefined);
+          if (byId) return byId;
+          return m.findCardByName(card.name).catch(() => undefined);
+        });
         const typeLine = record?.typeLine ?? '';
         const row: 'front' | 'lands' = /Land/.test(typeLine) ? 'lands' : 'front';
         const isSpell = /Instant|Sorcery/.test(typeLine) && !/Land|Creature/.test(typeLine);
@@ -398,12 +402,15 @@ export function createAppStore() {
         );
       },
 
-      tapVirtualCard(seat, iid) {
+      tapVirtualCard(seat, iid, wantTapped) {
         const g = get().game;
         const card = g?.players[seat]?.cards?.battlefield.find((c) => c.iid === iid);
         if (!g || !card) return;
         const wasTapped = card.tapped ?? false;
-        const desired = !wasTapped;
+        // A directed request ("use one land") against a card already there
+        // is a stale render target, not a toggle — do nothing.
+        if (wantTapped !== undefined && wantTapped === wasTapped) return;
+        const desired = wantTapped ?? !wasTapped;
         cardMutate(
           (base) => cardsLib.tapCard(base, seat, iid, desired),
           null,
@@ -484,15 +491,19 @@ export function createAppStore() {
 
       keepHand(seat, bottomIids) {
         const g = get().game;
-        if (!g) return;
+        if (!g || g.players[seat]?.cards?.kept) return;
         cardMutate(
-          (base) => cardsLib.bottomCards(base, seat, bottomIids),
+          (base) => cardsLib.keepHand(base, seat, bottomIids),
           bottomIids.length > 0
             ? `${seatName(g, seat)} keeps, bottoms ${bottomIids.length}`
             : `${seatName(g, seat)} keeps`,
           (base) => {
-            const hand = base.players[seat]?.cards?.hand;
-            return !!hand && bottomIids.every((i) => hand.some((c) => c.iid === i));
+            const cards = base.players[seat]?.cards;
+            return (
+              !!cards &&
+              !cards.kept &&
+              bottomIids.every((i) => cards.hand.some((c) => c.iid === i))
+            );
           },
         );
       },
@@ -518,6 +529,17 @@ export function createAppStore() {
           (base) => cardsLib.commanderDied(base, seat, iid),
           `${card.name} returns to command (+2 tax next cast)`,
           (base) => !!base.players[seat]?.cards?.battlefield.some((c) => c.iid === iid),
+        );
+      },
+
+      commanderReturned(seat, iid, from) {
+        const g = get().game;
+        const card = g?.players[seat]?.cards?.[from].find((c) => c.iid === iid);
+        if (!g || !card) return;
+        cardMutate(
+          (base) => cardsLib.commanderDied(base, seat, iid, from),
+          `${card.name} returns to the command zone (+2 tax next cast)`,
+          (base) => !!base.players[seat]?.cards?.[from].some((c) => c.iid === iid),
         );
       },
 

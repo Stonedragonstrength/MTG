@@ -1291,6 +1291,15 @@ input[type='checkbox'] {
 .players-2.focus-mode .seat-1 { order: 1; }
 .players-2.focus-mode .seat-0 { order: 2; }
 
+/* Online 2-player: the table turns so YOUR seat takes the bottom edge.
+   Everywhere else edge classes ride .table-360; for two players the
+   seat-indexed defaults above must yield to the edge the shift assigned
+   (three class names outweigh two, so these win without !important). */
+.players-2 .zone.edge-top { grid-area: seat1; transform: rotate(180deg); }
+.players-2 .zone.edge-bottom { grid-area: seat0; transform: none; }
+.players-2.focus-mode .zone.edge-top { order: 1; }
+.players-2.focus-mode .zone.edge-bottom { order: 2; }
+
 .players-3.focus-mode .seat-2 { order: 1; }
 .players-3.focus-mode .seat-1 { order: 2; }
 .players-3.focus-mode .seat-0 { order: 3; }
@@ -2412,6 +2421,8 @@ input[type='checkbox'] {
 }
 
 .dock-command--out { opacity: 0.55; }
+
+.dock-library--empty { opacity: 0.45; }
 
 .dock-hand { font-size: 0.9rem; }
 

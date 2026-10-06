@@ -41,3 +41,18 @@ test('resolves by id, falls back to name, and nulls the hopeless', async () => {
   expect(result.current['c-bolt']?.imageNormal).toBe('https://img.example/bolt.jpg');
   expect(result.current['c-moved']?.id).toBe('c-bolt'); // rescued via name
 });
+
+test('a transient DB failure is not cached — the next mount retries and heals', async () => {
+  const { getCardById } = await import('../data/scryfall');
+  vi.mocked(getCardById).mockRejectedValueOnce(new Error('DatabaseClosedError')); // mount 1: DB hiccup
+  vi.mocked(getCardById).mockResolvedValueOnce(bolt); // mount 2: DB healthy again
+  const flaky = [{ cardId: 'c-flaky', name: 'No Such Name' }];
+
+  const first = renderHook(() => useCardRecords(flaky));
+  // The rejection must leave the id unresolved, not poison it as null.
+  await waitFor(() => expect(vi.mocked(getCardById)).toHaveBeenCalledWith('c-flaky'));
+  first.unmount();
+
+  const second = renderHook(() => useCardRecords(flaky));
+  await waitFor(() => expect(second.result.current['c-flaky']?.id).toBe('c-bolt')); // retried, healed
+});

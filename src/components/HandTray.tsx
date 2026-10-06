@@ -49,6 +49,7 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
   const [detail, setDetail] = useState<string | null>(null);
   const [bottoming, setBottoming] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
+  const [showHeld, setShowHeld] = useState(false); // dead-phone escape hatch
 
   const activeIdx = game?.activePlayerIndex;
   useEffect(() => {
@@ -63,18 +64,30 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
   const claimed = !online || online.mySeat === playerIdx || online.mySeat === null;
   if (!claimed) return null; // unclaimed hands live behind the dock's peek gate
   // A phone holds this hand: every other device shows a hint, not cards.
-  if (seat.handHeld && online && online.mySeat !== playerIdx) {
+  // The hint stays tappable so a dead phone can never wedge the table.
+  if (seat.handHeld && online && online.mySeat !== playerIdx && !showHeld) {
     return (
       <div className="hand-tray">
-        <span className="hand-pill hand-pill--held" title="This hand lives on its player's phone">
+        <button
+          className="hand-pill hand-pill--held"
+          title="This hand lives on its player's phone"
+          aria-label="show the hand here anyway"
+          onClick={() => setShowHeld(true)}
+        >
           ✋ {seat.hand.length} 📱
-        </span>
+        </button>
       </div>
     );
   }
 
-  const mulliganTime = game.turnNumber === 1 && seat.battlefield.length === 0;
-  const needBottom = seat.mulligans;
+  const kept = seat.kept === true;
+  // CR 103.5d: in a pod (3+ players) the first mulligan is free.
+  const freeMulls = game.players.length > 2 ? 1 : 0;
+  const needBottom = Math.min(seat.hand.length, Math.max(0, seat.mulligans - freeMulls));
+  // Mulligan needs an untouched board; the owed keep/bottom step does not —
+  // playing a land first must never cancel the debt.
+  const canMulligan = game.turnNumber === 1 && !kept && seat.battlefield.length === 0;
+  const keepWindow = game.turnNumber === 1 && !kept && seat.mulligans > 0;
 
   function toggleSelect(iid: string) {
     setSelected((prev) =>
@@ -112,16 +125,23 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
                 ▾
               </button>
             )}
-            {mulliganTime && !bottoming && (
+            {(canMulligan || keepWindow) && !bottoming && (
               <>
-                <button className="ghost" onClick={() => mulliganSeat(playerIdx)}>
-                  Mulligan
-                </button>
-                {needBottom > 0 && (
-                  <button className="ghost" onClick={() => setBottoming(true)}>
-                    Keep (bottom {needBottom})
+                {canMulligan && (
+                  <button className="ghost" onClick={() => mulliganSeat(playerIdx)}>
+                    Mulligan
                   </button>
                 )}
+                {keepWindow &&
+                  (needBottom > 0 ? (
+                    <button className="ghost" onClick={() => setBottoming(true)}>
+                      Keep (bottom {needBottom})
+                    </button>
+                  ) : (
+                    <button className="ghost" onClick={() => keepHand(playerIdx, [])}>
+                      Keep hand
+                    </button>
+                  ))}
               </>
             )}
             {bottoming && (

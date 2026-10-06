@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useAppStore } from '../state/store';
 import Sheet from './Sheet';
 import { useCardRecords } from './useCardRecords';
@@ -14,6 +15,11 @@ export default function HandCardSheet({ playerIdx, iid, onClose }: Props) {
   const moveVirtualCard = useAppStore((s) => s.moveVirtualCard);
   const card = game?.players[playerIdx]?.cards?.hand.find((c) => c.iid === iid);
   const records = useCardRecords(card ? [card] : []);
+  // The card left the hand (drawn away, discarded remotely): really close.
+  const gone = !card;
+  useEffect(() => {
+    if (gone) onClose();
+  }, [gone, onClose]);
   if (!card) return null;
   const record = records[card.cardId];
 

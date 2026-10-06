@@ -119,3 +119,66 @@ test('the graveyard pile opens the browser sheet', async () => {
   await user.click(screen.getByLabelText(/graveyard, 1 card/i));
   expect(await screen.findByText(/graveyard/i, { selector: 'h2' })).toBeInTheDocument();
 });
+
+test('an empty library goes quiet: no draws, no arm, and it says so', async () => {
+  const g = seededGame();
+  g.players[0] = {
+    ...g.players[0],
+    cards: { ...g.players[0].cards!, library: [] },
+  };
+  useAppStore.setState({
+    game: g,
+    online: { code: 'KQ7M2X', status: { kind: 'live', peers: 2 }, mySeat: 1 }, // not my seat: arm path
+  });
+  const user = userEvent.setup();
+  render(<BattlefieldRow playerIdx={0} />);
+  const pile = screen.getByLabelText(/library, empty/i);
+  await user.click(pile);
+  expect(useAppStore.getState().drawCards).not.toHaveBeenCalled();
+  expect(screen.queryByText(/draw\?/i)).not.toBeInTheDocument(); // never arms on empty
+});
+
+test('a stale build cannot peek: the reveal is gated on the announcement', async () => {
+  useAppStore.setState({
+    online: { code: 'KQ7M2X', status: { kind: 'stale-build' }, mySeat: 1 },
+    peekNotice: vi.fn(),
+  });
+  const user = userEvent.setup();
+  render(<BattlefieldRow playerIdx={0} />);
+  // unclaimed seat shows the dock hand pill; hold it to reach the peek gate
+  const pill = screen.getByLabelText(/hand, 7 cards/i);
+  await user.pointer({ keys: '[MouseLeft>]', target: pill });
+  await new Promise((r) => setTimeout(r, 650));
+  await user.pointer({ keys: '[/MouseLeft]', target: pill });
+  const reveal = await screen.findByRole('button', { name: /show the hand/i });
+  expect(reveal).toBeDisabled();
+  expect(screen.getByText(/refresh this device first/i)).toBeInTheDocument();
+});
+
+test('overlapping arm windows: an old disarm timer cannot kill a fresh one', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  try {
+    const g = seededGame();
+    useAppStore.setState({
+      game: g,
+      online: { code: 'KQ7M2X', status: { kind: 'live', peers: 2 }, mySeat: 1 },
+      drawCards: vi.fn(),
+    });
+    const { fireEvent } = await import('@testing-library/react');
+    render(<BattlefieldRow playerIdx={0} />);
+    const pile = screen.getByLabelText(/library, 4 cards/i);
+    const tap = (el: HTMLElement) => {
+      fireEvent.pointerDown(el);
+      fireEvent.pointerUp(el); // useLongPress taps ride pointer events, not click
+    };
+    tap(pile); // arm #1 (timer A at +3000)
+    tap(pile); // confirm: draws, window closes, timer A still pending
+    expect(useAppStore.getState().drawCards).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(500);
+    tap(screen.getByLabelText(/library, 3 cards|library, 4 cards/i)); // arm #2 (timer B at +3500)
+    vi.advanceTimersByTime(2700); // past timer A's moment — only B may disarm
+    expect(screen.getByText(/draw\?/i)).toBeInTheDocument(); // window #2 survives
+  } finally {
+    vi.useRealTimers();
+  }
+});

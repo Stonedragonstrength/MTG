@@ -130,6 +130,15 @@ export function bottomCards(g: GameState, seat: number, iids: string[]): GameSta
   });
 }
 
+/** The keep step is terminal: bottom the picks (if any) and mark the hand
+ * kept, so a replay or a second press can never bottom twice. */
+export function keepHand(g: GameState, seat: number, iids: string[]): GameState {
+  if (g.players[seat]?.cards?.kept) return g;
+  const bottomed = iids.length > 0 ? bottomCards(g, seat, iids) : g;
+  if (iids.length > 0 && bottomed === g) return g; // picks left the hand: whole keep is off
+  return updateSeat(bottomed, seat, (cards) => ({ ...cards, kept: true }));
+}
+
 export function moveCard(
   g: GameState,
   seat: number,
@@ -225,8 +234,16 @@ export function mulligan(g: GameState, seat: number, seed: number): GameState {
   });
 }
 
-export function commanderDied(g: GameState, seat: number, iid: string): GameState {
-  const moved = moveCard(g, seat, iid, 'battlefield', 'command');
+/** CR 903.9: the commander goes back to the command zone from wherever it
+ * landed (battlefield death, board-wiped graveyard, Path'd exile); the app
+ * counts every return toward the next cast's tax. */
+export function commanderDied(
+  g: GameState,
+  seat: number,
+  iid: string,
+  from: CardZone = 'battlefield',
+): GameState {
+  const moved = moveCard(g, seat, iid, from, 'command');
   if (moved === g) return g;
   return {
     ...moved,

@@ -48,6 +48,7 @@ export interface SeatCards {
   mulligans: number; // London bottoming count
   deckName: string; // provenance label
   handHeld?: boolean; // synced hint: a phone holds this hand
+  kept?: boolean; // the keep step ran — mulligan window is closed
 }
 
 /** Synced announcement ring — the trust model's deterrent. Cap 30. */

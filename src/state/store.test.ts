@@ -297,6 +297,62 @@ describe('cards mode', () => {
     expect(bf.find((c) => c.iid === forest.iid)?.row).toBe('lands');
   });
 
+  test('playCard rescues a drifted printing by name before routing', async () => {
+    const store = await cardsStore();
+    // The deck was saved against a printing the card DB no longer holds:
+    const g = store.getState().game!;
+    const seat = g.players[0].cards!;
+    const drifted = { iid: 'drift1', cardId: 'c-gone', name: 'Forest' };
+    store.setState({
+      game: {
+        ...g,
+        players: g.players.map((p, i) =>
+          i === 0 ? { ...p, cards: { ...seat, hand: [drifted, ...seat.hand.slice(1)] } } : p,
+        ),
+      },
+    });
+    await store.getState().playCard(0, 'drift1');
+    const bf = store.getState().game!.players[0].cards!.battlefield;
+    expect(bf.find((c) => c.iid === 'drift1')?.row).toBe('lands'); // name fallback found the Forest
+  });
+
+  test('a directed tap request onto a card already there is a clean no-op', async () => {
+    const store = await cardsStore();
+    const iid = store.getState().game!.players[0].cards!.hand[0].iid;
+    await store.getState().playCard(0, iid);
+    store.getState().tapVirtualCard(0, iid); // toggle: untapped -> tapped
+    const calls = (tableSync.onLocalMutation as ReturnType<typeof vi.fn>).mock.calls.length;
+    store.getState().tapVirtualCard(0, iid, true); // "use one" against a stale render
+    expect(
+      store.getState().game!.players[0].cards!.battlefield.find((c) => c.iid === iid)?.tapped,
+    ).toBe(true); // still tapped — NOT toggled back
+    expect((tableSync.onLocalMutation as ReturnType<typeof vi.fn>).mock.calls.length).toBe(calls); // nothing pushed
+  });
+
+  test('keeping the hand is terminal: kept is marked and a replayed keep changes nothing', async () => {
+    const store = await cardsStore();
+    store.getState().mulliganSeat(0);
+    const iid = store.getState().game!.players[0].cards!.hand[0].iid;
+    store.getState().keepHand(0, [iid]);
+    const seat = store.getState().game!.players[0].cards!;
+    expect(seat.kept).toBe(true);
+    expect(seat.hand).toHaveLength(6);
+    store.getState().keepHand(0, [seat.hand[0].iid]); // double-keep attempt
+    expect(store.getState().game!.players[0].cards!.hand).toHaveLength(6); // refused
+  });
+
+  test('a commander stranded in the graveyard returns to command with its tax', async () => {
+    const store = await cardsStore();
+    store.getState().castCommander(0);
+    const iid = store.getState().game!.players[0].cards!.battlefield[0].iid;
+    store.getState().moveVirtualCard(0, iid, 'battlefield', 'graveyard'); // board wipe gesture
+    store.getState().commanderReturned(0, iid, 'graveyard');
+    const after = store.getState().game!;
+    expect(after.players[0].cards!.command.some((c) => c.iid === iid)).toBe(true);
+    expect(after.players[0].commanderDeaths).toBe(1);
+    expect(after.feed?.some((e) => /returns to the command zone/i.test(e.text))).toBe(true);
+  });
+
   test('pass turn readies the incoming seat, virtual cards included', async () => {
     const store = await cardsStore();
     const iid = store.getState().game!.players[0].cards!.hand[0].iid;

@@ -31,6 +31,12 @@ export default function NewGameScreen({ onBack }: Props) {
     })();
   }, []);
 
+  // The Virtual-cards box lives under Commander only; leaving the format
+  // disarms it so no hidden cards-mode Standard game can start.
+  useEffect(() => {
+    if (format !== 'commander') setCardsMode(false);
+  }, [format]);
+
   function toggle(id: string) {
     setSelected((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : prev.length < 4 ? [...prev, id] : prev,
@@ -68,19 +74,20 @@ export default function NewGameScreen({ onBack }: Props) {
       startingLife: format === 'commander' ? (40 as const) : (20 as const),
       commanderDamageThreshold: Number.isFinite(n) && n >= 1 ? Math.floor(n) : 21,
       profiles: selected.map((id) => withDeck(profiles.find((p) => p.id === id)!)),
-      ...(cardsMode ? { mode: 'cards' as const } : {}),
+      ...(format === 'commander' && cardsMode ? { mode: 'cards' as const } : {}),
     };
+    const seeding = format === 'commander' && cardsMode;
     if (where === 'online') {
       setHostBusy(true);
       setHostError('');
       const err = await hostOnlineGame(config);
       setHostBusy(false);
       if (err) setHostError(err);
-      else if (cardsMode) seedChosenDecks();
+      else if (seeding) seedChosenDecks();
       return;
     }
     startGame(config);
-    if (cardsMode) seedChosenDecks();
+    if (seeding) seedChosenDecks();
   }
 
   return (

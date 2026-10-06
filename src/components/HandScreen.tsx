@@ -19,7 +19,14 @@ export default function HandScreen({ seatIdx, onShowTable }: Props) {
 
   useEffect(() => {
     setHandHeld(seatIdx, true);
-    return () => setHandHeld(seatIdx, false);
+    // pagehide is the last breath a dying PWA reliably gets — release the
+    // hand there too, so an OS-killed phone doesn't wedge the table's tray.
+    const release = () => setHandHeld(seatIdx, false);
+    window.addEventListener('pagehide', release);
+    return () => {
+      window.removeEventListener('pagehide', release);
+      setHandHeld(seatIdx, false);
+    };
   }, [seatIdx, setHandHeld]);
 
   if (!game) return null;

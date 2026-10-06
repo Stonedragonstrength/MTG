@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAppStore } from '../state/store';
 import Sheet from './Sheet';
 import { useCardRecords } from './useCardRecords';
@@ -19,6 +19,12 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose }: Props)
   const seat = game?.players[playerIdx]?.cards;
   const card = seat?.battlefield.find((c) => c.iid === iid);
   const records = useCardRecords(card ? [card] : []);
+  // A peer moved the card away: close for real, or the still-mounted sheet
+  // ghost-reopens when the card returns and squats on the back stack.
+  const gone = !card;
+  useEffect(() => {
+    if (gone) onClose();
+  }, [gone, onClose]);
   if (!game || !seat || !card) return null;
 
   const record = records[card.cardId];

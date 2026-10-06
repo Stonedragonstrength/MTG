@@ -226,7 +226,7 @@ export default function LandsRow({ playerIdx }: Props) {
               key={s.key}
               stack={s}
               art={records[s.cards[0].cardId]?.imageNormal ?? null}
-              onTap={() => untapped && tapVirtualCard(playerIdx, untapped.iid)}
+              onTap={() => untapped && tapVirtualCard(playerIdx, untapped.iid, true)}
               onDetail={() => setVcardSheet(s.cards[0].iid)}
             />
           );

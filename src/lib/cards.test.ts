@@ -5,6 +5,7 @@ import {
   buildSeatCards,
   commanderDied,
   draw,
+  keepHand,
   millN,
   moveCard,
   mulberry32,
@@ -87,6 +88,43 @@ describe('seedSeat', () => {
     expect(g.players[0].cards?.hand).toHaveLength(7);
     const again = seedSeat(g, 0, buildSeatCards(sampleDeck(), 99));
     expect(again).toBe(g);
+  });
+});
+
+describe('keepHand', () => {
+  test('bottoms the picks and marks the hand kept', () => {
+    const g = seeded();
+    const iids = g.players[0].cards!.hand.slice(0, 2).map((c) => c.iid);
+    const kept = keepHand(g, 0, iids);
+    expect(kept.players[0].cards?.kept).toBe(true);
+    expect(kept.players[0].cards?.hand).toHaveLength(5);
+    expect(kept.players[0].cards?.library.slice(-2).map((c) => c.iid)).toEqual(iids);
+  });
+
+  test('keeping with no bottoms still marks kept, and kept is terminal', () => {
+    const g = seeded();
+    const kept = keepHand(g, 0, []);
+    expect(kept.players[0].cards?.kept).toBe(true);
+    expect(keepHand(kept, 0, [])).toBe(kept); // idempotent
+    const iid = kept.players[0].cards!.hand[0].iid;
+    expect(keepHand(kept, 0, [iid])).toBe(kept); // a replayed keep can't re-bottom
+  });
+
+  test('a failed bottoming marks nothing', () => {
+    const g = seeded();
+    expect(keepHand(g, 0, ['not-a-real-iid'])).toBe(g);
+  });
+});
+
+describe('commanderDied from other zones', () => {
+  test('returns a commander from the graveyard with the death counted', () => {
+    const g = seeded();
+    const cmd = g.players[0].cards!.command[0];
+    const cast = moveCard(g, 0, cmd.iid, 'command', 'battlefield', { row: 'front' });
+    const wiped = moveCard(cast, 0, cmd.iid, 'battlefield', 'graveyard');
+    const back = commanderDied(wiped, 0, cmd.iid, 'graveyard');
+    expect(back.players[0].cards?.command.some((c) => c.iid === cmd.iid)).toBe(true);
+    expect(back.players[0].commanderDeaths).toBe(1);
   });
 });
 

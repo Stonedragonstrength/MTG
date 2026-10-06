@@ -85,6 +85,67 @@ test('turn one offers a mulligan', async () => {
   expect(useAppStore.getState().mulliganSeat).toHaveBeenCalledWith(0);
 });
 
+test('in a pod the first mulligan is free: Keep hand, no bottoming owed', async () => {
+  const podConfig = {
+    ...config,
+    profiles: [
+      ...config.profiles,
+      { id: 'p2', name: 'Alex', avatarUrl: null, commanderName: null },
+    ],
+  };
+  const { createGame: freshGame } = await import('../lib/game');
+  const g = freshGame(podConfig);
+  const seeded = seededGame();
+  const keepHand = vi.fn();
+  useAppStore.setState({
+    game: {
+      ...g,
+      players: g.players.map((p, i) =>
+        i === 0 ? { ...p, cards: { ...seeded.players[0].cards!, mulligans: 1 } } : p,
+      ),
+    },
+    keepHand,
+  });
+  const user = userEvent.setup();
+  render(<HandTray playerIdx={0} />);
+  await user.click(screen.getByRole('button', { name: /hand, 7 cards/i }));
+  await user.click(screen.getByRole('button', { name: /^keep hand$/i })); // CR 103.5d: free in multiplayer
+  expect(keepHand).toHaveBeenCalledWith(0, []);
+});
+
+test('two players owe a bottom per mulligan, and the debt survives a played land', async () => {
+  const g = seededGame();
+  g.players[0] = {
+    ...g.players[0],
+    cards: {
+      ...g.players[0].cards!,
+      mulligans: 1,
+      battlefield: [{ iid: 'b1', cardId: 'c-forest', name: 'Forest', row: 'lands' }],
+    },
+  };
+  useAppStore.setState({ game: g });
+  const user = userEvent.setup();
+  render(<HandTray playerIdx={0} />);
+  await user.click(screen.getByRole('button', { name: /hand, 7 cards/i }));
+  // the land is down: mulligan itself is gone, but the owed bottom is not
+  expect(screen.queryByRole('button', { name: /^mulligan$/i })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /keep \(bottom 1\)/i })).toBeInTheDocument();
+});
+
+test('a kept hand shows no mulligan controls at all', async () => {
+  const g = seededGame();
+  g.players[0] = {
+    ...g.players[0],
+    cards: { ...g.players[0].cards!, mulligans: 1, kept: true },
+  };
+  useAppStore.setState({ game: g });
+  const user = userEvent.setup();
+  render(<HandTray playerIdx={0} />);
+  await user.click(screen.getByRole('button', { name: /hand, 7 cards/i }));
+  expect(screen.queryByRole('button', { name: /mulligan/i })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /keep/i })).not.toBeInTheDocument();
+});
+
 test('forceFanned shows the cards straight away, with no pill or collapse', () => {
   render(<HandTray playerIdx={0} forceFanned />);
   expect(screen.queryByRole('button', { name: /hand, 7 cards/i })).not.toBeInTheDocument();
@@ -102,6 +163,19 @@ test('a phone-held hand collapses to a hint on other devices', () => {
   render(<HandTray playerIdx={0} />);
   expect(screen.getByTitle(/phone/i)).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /hand, 7 cards/i })).not.toBeInTheDocument();
+});
+
+test('a dead phone cannot wedge the hand: the hint expands on demand', async () => {
+  const g = seededGame();
+  g.players[0] = { ...g.players[0], cards: { ...g.players[0].cards!, handHeld: true } };
+  useAppStore.setState({
+    game: g,
+    online: { code: 'KQ7M2X', status: { kind: 'live', peers: 2 }, mySeat: null },
+  });
+  const user = userEvent.setup();
+  render(<HandTray playerIdx={0} />);
+  await user.click(screen.getByRole('button', { name: /show the hand here anyway/i }));
+  expect(screen.getByRole('button', { name: /hand, 7 cards/i })).toBeInTheDocument();
 });
 
 test('the device that claimed the seat keeps its own tray despite handHeld', () => {

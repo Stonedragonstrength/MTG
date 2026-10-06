@@ -243,7 +243,7 @@ test('tapping a virtual land stack taps its first untapped copy', async () => {
   const user = userEvent.setup();
   render(<LandsRow playerIdx={0} />);
   await user.click(screen.getByRole('button', { name: 'Forest, 1 of 2 tapped' }));
-  expect(tapVirtualCard).toHaveBeenCalledWith(0, 'i-b');
+  expect(tapVirtualCard).toHaveBeenCalledWith(0, 'i-b', true); // directed: never a toggle
 });
 
 test('a fully tapped virtual stack ignores taps and surfaces untap-all', async () => {

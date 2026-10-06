@@ -85,6 +85,12 @@ test('marks the hand as phone-held while open and releases it on leave', () => {
   expect(useAppStore.getState().setHandHeld).toHaveBeenCalledWith(0, false);
 });
 
+test('pagehide releases the hand so a killed phone cannot wedge it', () => {
+  render(<HandScreen seatIdx={0} onShowTable={() => {}} />);
+  window.dispatchEvent(new Event('pagehide'));
+  expect(useAppStore.getState().setHandHeld).toHaveBeenCalledWith(0, false);
+});
+
 test('the See table button hands control back', async () => {
   const onShowTable = vi.fn();
   const user = userEvent.setup();

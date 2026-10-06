@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { CardInstance } from '../lib/types';
 import { useAppStore } from '../state/store';
 import BattlefieldCardSheet from './BattlefieldCardSheet';
@@ -71,15 +71,20 @@ export default function BattlefieldRow({ playerIdx }: Props) {
     ...(seat?.command ?? []),
     ...(seat ? seat.graveyard.slice(-1) : []),
   ]);
+  const armTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(armTimer.current), []);
   const holdLibrary = useLongPress(
     () => {
+      if (!seat || seat.library.length === 0) return; // empty: nothing to draw, never arm
       if (claimed) drawCards(playerIdx, 1);
       else if (armDraw) {
+        window.clearTimeout(armTimer.current); // the window closed by use, not by timer
         drawCards(playerIdx, 1);
         setArmDraw(false);
       } else {
+        window.clearTimeout(armTimer.current); // an old timer must not kill this window
         setArmDraw(true);
-        window.setTimeout(() => setArmDraw(false), 3000);
+        armTimer.current = window.setTimeout(() => setArmDraw(false), 3000);
       }
     },
     () => setLibraryOpen(true),
@@ -112,13 +117,19 @@ export default function BattlefieldRow({ playerIdx }: Props) {
       </div>
       <div className="zone-dock">
         <button
-          className="dock-pile dock-library"
+          className={`dock-pile dock-library${seat.library.length === 0 ? ' dock-library--empty' : ''}`}
           aria-label={
             armDraw
               ? `draw for ${name}?`
-              : `library, ${seat.library.length} card${seat.library.length === 1 ? '' : 's'}`
+              : seat.library.length === 0
+                ? 'library, empty'
+                : `library, ${seat.library.length} card${seat.library.length === 1 ? '' : 's'}`
           }
-          title="Tap to draw · hold for library"
+          title={
+            seat.library.length === 0
+              ? 'Library is empty · hold for options'
+              : 'Tap to draw · hold for library'
+          }
           {...holdLibrary}
         >
           <span className="dock-count">{seat.library.length}</span>
@@ -193,10 +204,15 @@ export default function BattlefieldRow({ playerIdx }: Props) {
         >
           {peek === 'confirm' ? (
             <>
-              <p className="hint">Everyone at the table will see that you looked.</p>
+              <p className="hint">
+                {online?.status.kind === 'stale-build'
+                  ? 'This build is behind the table — refresh this device first. The peek must announce itself, and a stale build cannot.'
+                  : 'Everyone at the table will see that you looked.'}
+              </p>
               <div className="modal-actions">
                 <button
                   className="danger"
+                  disabled={online?.status.kind === 'stale-build'}
                   onClick={() => {
                     peekNotice(playerIdx); // the feed announces the peek
                     setPeek('shown');

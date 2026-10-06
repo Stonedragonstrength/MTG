@@ -22,13 +22,20 @@ export function useCardRecords(
     void (async () => {
       for (const m of missing) {
         if (cache.has(m.cardId)) continue;
-        const byId = await getCardById(m.cardId).catch(() => undefined);
-        if (byId) {
-          cache.set(m.cardId, byId);
-          continue;
+        try {
+          const byId = await getCardById(m.cardId);
+          if (byId) {
+            cache.set(m.cardId, byId);
+            continue;
+          }
+          const byName = await findCardByName(m.name);
+          // Only a RESOLVED miss is hopeless. A rejected read (DB closed
+          // mid-sleep, blocked upgrade) stays uncached so a later mount
+          // retries instead of poisoning the whole session.
+          cache.set(m.cardId, byName ?? null);
+        } catch {
+          // transient — leave unresolved
         }
-        const byName = await findCardByName(m.name).catch(() => undefined);
-        cache.set(m.cardId, byName ?? null);
       }
       if (!cancelled) bump((n) => n + 1);
     })();
