@@ -53,9 +53,11 @@ export default function DeckEditor({ deckId, onBack }: Props) {
   const deleteDeck = useAppStore((s) => s.deleteDeck);
   const [adding, setAdding] = useState(false);
   const [viewing, setViewing] = useState<DeckCard | null>(null);
+  const addToGarage = useAppStore((s) => s.addToGarage);
   const [synergyOpen, setSynergyOpen] = useState(false);
   const [aligning, setAligning] = useState(false);
   const [stats, setStats] = useState<DeckStats | null>(null);
+  const [curationMsg, setCurationMsg] = useState('');
 
   // Rules text lives in the card database, not the deck — fetch to count staples.
   const cardsKey = deck?.cards.map((c) => `${c.cardId}:${c.count}`).join(',');
@@ -196,6 +198,25 @@ export default function DeckEditor({ deckId, onBack }: Props) {
 
       <footer className="deck-footer">
         <button
+          className="ghost"
+          onClick={async () => {
+            // Backfill for decks that predate the curation (or were typed in):
+            // every card in this deck is a card you own.
+            let logged = 0;
+            if (deck.commander) {
+              await addToGarage({ id: deck.commander.cardId, ...deck.commander }, 1);
+              logged += 1;
+            }
+            for (const c of deck.cards) {
+              await addToGarage({ id: c.cardId, ...c }, c.count);
+              logged += c.count;
+            }
+            setCurationMsg(`Logged ${logged} cards to the Curation.`);
+          }}
+        >
+          Send to Curation
+        </button>
+        <button
           className="danger"
           onClick={() => {
             void deleteDeck(deck.id);
@@ -205,6 +226,7 @@ export default function DeckEditor({ deckId, onBack }: Props) {
           Delete deck
         </button>
       </footer>
+      {curationMsg && <p className="entry-last deck-curation-msg">{curationMsg}</p>}
 
       {adding && <DeckEntrySheet deckId={deck.id} onClose={() => setAdding(false)} />}
       {viewing && <DeckCardSheet card={viewing} onClose={() => setViewing(null)} />}

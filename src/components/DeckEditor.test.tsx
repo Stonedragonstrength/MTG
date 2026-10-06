@@ -149,6 +149,16 @@ test('the commander offers synergy browsing', () => {
   expect(screen.getByRole('button', { name: /goes well with/i })).toBeInTheDocument();
 });
 
+test('send to curation logs the whole deck, commander included', async () => {
+  const user = userEvent.setup();
+  render(<DeckEditor deckId="deck-1" onBack={() => {}} />);
+  await user.click(screen.getByRole('button', { name: /send to curation/i }));
+  expect(await screen.findByText(/logged 10 cards/i)).toBeInTheDocument();
+  const garage = useAppStore.getState().garage;
+  expect(garage.find((g) => g.name === 'Forest')?.count).toBe(8);
+  expect(garage.some((g) => g.name === 'Ashaya, Soul of the Wild')).toBe(true);
+});
+
 test('delete deck asks the store and goes back', async () => {
   const onBack = vi.fn();
   const user = userEvent.setup();

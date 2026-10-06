@@ -856,3 +856,7 @@ label {
 .curation .count-controls button {
   padding: 2px 10px;
 }
+
+.deck-curation-msg {
+  text-align: center;
+}

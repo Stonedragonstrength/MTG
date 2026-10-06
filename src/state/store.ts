@@ -57,7 +57,10 @@ export interface AppStore {
   saveDeck(deck: Deck): Promise<void>;
   deleteDeck(id: string): Promise<void>;
   garage: GarageCard[]; // live (non-tombstoned) collection, name-sorted
-  addToGarage(card: CardRecord, delta?: number): Promise<void>;
+  addToGarage(
+    card: Pick<CardRecord, 'id' | 'name' | 'typeLine' | 'imageNormal'>,
+    delta?: number,
+  ): Promise<void>;
   setGarageCount(cardId: string, count: number): Promise<void>;
   refreshGarage(): Promise<void>;
 }
