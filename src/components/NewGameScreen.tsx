@@ -12,7 +12,9 @@ export default function NewGameScreen({ onBack }: Props) {
   const startGame = useAppStore((s) => s.startGame);
   const hostOnlineGame = useAppStore((s) => s.hostOnlineGame);
   const saveProfile = useAppStore((s) => s.saveProfile);
+  const seedSeatFromDeck = useAppStore((s) => s.seedSeatFromDeck);
   const [format, setFormat] = useState<Format>('commander');
+  const [cardsMode, setCardsMode] = useState(false);
   const [where, setWhere] = useState<'local' | 'online'>('local');
   const [cloudReady, setCloudReady] = useState(false);
   const [hostBusy, setHostBusy] = useState(false);
@@ -50,6 +52,15 @@ export default function NewGameScreen({ onBack }: Props) {
     return patched;
   }
 
+  function seedChosenDecks() {
+    // Shared tablet (or host): every seat whose player picked a deck
+    // gets seated with it. Guests on their own devices bring their own.
+    selected.forEach((id, seatIdx) => {
+      const deck = decks.find((d) => d.id === deckChoice[id]);
+      if (deck) seedSeatFromDeck(seatIdx, deck);
+    });
+  }
+
   async function start() {
     const n = Number(threshold);
     const config = {
@@ -57,6 +68,7 @@ export default function NewGameScreen({ onBack }: Props) {
       startingLife: format === 'commander' ? (40 as const) : (20 as const),
       commanderDamageThreshold: Number.isFinite(n) && n >= 1 ? Math.floor(n) : 21,
       profiles: selected.map((id) => withDeck(profiles.find((p) => p.id === id)!)),
+      ...(cardsMode ? { mode: 'cards' as const } : {}),
     };
     if (where === 'online') {
       setHostBusy(true);
@@ -64,9 +76,11 @@ export default function NewGameScreen({ onBack }: Props) {
       const err = await hostOnlineGame(config);
       setHostBusy(false);
       if (err) setHostError(err);
+      else if (cardsMode) seedChosenDecks();
       return;
     }
     startGame(config);
+    if (cardsMode) seedChosenDecks();
   }
 
   return (
@@ -143,6 +157,17 @@ export default function NewGameScreen({ onBack }: Props) {
           </button>
         ))}
       </div>
+      {format === 'commander' && decks.length > 0 && (
+        <label className="cards-mode-toggle">
+          <input
+            type="checkbox"
+            aria-label="virtual cards"
+            checked={cardsMode}
+            onChange={(e) => setCardsMode(e.target.checked)}
+          />
+          Virtual cards — play your saved decks digitally (pick decks below)
+        </label>
+      )}
       {format === 'commander' && decks.length > 0 && selected.length > 0 && (
         <div className="deck-picks">
           {selected.map((id) => {

@@ -954,3 +954,10 @@ label {
   letter-spacing: 0.08em;
   white-space: nowrap;
 }
+
+.cards-mode-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+}

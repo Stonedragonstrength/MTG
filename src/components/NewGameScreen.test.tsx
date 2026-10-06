@@ -85,6 +85,35 @@ test('picking a deck for a player carries its commander into the game', async ()
   expect(saveProfile).toHaveBeenCalledTimes(1);
 });
 
+test('virtual cards mode seeds chosen decks after a local start', async () => {
+  const seedSeatFromDeck = vi.fn();
+  const deck = {
+    id: 'deck-1',
+    name: 'Stompy',
+    commander: {
+      cardId: 'c-cmd',
+      name: 'Ashaya',
+      typeLine: 'Legendary Creature — Elemental',
+      manaCost: '',
+      imageNormal: null,
+      count: 1,
+    },
+    colors: ['G'],
+    cards: [],
+    updatedAt: 1,
+  };
+  useAppStore.setState({ decks: [deck], seedSeatFromDeck, saveProfile: vi.fn(async () => {}) });
+  const user = userEvent.setup();
+  render(<NewGameScreen onBack={() => {}} />);
+  await user.click(screen.getByRole('button', { name: 'Nate' }));
+  await user.click(screen.getByRole('button', { name: 'Sam' }));
+  await user.click(screen.getByRole('checkbox', { name: /virtual cards/i }));
+  await user.selectOptions(screen.getByLabelText(/deck for Nate/i), 'deck-1');
+  await user.click(screen.getByRole('button', { name: /start game/i }));
+  expect(startedWith?.mode).toBe('cards');
+  expect(seedSeatFromDeck).toHaveBeenCalledWith(0, deck);
+});
+
 test('online mode hosts a table instead of starting locally', async () => {
   const hostOnlineGame = vi.fn(async () => null);
   useAppStore.setState({ hostOnlineGame });

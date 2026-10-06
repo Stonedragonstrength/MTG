@@ -45,6 +45,41 @@ test('joining with a code flows into the seat picker', async () => {
   expect(onClose).toHaveBeenCalled();
 });
 
+test('a cards table offers bringing a deck after the seat pick', async () => {
+  const seedSeatFromDeck = vi.fn();
+  const deck = {
+    id: 'deck-1',
+    name: 'Stompy',
+    commander: null,
+    colors: [],
+    cards: [],
+    updatedAt: 1,
+  };
+  useAppStore.setState({
+    decks: [deck],
+    seedSeatFromDeck,
+    joinOnlineGame: vi.fn(async () => {
+      const g = createGame({ ...config, mode: 'cards' });
+      useAppStore.setState({
+        game: g,
+        online: { code: 'KQ7M2X', status: { kind: 'connecting' }, mySeat: null },
+        inGame: true,
+      });
+      return null;
+    }),
+  });
+  const onClose = vi.fn();
+  const user = userEvent.setup();
+  render(<JoinTableSheet onClose={onClose} />);
+  await user.type(screen.getByRole('textbox'), 'KQ7M2X');
+  await user.click(screen.getByRole('button', { name: /^join$/i }));
+  await user.click(await screen.findByRole('button', { name: 'Sam' })); // my seat
+  expect(await screen.findByText(/bring a deck/i)).toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Stompy' }));
+  expect(seedSeatFromDeck).toHaveBeenCalledWith(1, deck);
+  expect(onClose).toHaveBeenCalled();
+});
+
 test('a join error shows inline and keeps the sheet open', async () => {
   useAppStore.setState({
     joinOnlineGame: vi.fn(async () => 'No table with that code — codes last 24 hours.'),

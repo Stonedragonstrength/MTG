@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import type { ManaColor } from '../lib/mana';
 import { useAppStore } from '../state/store';
+import BattlefieldRow from './BattlefieldRow';
 import BoardStrip from './BoardStrip';
 import CenterHub from './CenterHub';
 import CommanderDamage from './CommanderDamage';
+import HandTray from './HandTray';
 import LandsRow from './LandsRow';
 import LifeCounter from './LifeCounter';
 import PlayerSheet from './PlayerSheet';
@@ -114,8 +116,10 @@ export default function PlayerZone({
           {game.config.format === 'commander' && <CommanderDamage playerIdx={playerIdx} />}
         </span>
       </header>
+      {player.cards && <BattlefieldRow playerIdx={playerIdx} />}
       <BoardStrip playerIdx={playerIdx} />
       <LandsRow playerIdx={playerIdx} />
+      {player.cards && <HandTray playerIdx={playerIdx} />}
       {player.eliminated && <div className="dead-overlay">DEFEATED</div>}
       {sheetOpen && <PlayerSheet playerIdx={playerIdx} onClose={() => setSheetOpen(false)} />}
     </section>
