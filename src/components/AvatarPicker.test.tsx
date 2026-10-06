@@ -71,3 +71,23 @@ test('search results show art previews, and picking returns the card', async () 
   await user.click(screen.getByRole('button', { name: /ragavan, nimble pilferer/i }));
   expect(onPick).toHaveBeenCalledWith(ragavan);
 });
+
+test('suggestions fill the grid before any typing, and a search takes over', async () => {
+  const onPick = vi.fn();
+  const user = userEvent.setup();
+  render(
+    <AvatarPicker
+      title="Pick partner"
+      onPick={onPick}
+      onClose={() => {}}
+      suggestions={[impostor]}
+    />,
+  );
+  // nothing typed: the caller's shortlist is on show
+  await user.click(await screen.findByRole('button', { name: /ragavan the unlegendary/i }));
+  expect(onPick).toHaveBeenCalledWith(impostor);
+
+  await user.type(screen.getByPlaceholderText(/search card names/i), 'nimble');
+  expect(await screen.findByAltText('Ragavan, Nimble Pilferer')).toBeInTheDocument();
+  expect(screen.queryByText('Ragavan the Unlegendary')).not.toBeInTheDocument();
+});

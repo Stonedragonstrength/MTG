@@ -63,7 +63,7 @@ export interface AppStore {
   shuffleSeat(seat: number): void;
   mulliganSeat(seat: number): void;
   keepHand(seat: number, bottomIids: string[]): void;
-  castCommander(seat: number): void;
+  castCommander(seat: number, iid?: string): void;
   commanderDiedAction(seat: number, iid: string): void;
   commanderReturned(seat: number, iid: string, from: 'graveyard' | 'exile'): void;
   peekNotice(seat: number): void;
@@ -545,11 +545,13 @@ export function createAppStore() {
         );
       },
 
-      castCommander(seat) {
+      castCommander(seat, iid) {
         const g = get().game;
-        const cmd = g?.players[seat]?.cards?.command[0];
+        const command = g?.players[seat]?.cards?.command ?? [];
+        // A partner pair casts one at a time: the caller names which.
+        const cmd = (iid && command.find((c) => c.iid === iid)) || command[0];
         if (!g || !cmd) return;
-        const tax = (g.players[seat]?.commanderDeaths ?? 0) * 2;
+        const tax = cardsLib.commanderTax(g.players[seat], cmd.iid);
         void (async () => {
           // Same auto-payment as playCard, with the tax riding as generic.
           const record = await import('../data/scryfall').then(async (m) => {

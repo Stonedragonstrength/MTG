@@ -48,14 +48,24 @@ export default function DecksScreen({ onBack }: Props) {
             aria-label={`open deck ${deck.name}`}
             onClick={() => setOpenId(deck.id)}
           >
-            {deck.commander?.imageNormal && (
-              <img
-                className="profile-commander-card"
-                src={deck.commander.imageNormal}
-                alt=""
-                loading="lazy"
-              />
-            )}
+            <span className={`deck-tile-arts${deck.partner ? ' deck-tile-arts--pair' : ''}`}>
+              {deck.commander?.imageNormal && (
+                <img
+                  className="profile-commander-card"
+                  src={deck.commander.imageNormal}
+                  alt=""
+                  loading="lazy"
+                />
+              )}
+              {deck.partner?.imageNormal && (
+                <img
+                  className="profile-commander-card"
+                  src={deck.partner.imageNormal}
+                  alt=""
+                  loading="lazy"
+                />
+              )}
+            </span>
             <span className="profile-name">{deck.name}</span>
             <span className="deck-tile-count">{deckSize(deck)} cards</span>
             {deck.colors.length > 0 && (

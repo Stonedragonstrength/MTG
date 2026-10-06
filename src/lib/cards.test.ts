@@ -4,7 +4,9 @@ import {
   bottomCards,
   buildSeatCards,
   commanderDied,
+  commanderTax,
   draw,
+  isCommander,
   keepHand,
   millN,
   moveCard,
@@ -18,7 +20,7 @@ import {
   tapCard,
   untapAllCards,
 } from './cards';
-import { addCard, changeCardCount, createDeck, setCommander } from './deck';
+import { addCard, changeCardCount, createDeck, setCommander, setPartner } from './deck';
 import { createGame } from './game';
 import type { CardRecord, Deck, GameConfig, GameState } from './types';
 
@@ -80,6 +82,54 @@ describe('buildSeatCards', () => {
     expect(a.hand.map((x) => x.cardId)).not.toEqual(c.hand.map((x) => x.cardId));
     const all = [...a.library, ...a.hand];
     expect(new Set(all.map((x) => x.iid)).size).toBe(12); // unique instances
+  });
+});
+
+describe('partner commanders', () => {
+  function pairDeck(): Deck {
+    const thrasios = record('c-thrasios', 'Thrasios', 'Legendary Creature — Merfolk');
+    const tymna = record('c-tymna', 'Tymna', 'Legendary Creature — Human');
+    let d = setPartner(setCommander(createDeck('Pair'), thrasios), tymna);
+    d = addCard(d, record('c-forest', 'Forest', 'Basic Land — Forest'));
+    d = changeCardCount(d, 'c-forest', 9);
+    return d;
+  }
+  const pairGame = () => seedSeat(createGame(config), 0, buildSeatCards(pairDeck(), 42));
+
+  test('both commanders start in the command zone, each with a clean tax record', () => {
+    const cards = buildSeatCards(pairDeck(), 42);
+    expect(cards.command.map((c) => c.name)).toEqual(['Thrasios', 'Tymna']);
+    expect(cards.cmd).toEqual({ [cards.command[0].iid]: 0, [cards.command[1].iid]: 0 });
+  });
+
+  test('a single commander is tracked the same way', () => {
+    const cards = buildSeatCards(sampleDeck(), 42);
+    expect(cards.cmd).toEqual({ [cards.command[0].iid]: 0 });
+  });
+
+  test('each commander pays its own tax', () => {
+    const g = pairGame();
+    const [thrasios, tymna] = g.players[0].cards!.command;
+    const cast = moveCard(g, 0, thrasios.iid, 'command', 'battlefield', { row: 'front' });
+    const died = commanderDied(cast, 0, thrasios.iid);
+    expect(commanderTax(died.players[0], thrasios.iid)).toBe(2);
+    expect(commanderTax(died.players[0], tymna.iid)).toBe(0); // untouched by its partner's death
+    expect(died.players[0].commanderDeaths).toBe(1); // the tracker's total still counts
+  });
+
+  test('knows which cards are commanders, wherever they are', () => {
+    const g = pairGame();
+    const seat = g.players[0].cards!;
+    expect(isCommander(seat, seat.command[1].iid)).toBe(true);
+    expect(isCommander(seat, seat.hand[0].iid)).toBe(false);
+  });
+
+  test('a seat dealt before commanders were tracked falls back to the old rules', () => {
+    const g = pairGame();
+    const { cmd: _cmd, ...legacy } = g.players[0].cards!;
+    const player = { ...g.players[0], cards: legacy, commanderDeaths: 2 };
+    expect(isCommander(legacy, legacy.command[0].iid)).toBeNull(); // unknown: callers use the old rule
+    expect(commanderTax(player, legacy.command[0].iid)).toBe(4); // shared counter, as before
   });
 });
 

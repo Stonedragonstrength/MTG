@@ -511,6 +511,38 @@ describe('cards mode', () => {
     });
   });
 
+  test('partners cast one at a time and each pays only its own tax', async () => {
+    const { addCard, changeCardCount, createDeck, setCommander, setPartner } = await import(
+      '../lib/deck'
+    );
+    let deck = setPartner(
+      setCommander(createDeck('Pair'), deckRecord('c-thrasios', 'Thrasios', 'Legendary Creature')),
+      deckRecord('c-tymna', 'Tymna', 'Legendary Creature'),
+    );
+    deck = addCard(deck, deckRecord('c-forest', 'Forest', 'Basic Land — Forest'));
+    deck = changeCardCount(deck, 'c-forest', 9);
+    const store = createAppStore();
+    store.getState().startGame({ ...config, mode: 'cards' });
+    store.getState().seedSeatFromDeck(0, deck, 42);
+    const seat = () => store.getState().game!.players[0].cards!;
+    const [thrasios, tymna] = seat().command;
+    const onField = (iid: string) => seat().battlefield.some((c) => c.iid === iid);
+
+    store.getState().castCommander(0, tymna.iid); // the SECOND commander, by choice
+    await vi.waitFor(() => expect(onField(tymna.iid)).toBe(true));
+    expect(seat().command.map((c) => c.iid)).toEqual([thrasios.iid]); // its partner stays home
+
+    store.getState().commanderDiedAction(0, tymna.iid);
+    store.getState().castCommander(0, thrasios.iid);
+    await vi.waitFor(() => expect(onField(thrasios.iid)).toBe(true));
+    store.getState().castCommander(0, tymna.iid);
+    await vi.waitFor(() => expect(onField(tymna.iid)).toBe(true));
+
+    const feed = store.getState().game!.feed!.map((e) => e.text);
+    expect(feed).toContain('A casts Thrasios'); // never died: no tax
+    expect(feed).toContain('A casts Tymna (tax +2)'); // its own death, its own tax
+  });
+
   test('pass turn readies the incoming seat, virtual cards included', async () => {
     const store = await cardsStore();
     const iid = store.getState().game!.players[0].cards!.hand[0].iid;

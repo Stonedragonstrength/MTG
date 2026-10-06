@@ -13,6 +13,7 @@ import {
   manaValue,
   offColorCards,
   setCommander,
+  setPartner,
   shortType,
   starRatings,
 } from './deck';
@@ -91,6 +92,46 @@ describe('deck building', () => {
     deck = setCommander(deck, card('Ashaya, Soul of the Wild', 'Legendary Creature — Elemental'));
     expect(deck.colors).toEqual(['G']);
     expect(deck.commander?.name).toBe('Ashaya, Soul of the Wild');
+  });
+});
+
+describe('partner commander', () => {
+  const thrasios = { ...card('Thrasios', 'Legendary Creature — Merfolk'), colorIdentity: ['G', 'U'] };
+  const tymna = { ...card('Tymna', 'Legendary Creature — Human'), colorIdentity: ['W', 'B'] };
+
+  test('a partner joins the command zone: the size counts it and the colors combine', () => {
+    let deck = setCommander(createDeck('Pair'), thrasios);
+    deck = setPartner(deck, tymna);
+    expect(deck.partner?.name).toBe('Tymna');
+    expect(deckSize(deck)).toBe(2);
+    expect([...deck.colors].sort()).toEqual(['B', 'G', 'U', 'W']);
+  });
+
+  test('removing the partner falls back to the commander alone', () => {
+    let deck = setPartner(setCommander(createDeck('Pair'), thrasios), tymna);
+    deck = setPartner(deck, null);
+    expect(deck.partner).toBeNull();
+    expect(deckSize(deck)).toBe(1);
+    expect([...deck.colors].sort()).toEqual(['G', 'U']);
+  });
+
+  test('a new commander starts alone — the old pairing no longer applies', () => {
+    let deck = setPartner(setCommander(createDeck('Pair'), thrasios), tymna);
+    deck = setCommander(deck, card('Ashaya, Soul of the Wild', 'Legendary Creature — Elemental'));
+    expect(deck.partner).toBeNull();
+    expect(deck.colors).toEqual(['G']);
+  });
+
+  test('off-color checks use the combined identity', () => {
+    let deck = setPartner(setCommander(createDeck('Pair'), thrasios), tymna);
+    deck = addCard(deck, { ...card('Swords to Plowshares', 'Instant'), colorIdentity: ['W'] });
+    deck = addCard(deck, { ...card('Lightning Bolt', 'Instant'), colorIdentity: ['R'] });
+    expect(offColorCards(deck).map((c) => c.name)).toEqual(['Lightning Bolt']);
+  });
+
+  test('a partner needs a commander to stand beside', () => {
+    const deck = createDeck('Empty');
+    expect(setPartner(deck, tymna)).toBe(deck);
   });
 });
 

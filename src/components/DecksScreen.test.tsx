@@ -96,3 +96,22 @@ test('new deck flow: pick a commander, deck is created and opened', async () => 
   expect(useAppStore.getState().decks[0].commander?.name).toBe('Ashaya, Soul of the Wild');
   expect(screen.getByDisplayValue(/ashaya/i)).toBeInTheDocument();
 });
+
+test('a partner deck shows both commanders on its tile and counts them both', async () => {
+  const { setPartner } = await import('../lib/deck');
+  const partner: CardRecord = {
+    ...ashaya,
+    id: 'c-partner',
+    name: 'Tymna the Weaver',
+    nameLower: 'tymna the weaver',
+    colorIdentity: ['W', 'B'],
+    imageNormal: 'https://img.example/tymna.jpg',
+  };
+  useAppStore.setState({ decks: [setPartner(sampleDeck(), partner)] });
+  const { container } = render(<DecksScreen onBack={() => {}} />);
+  const arts = Array.from(container.querySelectorAll('.profile-commander-card')).map((el) =>
+    el.getAttribute('src'),
+  );
+  expect(arts).toEqual(['https://img.example/ashaya.jpg', 'https://img.example/tymna.jpg']);
+  expect(screen.getByText('3 cards')).toBeInTheDocument(); // forest + two commanders
+});

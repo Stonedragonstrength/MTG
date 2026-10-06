@@ -586,6 +586,45 @@ label {
   font-style: italic;
 }
 
+.deck-tile-arts {
+  display: flex;
+  justify-content: center;
+}
+
+.deck-tile-arts--pair .profile-commander-card {
+  width: 72px;
+}
+
+.deck-tile-arts--pair .profile-commander-card + .profile-commander-card {
+  margin-left: -14px;
+  transform: translateY(6px);
+}
+
+/* The second commander tucks in beside the first, a touch behind it. */
+.deck-commander-img--partner {
+  margin-left: -34px;
+  transform: translateY(8px);
+}
+
+.deck-partner-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: -4px;
+}
+
+.deck-partner-line::before {
+  content: '+';
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.deck-partner-remove {
+  padding: 0 7px;
+  line-height: 1.5;
+  font-size: 0.75rem;
+}
+
 .align-list {
   list-style: none;
   margin: 0;

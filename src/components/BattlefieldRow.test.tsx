@@ -111,7 +111,7 @@ test('tapping the pedestal casts the commander when the mana is there', async ()
   const { waitFor } = await import('@testing-library/react');
   await waitFor(() => expect(pedestal.querySelector('img')).not.toBeNull()); // records in
   await user.click(pedestal);
-  expect(useAppStore.getState().castCommander).toHaveBeenCalledWith(0);
+  expect(useAppStore.getState().castCommander).toHaveBeenCalledWith(0, useAppStore.getState().game!.players[0].cards!.command[0].iid);
 });
 
 test('a commander you cannot pay for asks before casting', async () => {
@@ -121,12 +121,14 @@ test('a commander you cannot pay for asks before casting', async () => {
   await user.click(pedestal);
   expect(useAppStore.getState().castCommander).not.toHaveBeenCalled();
   await user.click(await screen.findByRole('button', { name: /cast anyway/i }));
-  expect(useAppStore.getState().castCommander).toHaveBeenCalledWith(0);
+  expect(useAppStore.getState().castCommander).toHaveBeenCalledWith(0, useAppStore.getState().game!.players[0].cards!.command[0].iid);
 });
 
 test('commander tax counts against the mana on the table', async () => {
   const g = gameWithForest();
-  g.players[0] = { ...g.players[0], commanderDeaths: 1 }; // {1} + 2 tax, one Forest
+  const seat = g.players[0].cards!;
+  // Ashaya has gone home once: {1} + 2 tax against a single Forest
+  g.players[0] = { ...g.players[0], cards: { ...seat, cmd: { [seat.command[0].iid]: 1 } } };
   useAppStore.setState({ game: g });
   render(<BattlefieldRow playerIdx={0} />);
   expect(await screen.findByLabelText(/commander Ashaya — not enough mana/i)).toBeInTheDocument();
@@ -216,4 +218,43 @@ test('overlapping arm windows: an old disarm timer cannot kill a fresh one', asy
   } finally {
     vi.useRealTimers();
   }
+});
+
+test('a partner pair shows two pedestals, and each casts its own commander', async () => {
+  const { setPartner } = await import('../lib/deck');
+  let deck = setPartner(
+    setCommander(createDeck('Pair'), { ...RECORDS['c-cmd'], manaCost: '' }),
+    { ...rec('c-partner', 'Tymna', 'Legendary Creature — Human'), manaCost: '' },
+  );
+  deck = addCard(deck, RECORDS['c-forest']);
+  deck = changeCardCount(deck, 'c-forest', 9);
+  const g = seedSeat(createGame(config), 0, buildSeatCards(deck, 42));
+  useAppStore.setState({ game: g });
+  const [first, second] = g.players[0].cards!.command;
+  const user = userEvent.setup();
+  render(<BattlefieldRow playerIdx={0} />);
+  expect(screen.getByLabelText(/commander Ashaya/i)).toBeInTheDocument();
+  await user.click(screen.getByLabelText(/commander Tymna/i));
+  expect(useAppStore.getState().castCommander).toHaveBeenCalledWith(0, second.iid);
+  expect(useAppStore.getState().castCommander).not.toHaveBeenCalledWith(0, first.iid);
+});
+
+test('each pedestal wears its own tax', async () => {
+  const { setPartner } = await import('../lib/deck');
+  let deck = setPartner(
+    setCommander(createDeck('Pair'), RECORDS['c-cmd']),
+    rec('c-partner', 'Tymna', 'Legendary Creature — Human'),
+  );
+  deck = addCard(deck, RECORDS['c-forest']);
+  deck = changeCardCount(deck, 'c-forest', 9);
+  const g = seedSeat(createGame(config), 0, buildSeatCards(deck, 42));
+  const [, second] = g.players[0].cards!.command;
+  g.players[0] = {
+    ...g.players[0],
+    cards: { ...g.players[0].cards!, cmd: { ...g.players[0].cards!.cmd, [second.iid]: 2 } },
+  };
+  useAppStore.setState({ game: g });
+  render(<BattlefieldRow playerIdx={0} />);
+  expect(screen.getByLabelText(/commander Tymna/i)).toHaveTextContent('+4');
+  expect(screen.getByLabelText(/commander Ashaya/i)).not.toHaveTextContent('+');
 });

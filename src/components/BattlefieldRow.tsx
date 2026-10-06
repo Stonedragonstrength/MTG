@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { commanderTax } from '../lib/cards';
 import { affordable, parseCost, sourcesFrom } from '../lib/pay';
 import type { CardInstance } from '../lib/types';
 import { useAppStore } from '../state/store';
@@ -106,15 +107,19 @@ export default function BattlefieldRow({ playerIdx }: Props) {
   // Local table = shared tablet = every seat is yours; online = your seat.
   const claimed = !online || online.mySeat === playerIdx || online.mySeat === null;
   const size = front.length <= 3 ? 'lg' : front.length <= 8 ? 'md' : 'sm';
-  const commander = seat.command[0];
   const topGrave = seat.graveyard[seat.graveyard.length - 1];
-  // The mana gate, tax included. An unread record never blocks the cast.
+  // One pedestal per commander still at home (a partner pair has two), each
+  // behind the mana gate with its own tax. An unread record never blocks.
   const player = game.players[playerIdx];
-  const cmdRecord = commander ? records[commander.cardId] : null;
-  const cmdCost = cmdRecord ? parseCost(cmdRecord.manaCost) : null;
-  if (cmdCost) cmdCost.generic += player.commanderDeaths * 2;
-  const cmdPoor =
-    !!cmdCost && !affordable(cmdCost, sourcesFrom(seat.battlefield, records, player.board));
+  const sources = sourcesFrom(seat.battlefield, records, player.board);
+  const pedestals = seat.command.map((card) => {
+    const record = records[card.cardId];
+    const tax = commanderTax(player, card.iid);
+    const cost = record ? parseCost(record.manaCost) : null;
+    if (cost) cost.generic += tax;
+    return { card, art: record?.imageNormal ?? null, tax, poor: !!cost && !affordable(cost, sources) };
+  });
+  const shortIids = pedestals.filter((p) => p.poor).map((p) => p.card.iid);
 
   return (
     <div className={`bf-row bf-row--${size}`}>
@@ -171,22 +176,22 @@ export default function BattlefieldRow({ playerIdx }: Props) {
             <span className="dock-count">{seat.exile.length}</span>
           </button>
         )}
-        {commander ? (
-          <button
-            className={`dock-pile dock-command${cmdPoor ? ' dock-command--poor' : ''}`}
-            aria-label={
-              cmdPoor
-                ? `commander ${commander.name} — not enough mana`
-                : `commander ${commander.name} — tap to cast`
-            }
-            onClick={() => (cmdPoor ? setPile('command') : castCommander(playerIdx))}
-          >
-            {records[commander.cardId]?.imageNormal ? (
-              <img src={records[commander.cardId]!.imageNormal!} alt="" loading="lazy" />
-            ) : (
-              <span className="dock-empty">★</span>
-            )}
-          </button>
+        {pedestals.length > 0 ? (
+          pedestals.map(({ card, art, tax, poor }) => (
+            <button
+              key={card.iid}
+              className={`dock-pile dock-command${poor ? ' dock-command--poor' : ''}`}
+              aria-label={
+                poor
+                  ? `commander ${card.name} — not enough mana`
+                  : `commander ${card.name} — tap to cast`
+              }
+              onClick={() => (poor ? setPile('command') : castCommander(playerIdx, card.iid))}
+            >
+              {art ? <img src={art} alt="" loading="lazy" /> : <span className="dock-empty">★</span>}
+              {tax > 0 && <span className="dock-count">+{tax}</span>}
+            </button>
+          ))
         ) : (
           <button
             className="dock-pile dock-command dock-command--out"
@@ -212,7 +217,7 @@ export default function BattlefieldRow({ playerIdx }: Props) {
         <PileSheet
           playerIdx={playerIdx}
           zone={pile}
-          short={pile === 'command' && cmdPoor}
+          short={pile === 'command' ? shortIids : undefined}
           onClose={() => setPile(null)}
         />
       )}

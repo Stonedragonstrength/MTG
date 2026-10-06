@@ -50,6 +50,24 @@ test('standard games show no commander damage strip', () => {
   expect(container.querySelectorAll('.cmd-gauge')).toHaveLength(0);
 });
 
+test('a seat that tracks tax per commander shows it on the pedestals, not as one header total', () => {
+  const game = createGame(config(2));
+  game.players[0] = {
+    ...game.players[0],
+    commanderDeaths: 3, // a pair's deaths added together would mislead here
+    cards: { ...cardsSeat(), cmd: { a: 2, b: 1 } },
+  };
+  game.players[1] = { ...game.players[1], commanderDeaths: 1 }; // tracker seat: chip stays
+  useAppStore.setState({ game });
+  const { container } = render(<GameScreen />);
+  const chips = (seat: number) =>
+    Array.from(container.querySelectorAll(`.zone.seat-${seat} .player-chip`)).map(
+      (el) => el.textContent,
+    );
+  expect(chips(0).some((t) => /tax/.test(t ?? ''))).toBe(false);
+  expect(chips(1)).toContain('tax +2');
+});
+
 test('a virtual-cards seat wears the compact cards-mode class', () => {
   const game = createGame(config(2));
   game.players[0] = { ...game.players[0], cards: cardsSeat() };

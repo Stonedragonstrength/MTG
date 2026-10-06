@@ -55,18 +55,48 @@ const forest: CardRecord = {
   isBasicLand: true,
 };
 
+const PARTNER_TEXT = 'Partner (You can have two commanders if both have partner.)';
+
+const thrasios: CardRecord = {
+  ...ashaya,
+  id: 'c-thrasios',
+  name: 'Thrasios, Triton Hero',
+  nameLower: 'thrasios, triton hero',
+  typeLine: 'Legendary Creature — Merfolk Wizard',
+  oracleText: PARTNER_TEXT,
+  colorIdentity: ['G', 'U'],
+};
+
+const tymna: CardRecord = {
+  ...ashaya,
+  id: 'c-tymna',
+  name: 'Tymna the Weaver',
+  nameLower: 'tymna the weaver',
+  typeLine: 'Legendary Creature — Human Cleric',
+  // a landfall line too, so the partner brings themes of its own
+  oracleText: `${PARTNER_TEXT}\nWhenever a land enters the battlefield under your control, draw a card.`,
+  colorIdentity: ['W', 'B'],
+};
+
 vi.mock('../data/synergy', () => ({
   findCommandersFor: vi.fn(async () => []),
   findSynergiesFor: vi.fn(async () => []),
+  findPartnersFor: vi.fn(async () => [tymna]),
 }));
 
 vi.mock('../data/scryfall', () => ({
   loadNameIndex: vi.fn(async () => []),
   getCardById: vi.fn(
     async (id: string) =>
-      (({ 'c-ashaya': ashaya, 'c-elves': elves, 'c-forest': forest }) as Record<string, CardRecord>)[
-        id
-      ],
+      ((
+        {
+          'c-ashaya': ashaya,
+          'c-elves': elves,
+          'c-forest': forest,
+          'c-thrasios': thrasios,
+          'c-tymna': tymna,
+        }
+      ) as Record<string, CardRecord>)[id],
   ),
   findCardByName: vi.fn(async () => undefined),
   findBasicLand: vi.fn(async () => undefined),
@@ -97,6 +127,49 @@ test('shows type groups, counts, and the running total with commander', () => {
   expect(screen.getByText('Lands')).toBeInTheDocument();
   expect(screen.getByText('10 / 100')).toBeInTheDocument(); // 1 elf + 8 forests + commander
   expect(screen.getByText('Llanowar Elves')).toBeInTheDocument();
+});
+
+test('a partner commander offers the second slot, and picking fills it', async () => {
+  const pair = setCommander({ ...createDeck('Pair'), id: 'deck-2' }, thrasios);
+  useAppStore.setState({ decks: [pair] });
+  const user = userEvent.setup();
+  render(<DeckEditor deckId="deck-2" onBack={() => {}} />);
+  await user.click(await screen.findByRole('button', { name: /add partner/i }));
+  // every legal partner is listed without typing
+  await user.click(await screen.findByRole('button', { name: /tymna the weaver/i }));
+  const saved = useAppStore.getState().decks.find((d) => d.id === 'deck-2')!;
+  expect(saved.partner?.name).toBe('Tymna the Weaver');
+  expect([...saved.colors].sort()).toEqual(['B', 'G', 'U', 'W']);
+  expect(await screen.findByText('2 / 100')).toBeInTheDocument(); // both commanders count
+  expect(screen.getByText('Tymna the Weaver')).toBeInTheDocument();
+});
+
+test('the partner can be removed again', async () => {
+  const { setPartner } = await import('../lib/deck');
+  const pair = setPartner(setCommander({ ...createDeck('Pair'), id: 'deck-2' }, thrasios), tymna);
+  useAppStore.setState({ decks: [pair] });
+  const user = userEvent.setup();
+  render(<DeckEditor deckId="deck-2" onBack={() => {}} />);
+  await user.click(screen.getByRole('button', { name: /remove partner/i }));
+  const saved = useAppStore.getState().decks.find((d) => d.id === 'deck-2')!;
+  expect(saved.partner).toBeNull();
+  expect([...saved.colors].sort()).toEqual(['G', 'U']);
+});
+
+test('stars weigh the partner as well as the commander', async () => {
+  const { setPartner } = await import('../lib/deck');
+  let pair = setPartner(setCommander({ ...createDeck('Pair'), id: 'deck-2' }, thrasios), tymna);
+  pair = addCard(pair, elves); // landfall: matches the partner, not the commander
+  useAppStore.setState({ decks: [pair] });
+  render(<DeckEditor deckId="deck-2" onBack={() => {}} />);
+  expect(await screen.findByLabelText(/stars for Llanowar Elves/i)).toBeInTheDocument();
+});
+
+test('an ordinary commander shows no partner slot', async () => {
+  render(<DeckEditor deckId="deck-1" onBack={() => {}} />);
+  await screen.findByText('Elf Druid'); // the card records are in
+  await new Promise((r) => setTimeout(r, 30));
+  expect(screen.queryByRole('button', { name: /add partner/i })).not.toBeInTheDocument();
 });
 
 test('rows wear their subtype next to the name', () => {

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from 'vitest';
 import type { CardRecord } from '../lib/types';
 import { getDb } from './db';
-import { findCommandersFor, findSynergiesFor } from './synergy';
+import { findCommandersFor, findPartnersFor, findSynergiesFor } from './synergy';
 
 function card(id: string, name: string, typeLine: string, oracleText: string): CardRecord {
   return {
@@ -92,5 +92,26 @@ describe('findSynergiesFor', () => {
 
   test('unknown card yields no results', async () => {
     expect(await findSynergiesFor('nope', 10)).toEqual([]);
+  });
+});
+
+describe('findPartnersFor', () => {
+  const partnerText = 'Partner (You can have two commanders if both have partner.)';
+
+  test('lists every legal second commander, by name, never tokens or the card itself', async () => {
+    const thrasios = card('thrasios', 'Thrasios, Triton Hero', 'Legendary Creature — Merfolk', partnerText);
+    await getDb().cards.bulkPut([
+      thrasios,
+      card('tymna', 'Tymna the Weaver', 'Legendary Creature — Human', partnerText),
+      card('akiri', 'Akiri, Line-Slinger', 'Legendary Creature — Kor', partnerText),
+      { ...card('tok', 'Partner Token', 'Token Legendary Creature', partnerText), isToken: true },
+    ]);
+    const found = await findPartnersFor(thrasios);
+    expect(found.map((c) => c.name)).toEqual(['Akiri, Line-Slinger', 'Tymna the Weaver']);
+  });
+
+  test('a commander with no partner ability finds nobody', async () => {
+    const magda = (await getDb().cards.get('magda'))!;
+    expect(await findPartnersFor(magda)).toEqual([]);
   });
 });

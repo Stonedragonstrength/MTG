@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { isCommander } from '../lib/cards';
 import { useAppStore } from '../state/store';
 import Sheet from './Sheet';
 import { useCardRecords } from './useCardRecords';
@@ -30,7 +31,10 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose }: Props)
   const record = records[card.cardId];
   const p1p1 = card.counters?.p1p1 ?? 0;
   const named = Object.entries(card.counters ?? {}).filter(([k]) => k !== 'p1p1');
-  const commandEmpty = seat.command.length === 0;
+  // Only a commander goes back to the command zone — its partner being
+  // home does not block it. Seats dealt before commanders were tracked
+  // keep the old rule: an empty command zone takes whatever is sent.
+  const goesHome = isCommander(seat, card.iid) ?? seat.command.length === 0;
 
   const go = (fn: () => void) => () => {
     fn();
@@ -86,7 +90,7 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose }: Props)
           <button className="chip" onClick={go(() => moveVirtualCard(playerIdx, iid, 'battlefield', 'hand'))}>Hand</button>
           <button className="chip" onClick={go(() => moveVirtualCard(playerIdx, iid, 'battlefield', 'library', { pos: 'top' }))}>Top</button>
           <button className="chip" onClick={go(() => moveVirtualCard(playerIdx, iid, 'battlefield', 'library', { pos: 'bottom' }))}>Bottom</button>
-          {commandEmpty && (
+          {goesHome && (
             <button className="chip" onClick={go(() => commanderDiedAction(playerIdx, iid))}>
               To command (+2 tax)
             </button>

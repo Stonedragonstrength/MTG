@@ -53,6 +53,10 @@ export interface SeatCards {
   deckName: string; // provenance label
   handHeld?: boolean; // synced hint: a phone holds this hand
   kept?: boolean; // the keep step ran — mulligan window is closed
+  /** The seat's commanders (one, or a partner pair): instance id → times
+   * it has gone back to the command zone, i.e. its own tax ÷ 2. Absent on
+   * seats dealt before commanders were tracked per card. */
+  cmd?: Record<string, number>;
 }
 
 /** Synced announcement ring — the trust model's deterrent. Cap 30. */
@@ -118,8 +122,11 @@ export interface Deck {
   id: string;
   name: string;
   commander: DeckCard | null;
-  colors: string[]; // commander color identity
-  cards: DeckCard[]; // everything except the commander
+  /** Second commander: a partner, a Background, the Doctor's companion.
+   * Absent on decks saved before partners shipped. */
+  partner?: DeckCard | null;
+  colors: string[]; // combined color identity of the commander(s)
+  cards: DeckCard[]; // everything except the commander(s)
   updatedAt: number;
 }
 

@@ -12,10 +12,12 @@ interface Props {
   /** Keeps only qualifying cards (e.g. commander-legal); candidates whose
    * record can't be loaded are dropped rather than shown unverified. */
   filter?: (card: CardRecord) => boolean;
+  /** A shortlist shown before anything is typed (e.g. every legal partner). */
+  suggestions?: CardRecord[];
 }
 
 /** Card search with art previews; used for avatars and commander picks. */
-export default function AvatarPicker({ title, onPick, onClose, filter }: Props) {
+export default function AvatarPicker({ title, onPick, onClose, filter, suggestions }: Props) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<{ id: string; name: string }[]>([]);
   const [previews, setPreviews] = useState<Record<string, CardRecord>>({});
@@ -30,6 +32,11 @@ export default function AvatarPicker({ title, onPick, onClose, filter }: Props) 
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      if (query.trim() === '' && suggestions && suggestions.length > 0) {
+        setResults(suggestions.map((c) => ({ id: c.id, name: c.name })));
+        setPreviews(Object.fromEntries(suggestions.map((c) => [c.id, c])));
+        return;
+      }
       // Filtering needs the full card, so cast a wider net and keep 12 hits.
       const candidates = searchNames(query, names.current, filter ? 48 : 12);
       const kept: { id: string; name: string }[] = [];
@@ -54,7 +61,7 @@ export default function AvatarPicker({ title, onPick, onClose, filter }: Props) 
     return () => {
       cancelled = true;
     };
-  }, [query, filter]);
+  }, [query, filter, suggestions]);
 
   function pick(id: string) {
     const card = previews[id];

@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getCardById } from '../data/scryfall';
+import { findPartnersFor } from '../data/synergy';
 import {
   changeCardCount,
   colorBreakdown,
@@ -9,13 +10,16 @@ import {
   groupCards,
   manaCurve,
   offColorCards,
+  setPartner,
   shortType,
   starRatings,
   type DeckStats,
 } from '../lib/deck';
 import { COLOR_NAMES, MANA_COLORS } from '../lib/mana';
+import { canPartner, partnerKind, partnerOffer } from '../lib/partner';
 import type { CardRecord, DeckCard } from '../lib/types';
 import { useAppStore } from '../state/store';
+import AvatarPicker from './AvatarPicker';
 import CommanderAlignSheet from './CommanderAlignSheet';
 import DeckCardSheet from './DeckCardSheet';
 import DeckEntrySheet from './DeckEntrySheet';
@@ -69,10 +73,12 @@ export default function DeckEditor({ deckId, onBack }: Props) {
 
   const [records, setRecords] = useState<Record<string, CardRecord>>({});
   const [cmdRecord, setCmdRecord] = useState<CardRecord | null>(null);
+  const [partnerRecord, setPartnerRecord] = useState<CardRecord | null>(null);
+  const [partnerOptions, setPartnerOptions] = useState<CardRecord[] | null>(null); // null = picker shut
 
   // Rules text and identities live in the card database, not the deck —
   // fetch once per deck change, derive everything else from the map.
-  const cardsKey = `${deck?.commander?.cardId ?? ''}|${deck?.cards
+  const cardsKey = `${deck?.commander?.cardId ?? ''}+${deck?.partner?.cardId ?? ''}|${deck?.cards
     .map((c) => `${c.cardId}:${c.count}`)
     .join(',')}`;
   useEffect(() => {
@@ -94,9 +100,13 @@ export default function DeckEditor({ deckId, onBack }: Props) {
       const cmd = deck.commander
         ? ((await getCardById(deck.commander.cardId).catch(() => undefined)) ?? null)
         : null;
+      const partner = deck.partner
+        ? ((await getCardById(deck.partner.cardId).catch(() => undefined)) ?? null)
+        : null;
       if (cancelled) return;
       setRecords(found);
       setCmdRecord(cmd);
+      setPartnerRecord(partner);
       setStats(deckStats(statEntries));
     })();
     return () => {
@@ -105,15 +115,33 @@ export default function DeckEditor({ deckId, onBack }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cardsKey]);
 
+  // A pair leads together: a card that serves either commander earns stars.
+  const leader = useMemo(
+    () =>
+      cmdRecord && partnerRecord
+        ? {
+            ...cmdRecord,
+            typeLine: `${cmdRecord.typeLine} // ${partnerRecord.typeLine}`,
+            oracleText: `${cmdRecord.oracleText}\n${partnerRecord.oracleText}`,
+          }
+        : cmdRecord,
+    [cmdRecord, partnerRecord],
+  );
+
   const stars = useMemo(
     () =>
       starRatings(
-        cmdRecord,
+        leader,
         (deck?.cards ?? [])
           .filter((c) => records[c.cardId])
           .map((c) => ({ cardId: c.cardId, record: records[c.cardId] })),
       ),
-    [cmdRecord, records, deck?.cards],
+    [leader, records, deck?.cards],
+  );
+
+  const partnerFilter = useCallback(
+    (card: CardRecord) => !!cmdRecord && canPartner(cmdRecord, card),
+    [cmdRecord],
   );
 
   const colors = useMemo(
@@ -128,6 +156,21 @@ export default function DeckEditor({ deckId, onBack }: Props) {
   );
 
   if (!deck) return null;
+  // The second command-zone slot only exists when the commander's own
+  // text allows one (Partner, a Background, the Doctor's companion…).
+  const partnerSlot = cmdRecord ? partnerOffer(partnerKind(cmdRecord)) : null;
+
+  async function openPartnerPicker() {
+    if (!deck || !cmdRecord) return;
+    const options = await findPartnersFor(cmdRecord);
+    // "Partner with X" names its one legal partner — no need to ask.
+    if (partnerKind(cmdRecord)?.type === 'with' && options.length === 1) {
+      void saveDeck(setPartner(deck, options[0]));
+      return;
+    }
+    setPartnerOptions(options);
+  }
+
   const groups = groupCards(deck.cards);
   const size = deckSize(deck);
   const offColor = new Set(offColorCards(deck).map((c) => c.cardId));
@@ -165,12 +208,32 @@ export default function DeckEditor({ deckId, onBack }: Props) {
         {deck.commander?.imageNormal && (
           <img className="deck-commander-img" src={deck.commander.imageNormal} alt="" />
         )}
+        {deck.partner?.imageNormal && (
+          <img
+            className="deck-commander-img deck-commander-img--partner"
+            src={deck.partner.imageNormal}
+            alt=""
+          />
+        )}
         <div className="deck-hero-info">
           {deck.commander ? (
             <span className="deck-commander-name">{deck.commander.name}</span>
           ) : (
             <span className="deck-commander-name deck-commander-name--none">
               No commander yet
+            </span>
+          )}
+          {deck.partner && (
+            <span className="deck-partner-line">
+              <span className="deck-commander-name">{deck.partner.name}</span>
+              <button
+                className="ghost deck-partner-remove"
+                aria-label="remove partner"
+                title="Remove the second commander"
+                onClick={() => void saveDeck(setPartner(deck, null))}
+              >
+                ✕
+              </button>
             </span>
           )}
           <span className="profile-pips">
@@ -187,6 +250,11 @@ export default function DeckEditor({ deckId, onBack }: Props) {
             <button className="ghost deck-synergy-btn" onClick={() => setAligning(true)}>
               Align commander
             </button>
+            {partnerSlot && !deck.partner && (
+              <button className="ghost deck-synergy-btn" onClick={() => void openPartnerPicker()}>
+                {partnerSlot}
+              </button>
+            )}
           </span>
           <CurveBar curve={manaCurve(deck.cards)} />
         </div>
@@ -346,6 +414,7 @@ export default function DeckEditor({ deckId, onBack }: Props) {
             let already = 0;
             const entries = [
               ...(deck.commander ? [{ ...deck.commander, count: 1 }] : []),
+              ...(deck.partner ? [{ ...deck.partner, count: 1 }] : []),
               ...deck.cards,
             ];
             for (const c of entries) {
@@ -389,6 +458,18 @@ export default function DeckEditor({ deckId, onBack }: Props) {
         />
       )}
       {aligning && <CommanderAlignSheet deckId={deck.id} onClose={() => setAligning(false)} />}
+      {partnerOptions && (
+        <AvatarPicker
+          title={partnerSlot ?? 'Add partner'}
+          filter={partnerFilter}
+          suggestions={partnerOptions}
+          onPick={(card) => {
+            void saveDeck(setPartner(deck, card));
+            setPartnerOptions(null);
+          }}
+          onClose={() => setPartnerOptions(null)}
+        />
+      )}
     </div>
   );
 }

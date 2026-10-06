@@ -81,3 +81,41 @@ test('closes itself when the card leaves the zone instead of lurking', async () 
   rerender(<BattlefieldCardSheet playerIdx={0} iid={iid} onClose={onClose} />);
   expect(onClose).toHaveBeenCalled();
 });
+
+/** A partner pair: one commander on the battlefield, the other still home. */
+async function pairGame() {
+  const { setPartner } = await import('../lib/deck');
+  let deck = setPartner(
+    setCommander(createDeck('Pair'), RECORDS['c-cmd']),
+    rec('c-partner', 'Tymna', 'Legendary Creature — Human'),
+  );
+  deck = addCard(deck, RECORDS['c-bear']);
+  deck = changeCardCount(deck, 'c-bear', 9);
+  const g = seedSeat(createGame(config), 0, buildSeatCards(deck, 42));
+  const [first] = g.players[0].cards!.command;
+  const bear = g.players[0].cards!.hand[0].iid;
+  let next = moveCard(g, 0, first.iid, 'command', 'battlefield', { row: 'front' });
+  next = moveCard(next, 0, bear, 'hand', 'battlefield', { row: 'front' });
+  return { g: next, commander: first.iid, bear };
+}
+
+test('a commander can go home even while its partner sits in the command zone', async () => {
+  const { g, commander } = await pairGame();
+  const commanderDiedAction = vi.fn();
+  useAppStore.setState({ game: g, commanderDiedAction });
+  const { default: userEvent } = await import('@testing-library/user-event');
+  const user = userEvent.setup();
+  render(<BattlefieldCardSheet playerIdx={0} iid={commander} onClose={() => {}} />);
+  await user.click(await screen.findByRole('button', { name: /to command/i }));
+  expect(commanderDiedAction).toHaveBeenCalledWith(0, commander);
+});
+
+test('an ordinary card is never offered the command zone', async () => {
+  const { g, bear } = await pairGame();
+  // even with the command zone emptied out
+  g.players[0] = { ...g.players[0], cards: { ...g.players[0].cards!, command: [] } };
+  useAppStore.setState({ game: g });
+  render(<BattlefieldCardSheet playerIdx={0} iid={bear} onClose={() => {}} />);
+  await screen.findByRole('heading', { name: 'Grizzly Bears' });
+  expect(screen.queryByRole('button', { name: /to command/i })).not.toBeInTheDocument();
+});

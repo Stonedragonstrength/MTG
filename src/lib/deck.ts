@@ -47,16 +47,37 @@ export function changeCardCount(deck: Deck, cardId: string, delta: number): Deck
   return touched({ ...deck, cards });
 }
 
+/** A new commander starts alone: whether a second commander is legal
+ * depends on the first, so the old pairing is dropped with it. */
 export function setCommander(deck: Deck, card: CardRecord): Deck {
   return touched({
     ...deck,
     commander: toDeckCard(card),
+    partner: null,
     colors: card.colorIdentity ?? card.colors,
   });
 }
 
+/** Seats (or removes, with null) the second commander. The deck's colors
+ * become the pair's combined identity. No-op without a commander. */
+export function setPartner(deck: Deck, card: CardRecord | null): Deck {
+  if (!deck.commander) return deck;
+  const partner = card ? toDeckCard(card) : null;
+  // Decks saved before identities were stored only know their colors as a
+  // whole — pin those to the commander before a partner widens them.
+  const own = deck.commander.colorIdentity ?? deck.colors;
+  const commander = { ...deck.commander, colorIdentity: own };
+  const theirs = partner?.colorIdentity ?? (card ? card.colors : []);
+  const colors = [...own, ...theirs.filter((c) => !own.includes(c))];
+  return touched({ ...deck, commander, partner, colors });
+}
+
 export function deckSize(deck: Deck): number {
-  return deck.cards.reduce((sum, c) => sum + c.count, 0) + (deck.commander ? 1 : 0);
+  return (
+    deck.cards.reduce((sum, c) => sum + c.count, 0) +
+    (deck.commander ? 1 : 0) +
+    (deck.partner ? 1 : 0)
+  );
 }
 
 /** How players file a card: a creature is a creature whatever else it is;

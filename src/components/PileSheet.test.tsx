@@ -90,3 +90,33 @@ test('no Command offer while the commander still sits in its zone', () => {
   render(<PileSheet playerIdx={0} zone="graveyard" onClose={() => {}} />);
   expect(screen.queryByRole('button', { name: /^command$/i })).not.toBeInTheDocument();
 });
+
+test('only a commander is offered the command zone', () => {
+  const { g } = strandedCommander();
+  const seat = g.players[0].cards!;
+  const bear = seat.library[0];
+  // an ordinary creature dies too: the graveyard now holds it and the commander
+  const withBear = moveCard(g, 0, bear.iid, 'library', 'graveyard');
+  useAppStore.setState({ game: withBear });
+  render(<PileSheet playerIdx={0} zone="graveyard" onClose={() => {}} />);
+  expect(screen.getAllByRole('button', { name: /^command$/i })).toHaveLength(1);
+});
+
+test('casting from the command sheet casts the card on that row', async () => {
+  const { setPartner } = await import('../lib/deck');
+  let deck = setPartner(
+    setCommander(createDeck('Pair'), RECORDS['c-cmd']),
+    rec('c-partner', 'Tymna', 'Legendary Creature — Human'),
+  );
+  deck = addCard(deck, RECORDS['c-bear']);
+  deck = changeCardCount(deck, 'c-bear', 9);
+  const g = seedSeat(createGame(config), 0, buildSeatCards(deck, 42));
+  const second = g.players[0].cards!.command[1];
+  useAppStore.setState({ game: g });
+  const user = userEvent.setup();
+  render(<PileSheet playerIdx={0} zone="command" short={[second.iid]} onClose={() => {}} />);
+  // the first commander is affordable (plain Cast), the second is not
+  expect(screen.getAllByRole('button', { name: /^cast$/i })).toHaveLength(1);
+  await user.click(screen.getByRole('button', { name: /cast anyway/i }));
+  expect(useAppStore.getState().castCommander).toHaveBeenCalledWith(0, second.iid);
+});

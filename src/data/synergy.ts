@@ -1,4 +1,5 @@
 import { isCommanderLegal } from '../lib/game';
+import { canPartner, partnerKind } from '../lib/partner';
 import { cardThemes, profileScore, sharedThemes, synergyScore } from '../lib/themes';
 import type { CardRecord } from '../lib/types';
 import { getDb } from './db';
@@ -38,6 +39,18 @@ export async function findSynergiesFor(cardId: string, limit = 20): Promise<Syne
 
   prune();
   return hits.slice(0, limit);
+}
+
+/** Every card the rules let sit in the command zone beside this one:
+ * partners, the named partner, Backgrounds, the Doctor's companions. */
+export async function findPartnersFor(commander: CardRecord, limit = 80): Promise<CardRecord[]> {
+  if (!partnerKind(commander)) return [];
+  const found: CardRecord[] = [];
+  await getDb().cards.each((candidate) => {
+    if (candidate.isToken || candidate.id === commander.id) return;
+    if (canPartner(commander, candidate)) found.push(candidate);
+  });
+  return found.sort((a, b) => a.name.localeCompare(b.name)).slice(0, limit);
 }
 
 export interface CommanderMatch {

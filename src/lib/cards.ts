@@ -50,18 +50,37 @@ export function buildSeatCards(deck: Deck, seed: number): SeatCards {
     for (let i = 0; i < c.count; i++) pile.push({ iid: newIid(), cardId: c.cardId, name: c.name });
   }
   const order = shuffled(pile, seed);
+  // One commander, or a pair (partner, Background, the Doctor's companion).
+  const command: CardInstance[] = [deck.commander, deck.partner ?? null]
+    .filter((c) => c !== null)
+    .map((c) => ({ iid: newIid(), cardId: c.cardId, name: c.name }));
   return {
     library: order.slice(7),
     hand: order.slice(0, 7),
     battlefield: [],
     graveyard: [],
     exile: [],
-    command: deck.commander
-      ? [{ iid: newIid(), cardId: deck.commander.cardId, name: deck.commander.name }]
-      : [],
+    command,
     mulligans: 0,
     deckName: deck.name,
+    cmd: Object.fromEntries(command.map((c) => [c.iid, 0])),
   };
+}
+
+/** Is this instance one of the seat's commanders? null when the seat
+ * predates per-commander tracking — callers fall back to the old rule
+ * (an empty command zone takes whatever is sent to it). */
+export function isCommander(cards: SeatCards, iid: string): boolean | null {
+  return cards.cmd ? iid in cards.cmd : null;
+}
+
+/** What this commander's next cast costs on top: two per time it has
+ * gone back to the command zone. Partners each carry their own. */
+export function commanderTax(
+  player: { cards?: SeatCards; commanderDeaths: number },
+  iid: string,
+): number {
+  return (player.cards?.cmd?.[iid] ?? player.commanderDeaths) * 2;
 }
 
 function updateSeat(
@@ -262,9 +281,17 @@ export function commanderDied(
   if (moved === g) return g;
   return {
     ...moved,
-    players: moved.players.map((p, i) =>
-      i === seat ? { ...p, commanderDeaths: p.commanderDeaths + 1 } : p,
-    ),
+    players: moved.players.map((p, i) => {
+      if (i !== seat) return p;
+      const cmd = p.cards?.cmd;
+      return {
+        ...p,
+        commanderDeaths: p.commanderDeaths + 1, // the seat's running total
+        ...(p.cards && cmd && iid in cmd
+          ? { cards: { ...p.cards, cmd: { ...cmd, [iid]: cmd[iid] + 1 } } }
+          : {}),
+      };
+    }),
   };
 }
 

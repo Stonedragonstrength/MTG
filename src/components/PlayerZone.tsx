@@ -66,7 +66,9 @@ export default function PlayerZone({
   if (poison > 0) chips.push({ key: 'poison', label: `☠${poison}`, className: 'chip-poison' });
   if (energy > 0) chips.push({ key: 'energy', label: `⚡${energy}` });
   if (experience > 0) chips.push({ key: 'exp', label: `✦${experience}` });
-  if (player.commanderDeaths > 0)
+  // Seats that track tax per commander wear it on each pedestal instead —
+  // a pair's deaths added together would be nobody's actual tax.
+  if (player.commanderDeaths > 0 && !player.cards?.cmd)
     chips.push({ key: 'tax', label: `tax +${player.commanderDeaths * 2}` });
 
   return (
