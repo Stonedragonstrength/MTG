@@ -249,10 +249,28 @@ export default function SettingsSheet({ onClose }: Props) {
       </div>
       {sqlShown && (
         <>
-          <p className="hint">
-            Supabase dashboard → SQL Editor → paste this → Run. Once, ever.
-          </p>
-          <textarea className="paste-box" readOnly rows={8} value={SETUP_SQL} />
+          <div className="settings-row">
+            <div className="settings-row-text">
+              <small>Supabase dashboard → SQL Editor → paste → Run. Once, ever.</small>
+            </div>
+            <button
+              onClick={() => {
+                navigator.clipboard
+                  ?.writeText(SETUP_SQL)
+                  .then(() => setCloudMsg('SQL copied — paste it in the Supabase SQL editor.'))
+                  .catch(() => setCloudMsg('Copy failed — long-press the text below instead.'));
+              }}
+            >
+              Copy SQL
+            </button>
+          </div>
+          <textarea
+            className="paste-box paste-box--sql"
+            readOnly
+            rows={10}
+            value={SETUP_SQL}
+            onFocus={(e) => e.currentTarget.select()}
+          />
         </>
       )}
     </Sheet>

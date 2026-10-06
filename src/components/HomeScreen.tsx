@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { findCardByName } from '../data/scryfall';
+import { registerBack } from '../lib/backstack';
 import { COLOR_HEX } from '../lib/mana';
 import type { PlayerProfile } from '../lib/types';
 import { useAppStore } from '../state/store';
@@ -25,6 +26,12 @@ export default function HomeScreen() {
   const [editing, setEditing] = useState<PlayerProfile | null>(null);
   const [creating, setCreating] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // Sub-screens answer the tablet's back button by returning home.
+  useEffect(() => {
+    if (view === 'home') return;
+    return registerBack(() => setView('home'));
+  }, [view]);
 
   // Older profiles picked a commander before we stored its card image.
   useEffect(() => {

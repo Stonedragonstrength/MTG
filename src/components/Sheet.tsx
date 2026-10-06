@@ -1,5 +1,6 @@
-import type { ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { registerBack } from '../lib/backstack';
 
 interface Props {
   title: string;
@@ -15,6 +16,11 @@ interface Props {
  * Portaled to <body>: ancestors with CSS transforms (rotated zones, the centered
  * hub) would otherwise trap and clip position:fixed descendants. */
 export default function Sheet({ title, onClose, size = 'regular', children, footer }: Props) {
+  // The tablet's back button closes the top sheet instead of the app.
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => registerBack(() => closeRef.current()), []);
+
   return createPortal(
     <div className="modal-backdrop" onClick={onClose}>
       <div className={`sheet sheet--${size}`} onClick={(e) => e.stopPropagation()}>

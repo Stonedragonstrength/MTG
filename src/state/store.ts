@@ -32,6 +32,7 @@ export interface AppStore {
   completeSetup(): void;
   startGame(config: GameConfig): void;
   enterGame(): void;
+  exitToHome(): void;
   endGame(): void;
   undo(): void;
   canUndo(): boolean;
@@ -211,6 +212,10 @@ export function createAppStore() {
 
       enterGame() {
         if (get().game) set({ inGame: true });
+      },
+
+      exitToHome() {
+        set({ inGame: false }); // the game stays saved; home offers Pick up
       },
 
       endGame() {

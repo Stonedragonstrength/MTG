@@ -774,3 +774,10 @@ label {
   font-size: 0.85rem;
   color: #9a9aa5;
 }
+
+/* SQL needs to be readable and grabbable on a tablet. */
+.paste-box--sql {
+  font-family: Consolas, Menlo, monospace;
+  font-size: 1rem;
+  line-height: 1.45;
+}

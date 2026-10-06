@@ -1,3 +1,5 @@
+import { useEffect } from 'react';
+import { registerBack } from '../lib/backstack';
 import { useAppStore } from '../state/store';
 import LandBackground from './LandBackground';
 import PlayerZone from './PlayerZone';
@@ -13,6 +15,9 @@ const EDGE_LAYOUTS: Record<number, string[]> = {
 /** The active player always holds the big board; passing the turn moves it. */
 export default function GameScreen() {
   const game = useAppStore((s) => s.game);
+  const exitToHome = useAppStore((s) => s.exitToHome);
+  // Tablet back = leave to home (game stays saved), not close the app.
+  useEffect(() => registerBack(exitToHome), [exitToHome]);
   if (!game) return null;
 
   const activeIdx = game.activePlayerIndex;
