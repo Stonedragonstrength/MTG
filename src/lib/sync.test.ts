@@ -1,10 +1,12 @@
 import { describe, expect, test } from 'vitest';
 import {
   bare,
+  keepNewerLists,
   keysToPull,
   mergeProfiles,
   mergePulled,
   mergeRows,
+  type DeckRow,
   type ProfileRow,
   type RowHead,
 } from './sync';
@@ -287,8 +289,63 @@ describe('mergeProfiles: the same player typed in on two devices', () => {
   });
 });
 
+describe('keepNewerLists: a deck deleted on a device that had not seen its latest edit', () => {
+  const deck = (name: string, updatedAt: number, extra: Partial<DeckRow> = {}): DeckRow => ({
+    id: 'x',
+    name,
+    commander: null,
+    cards: [],
+    colors: [],
+    updatedAt,
+    dirty: 0,
+    ...extra,
+  });
+  const merge = (local: DeckRow[], remote: DeckRow[]) =>
+    keepNewerLists(local, mergeRows(local, remote, (d) => d.id));
+
+  test('the deletion is taken, the newer list here is kept, and it goes up for the other shelves', () => {
+    const mine = deck('three cards', 500);
+    const gone = deck('one card', 900, { deleted: true, contentAt: 100 });
+    const { merged, toPush } = merge([mine], [gone]);
+    const kept = deck('three cards', 901, { deleted: true, contentAt: 500, dirty: 1 });
+    expect(merged).toEqual([kept]);
+    expect(toPush).toEqual([kept]);
+  });
+
+  test('a tombstone whose list is as new as ours, or newer, is taken whole', () => {
+    for (const contentAt of [500, 700]) {
+      const gone = deck('theirs', 900, { deleted: true, contentAt });
+      const result = merge([deck('mine', 500)], [gone]);
+      expect(result.merged).toEqual([gone]);
+      expect(result.toPush).toEqual([]);
+    }
+  });
+
+  test('a tombstone that does not say how old its list is is taken whole', () => {
+    const gone = deck('theirs', 900, { deleted: true });
+    expect(merge([deck('mine', 500)], [gone]).merged).toEqual([gone]);
+  });
+
+  test('nothing else is touched: an edit newer than the deletion still wins, a tombstone here takes the cloud’s, and a live deck is a live deck', () => {
+    const later = deck('edited after', 950, { dirty: 1 });
+    const gone = deck('one card', 900, { deleted: true, contentAt: 100 });
+    const won = merge([later], [gone]);
+    expect(won.merged).toEqual([later]);
+    expect(won.merged[0]).toBe(later);
+
+    const ourTombstone = deck('ours', 600, { deleted: true, contentAt: 500 });
+    expect(merge([ourTombstone], [gone]).merged).toEqual([gone]);
+
+    const live = deck('theirs, live', 900);
+    const plain = mergeRows([deck('mine', 500)], [live], (d) => d.id);
+    expect(keepNewerLists([deck('mine', 500)], plain)).toBe(plain); // the same result object
+  });
+});
+
 describe('bare', () => {
   test('hands back the content without the bookkeeping, and leaves the row itself alone', () => {
+    const tombstone = { id: 'a', name: 'Sam', updatedAt: 5, deleted: true as const, contentAt: 3, dirty: 0 as const };
+    expect(bare(tombstone)).toEqual({ id: 'a', name: 'Sam', updatedAt: 5 });
     const stored = { id: 'a', name: 'Sam', updatedAt: 5, deleted: true as const, dirty: 1 as const };
     expect(bare(stored)).toEqual({ id: 'a', name: 'Sam', updatedAt: 5 });
     expect(stored.dirty).toBe(1);

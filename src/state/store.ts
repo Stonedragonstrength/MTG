@@ -304,15 +304,20 @@ function keepPlaces<T extends { id: string }>(current: T[], fresh: T[]): T[] {
   ];
 }
 
-/** The list a re-read leaves in the store: every row that is still the
- * version the store holds stays the same object, and a re-read that changed
+/** The list a re-read leaves in the store: every row that is still what
+ * the store holds stays the same object, and a re-read that changed
  * nothing hands back `current` itself — most syncs bring nothing new, and
- * must not redraw every screen. */
+ * must not redraw every screen. The stamp alone does not say "the same":
+ * two devices can stamp two different edits alike (the cloud's then wins),
+ * and a screen left showing the copy that lost would save it back over
+ * the winner at the next tap. So a row with the same stamp is compared. */
 function reread<T extends { id: string; updatedAt?: number }>(current: T[], fresh: T[]): T[] {
   const held = new Map(current.map((row) => [row.id, row]));
   const next = fresh.map((row) => {
     const mine = held.get(row.id);
-    return mine && mine.updatedAt === row.updatedAt ? mine : row;
+    const same =
+      !!mine && mine.updatedAt === row.updatedAt && JSON.stringify(mine) === JSON.stringify(row);
+    return same ? mine : row;
   });
   return next.length === current.length && next.every((row, i) => row === current[i])
     ? current
@@ -1305,10 +1310,17 @@ export function createAppStore() {
         const db = getDb();
         const row = await db.decks.get(id);
         // A tombstone, not a hole: the deletion travels to every device, and
-        // the row keeps the whole deck so that it can be brought back.
+        // the row keeps the whole deck so that it can be brought back —
+        // and how old that list is, for a device that holds a newer one.
         const gone = !!row && !row.deleted;
         if (gone)
-          await db.decks.put({ ...row, deleted: true, updatedAt: freshStamp(row), dirty: 1 });
+          await db.decks.put({
+            ...row,
+            deleted: true,
+            contentAt: row.updatedAt,
+            updatedAt: freshStamp(row),
+            dirty: 1,
+          });
         if (get().decks.some((d) => d.id === id))
           set({ decks: get().decks.filter((d) => d.id !== id) });
         if (gone) pokeSync(() => void get().refreshSynced());

@@ -1,6 +1,7 @@
 import type { Table } from 'dexie';
 import { mergeGarage } from '../lib/garageSync';
 import {
+  keepNewerLists,
   keysToPull,
   mergeProfiles,
   mergePulled,
@@ -348,7 +349,12 @@ async function decksSync(): Promise<Outcome> {
     pulled.push(...reply.rows.flatMap((row) => fromWire<DeckRow>(row, 'deck_id', soundDeck) ?? []));
   }
 
-  const { merged, toPush } = mergePulled(local, heads, pulled, (d) => d.id);
+  // A deletion from a device that had not seen this one's newer list takes
+  // the deck off the screen, not the list out of the world (keepNewerLists).
+  const { merged, toPush } = keepNewerLists(
+    local,
+    mergePulled(local, heads, pulled, (d) => d.id),
+  );
   await applyMerged(db.decks, local, merged);
   const pushError = await pushRows(db.decks, 'decks', 'deck_id', toPush, DECKS_PER_PUSH);
   if (pushError) return refused('Push', pushError);

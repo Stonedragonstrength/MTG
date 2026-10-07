@@ -351,6 +351,84 @@ describe('two devices, one project', () => {
     }
   });
 
+  test('a delete made on a device that had not seen the newer list does not take that list away: Restore brings it back, on either device', async () => {
+    const cloud = project();
+    const desk = await device('desk');
+    await desk.store.getState().saveDeck(stompy());
+    await sync(desk);
+    const tablet = await device('tablet');
+    await sync(tablet);
+
+    // More of the list is typed in on the desktop. The tablet does not hear of it…
+    const d = await on(desk);
+    await d.saveDeck(addCard(d.decks[0], bolt));
+    await sync(desk);
+    // …and the deck is deleted there, by mistake, as the one-card list it still holds.
+    await (await on(tablet)).deleteDeck('stompy');
+    await sync(tablet);
+    expect(cloud.row('decks', 'stompy').data.cards).toHaveLength(1);
+
+    await sync(desk);
+    expect(desk.store.getState().decks).toEqual([]); // the delete did arrive
+    const [shelved] = await desk.store.getState().removedDecks();
+    expect(shelved.cards.map((c) => c.name)).toEqual(['Forest', 'Lightning Bolt']);
+    expect(shelved).not.toHaveProperty('contentAt');
+
+    // The tablet's shelf learns of the fuller list too.
+    await sync(tablet);
+    expect(tablet.store.getState().decks).toEqual([]);
+    await (await on(tablet)).restoreDeck('stompy');
+    expect(tablet.store.getState().decks[0].cards.map((c) => c.name)).toEqual(['Forest', 'Lightning Bolt']);
+    expect(tablet.store.getState().decks[0]).not.toHaveProperty('contentAt');
+    await sync(tablet);
+    await sync(desk);
+    expect(desk.store.getState().decks[0].cards.map((c) => c.name)).toEqual(['Forest', 'Lightning Bolt']);
+    expect(cloud.row('decks', 'stompy').deleted).toBe(false);
+    expect(cloud.row('decks', 'stompy').data).not.toHaveProperty('contentAt');
+  });
+
+  test('Restore on the device that held the newer list brings that list back', async () => {
+    project();
+    const desk = await device('desk');
+    await desk.store.getState().saveDeck(stompy());
+    await sync(desk);
+    const tablet = await device('tablet');
+    await sync(tablet);
+    const d = await on(desk);
+    await d.saveDeck(addCard(d.decks[0], bolt));
+    await sync(desk);
+    await (await on(tablet)).deleteDeck('stompy');
+    await sync(tablet);
+    await sync(desk);
+
+    await (await on(desk)).restoreDeck('stompy');
+    expect(desk.store.getState().decks[0].cards.map((c) => c.name)).toEqual(['Forest', 'Lightning Bolt']);
+    await sync(desk);
+    await sync(tablet);
+    expect(tablet.store.getState().decks[0].cards.map((c) => c.name)).toEqual(['Forest', 'Lightning Bolt']);
+  });
+
+  test('a deck edited and then deleted on one device comes back from the other as it was last edited', async () => {
+    const cloud = project();
+    const desk = await device('desk');
+    await desk.store.getState().saveDeck(stompy());
+    await sync(desk);
+    const tablet = await device('tablet');
+    await sync(tablet);
+
+    // The newer list is the deleted one this time: the desktop's copy is the old one.
+    const t = await on(tablet);
+    await t.saveDeck(addCard(t.decks[0], bolt));
+    await (await on(tablet)).deleteDeck('stompy');
+    await sync(tablet);
+    const mark = cloud.calls.length;
+    await sync(desk);
+    expect(cloud.calls.slice(mark).filter((c) => c.op === 'upsert')).toEqual([]); // nothing to add
+
+    await (await on(desk)).restoreDeck('stompy');
+    expect(desk.store.getState().decks[0].cards.map((c) => c.name)).toEqual(['Forest', 'Lightning Bolt']);
+  });
+
   test('decks are pulled in two steps: the light index every time, whole rows only for what changed', async () => {
     const cloud = project();
     const desk = await device('desk');
@@ -529,6 +607,93 @@ describe('whatever order things happen in', () => {
       expect((await getDb().decks.toArray()).filter((r) => r.dirty !== 0)).toEqual([]);
       expect((await getDb().profiles.toArray()).filter((r) => r.dirty !== 0)).toEqual([]);
     }
+  });
+});
+
+describe('two devices that stamped their edits alike', () => {
+  // A clock that runs ahead on one device makes the next two edits of its deck
+  // carry one stamp ("one past the copy I edited"). That takes devices that do
+  // not share a clock or a store: each gets its own copy of every module here.
+  const HOUR = 3_600_000;
+  let clock = 0;
+  let ahead = 0;
+
+  async function ownDevice(name: string, skew: number) {
+    vi.resetModules();
+    const db = await import('./db');
+    const itsCloud = await import('./cloud');
+    const { createAppStore: create } = await import('../state/store');
+    Object.assign(itsCloud.deps, deps); // the same project as everyone else
+    db._useDbForTests(`alike-${name}`);
+    const tables = db.getDb();
+    await Promise.all([tables.kv.clear(), tables.profiles.clear(), tables.decks.clear(), tables.garage.clear()]);
+    const store = create();
+    ahead = skew;
+    await store.getState().init();
+    return {
+      /** The store, with the clock on the wall of this device. */
+      state() {
+        ahead = skew;
+        return store.getState();
+      },
+      async sync() {
+        ahead = skew;
+        await itsCloud.syncAll();
+        await store.getState().refreshSynced();
+      },
+      row: (id: string) => tables.decks.get(id),
+    };
+  }
+
+  /** The tablet's clock runs two hours ahead; desk and phone each edit its deck before syncing again. */
+  async function tied(
+    deskEdit: (deck: Deck) => Deck,
+    phoneEdit: (deck: Deck) => Deck,
+  ) {
+    clock = Date.now();
+    vi.spyOn(Date, 'now').mockImplementation(() => clock + ahead);
+    project();
+    const tablet = await ownDevice('tablet', 2 * HOUR);
+    await tablet.state().saveDeck({ ...createDeck('Stompy'), id: 'x' });
+    await tablet.sync();
+    clock += 10 * 60_000;
+    const desk = await ownDevice('desk', 0);
+    const phone = await ownDevice('phone', 0);
+    await desk.sync();
+    await phone.sync();
+    clock += 60_000;
+    await desk.state().saveDeck(deskEdit(desk.state().decks[0]));
+    clock += 60_000;
+    await phone.state().saveDeck(phoneEdit(phone.state().decks[0]));
+    expect((await phone.row('x'))!.updatedAt).toBe((await desk.row('x'))!.updatedAt); // the tie
+    clock += 60_000;
+    await desk.sync();
+    await phone.sync();
+    return { desk, phone };
+  }
+
+  test('the one that lost shows what its database now holds', async () => {
+    const { phone } = await tied(
+      (deck) => ({ ...deck, name: 'Desk name' }),
+      (deck) => ({ ...deck, name: 'Phone name' }),
+    );
+    const stored = (await phone.row('x'))!;
+    expect(stored).toMatchObject({ name: 'Desk name', dirty: 0 });
+    expect(phone.state().decks[0].name).toBe('Desk name');
+  });
+
+  test('and its next tap on that deck does not undo the winner on every device', async () => {
+    const { desk, phone } = await tied(
+      (deck) => addCard(deck, forest),
+      (deck) => ({ ...deck, name: 'Phone name' }),
+    );
+    expect((await phone.row('x'))!.cards).toHaveLength(1);
+    clock += 60_000;
+    await phone.state().saveDeck({ ...phone.state().decks[0], owned: true }); // the "I own these" switch
+    await phone.sync();
+    await desk.sync();
+    expect(desk.state().decks[0]).toMatchObject({ owned: true });
+    expect(desk.state().decks[0].cards.map((c) => c.name)).toEqual(['Forest']);
   });
 });
 

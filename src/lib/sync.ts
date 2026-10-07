@@ -7,6 +7,10 @@ export type Synced<T> = T & {
   /** Tombstone: deleted, and kept so the other devices hear of it. Left
    * out while the row is live. */
   deleted?: true;
+  /** On a deck's tombstone: the stamp its content carried when it was
+   * deleted (`updatedAt` is then the deletion's own). It tells a device
+   * that hears of the deletion whether the list it holds is the newer one. */
+  contentAt?: number;
   /** 1 = changed here and not sent yet, 0 = as the cloud has it. A row
    * saved before syncing existed has neither and has never been sent. */
   dirty?: 0 | 1;
@@ -17,7 +21,7 @@ export type ProfileRow = Synced<PlayerProfile>;
 
 /** The content of a stored row, without the bookkeeping. */
 export function bare<T>(row: Synced<T>): T {
-  const { deleted, dirty, ...content } = row;
+  const { deleted, contentAt, dirty, ...content } = row;
   return content as T;
 }
 
@@ -124,6 +128,42 @@ export function mergePulled<T extends Stamped>(
       remote.push({ ...mine, updatedAt: head.updatedAt, dirty: 0 });
   }
   return mergeRows(local, remote, keyOf);
+}
+
+// ---- a deletion that travelled ----
+
+/** A deck can be deleted on a device that never heard of its latest edit:
+ * the tombstone then carries that device's older list, and taking it whole
+ * would put the older list on the "Recently deleted" shelf of the very
+ * device that typed the newer one in — Restore would bring back the wrong
+ * deck, and the right one would exist nowhere. So where the cloud's
+ * tombstone beat a live deck here whose list is newer than the one inside
+ * it, only the deletion is taken: the row keeps this device's list, and
+ * goes back up one stamp past the cloud's so that every shelf gets it. */
+export function keepNewerLists(
+  local: DeckRow[],
+  result: { merged: DeckRow[]; toPush: DeckRow[] },
+): { merged: DeckRow[]; toPush: DeckRow[] } {
+  const ours = new Map<string, DeckRow>();
+  for (const row of local) ours.set(row.id, row);
+  const kept: DeckRow[] = [];
+  const merged = result.merged.map((row) => {
+    const mine = ours.get(row.id);
+    const cloudDeleted = row !== mine && row.deleted === true;
+    // A tombstone that does not say how old its list is keeps it: unknown is not older.
+    if (!cloudDeleted || !mine || mine.deleted || row.contentAt === undefined) return row;
+    if (at(mine) <= row.contentAt) return row;
+    const ourList: DeckRow = {
+      ...mine,
+      deleted: true,
+      contentAt: at(mine),
+      updatedAt: at(row) + 1,
+      dirty: 1,
+    };
+    kept.push(ourList);
+    return ourList;
+  });
+  return kept.length > 0 ? { merged, toPush: [...result.toPush, ...kept] } : result;
 }
 
 // ---- the same player on two devices ----
