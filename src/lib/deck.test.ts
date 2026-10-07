@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import type { CardRecord } from './types';
+import type { CardRecord, DeckCard } from './types';
 import {
   addCard,
   changeCardCount,
@@ -9,12 +9,14 @@ import {
   createDeck,
   deckSize,
   deckStats,
+  frontType,
   groupCards,
   importLines,
   isLegendary,
   manaCurve,
   manaValue,
   offColorCards,
+  sectionCards,
   setCommander,
   setPartner,
   shortType,
@@ -51,6 +53,19 @@ describe('isLegendary', () => {
   test('a two-faced card is what its front face says', () => {
     expect(isLegendary('Legendary Creature — Human Wizard // Legendary Creature — Insect')).toBe(true);
     expect(isLegendary('Creature — Horror // Legendary Creature — Horror')).toBe(false); // legendary only once flipped
+  });
+});
+
+describe('frontType', () => {
+  test('is the whole type line, supertype and subtypes included', () => {
+    expect(frontType('Legendary Creature — Elf Druid')).toBe('Legendary Creature — Elf Druid');
+    expect(frontType('Legendary Land')).toBe('Legendary Land');
+  });
+
+  test('a two-faced card says only what its front face is', () => {
+    expect(frontType('Legendary Creature — Human Wizard // Legendary Planeswalker — Jace')).toBe(
+      'Legendary Creature — Human Wizard',
+    );
   });
 });
 
@@ -412,6 +427,55 @@ describe('groupCards', () => {
   });
 });
 
+describe('sectionCards (the deck list as the editor shows it)', () => {
+  const row = (name: string, typeLine: string, count = 1): DeckCard => ({
+    ...addCard(createDeck('x'), card(name, typeLine)).cards[0],
+    count,
+  });
+  /** Each section as [its label, its card names top to bottom]. */
+  const listed = (cards: DeckCard[]) =>
+    sectionCards(cards).map((s) => [s.label, s.cards.map((c) => c.name)]);
+
+  test('legendary cards of every type come first, A–Z, and the type sections hold only the rest', () => {
+    expect(
+      listed([
+        row('Forest', 'Basic Land — Forest', 8),
+        row('Lathril, Blade of the Elves', 'Legendary Creature — Elf Noble'),
+        row('Llanowar Elves', 'Creature — Elf Druid'),
+        row('Karn Liberated', 'Legendary Planeswalker — Karn'),
+        row('Sol Ring', 'Artifact'),
+        row("Gaea's Cradle", 'Legendary Land'),
+      ]),
+    ).toEqual([
+      ['Legendaries', ["Gaea's Cradle", 'Karn Liberated', 'Lathril, Blade of the Elves']],
+      ['Creatures', ['Llanowar Elves']],
+      ['Artifacts', ['Sol Ring']],
+      ['Lands', ['Forest']], // no Planeswalkers section: the only one is legendary
+    ]);
+  });
+
+  test('a two-faced card goes by its front face', () => {
+    expect(
+      listed([
+        // legendary only once it has transformed: an ordinary creature in the list
+        row('Docent of Perfection // Final Iteration', 'Creature — Insect Horror // Legendary Creature — Eldrazi Insect'),
+        row("Jace, Vryn's Prodigy // Jace, Telepath Unbound", 'Legendary Creature — Human Wizard // Legendary Planeswalker — Jace'),
+      ]),
+    ).toEqual([
+      ['Legendaries', ["Jace, Vryn's Prodigy // Jace, Telepath Unbound"]],
+      ['Creatures', ['Docent of Perfection // Final Iteration']],
+    ]);
+  });
+
+  test('a list with no legendary card has no Legendaries section', () => {
+    expect(listed([row('Forest', 'Basic Land — Forest', 8), row('Llanowar Elves', 'Creature — Elf Druid')])).toEqual([
+      ['Creatures', ['Llanowar Elves']],
+      ['Lands', ['Forest']],
+    ]);
+    expect(sectionCards([])).toEqual([]);
+  });
+});
+
 describe('offColorCards', () => {
   test('flags cards whose identity leaves the commander colors', () => {
     let deck = setCommander(createDeck('x'), card('Ashaya, Soul of the Wild', 'Legendary Creature — Elemental'));
@@ -477,6 +541,18 @@ describe('compositionExtras', () => {
     ]);
     expect(extras.equipment).toBe(1);
     expect(extras.auras).toBe(2);
+  });
+
+  test('counts the copies of legendary cards, whatever their type', () => {
+    const one = (name: string, typeLine: string) => addCard(createDeck('x'), card(name, typeLine)).cards[0];
+    const extras = compositionExtras([
+      { ...one('Thalia, Guardian of Thraben', 'Legendary Creature — Human Soldier'), count: 2 },
+      one("Gaea's Cradle", 'Legendary Land'),
+      one('Docent of Perfection // Final Iteration', 'Creature — Insect Horror // Legendary Creature — Eldrazi Insect'),
+      one('Sol Ring', 'Artifact'),
+    ]);
+    expect(extras.legendaries).toBe(3); // the Docent is legendary only on its back face
+    expect(compositionExtras([one('Sol Ring', 'Artifact')]).legendaries).toBe(0);
   });
 });
 

@@ -8,10 +8,12 @@ import {
   compositionExtras,
   deckSize,
   deckStats,
+  frontType,
   groupCards,
-  isLegendary,
+  LEGENDARIES,
   manaCurve,
   offColorCards,
+  sectionCards,
   setPartner,
   shortType,
   starRatings,
@@ -59,6 +61,13 @@ function CurveBar({ curve }: { curve: number[] }) {
   );
 }
 
+/** What a row says under the card's name. Legendaries mixes every card
+ * type, so its rows give the whole type line; a type section's header
+ * already said the type, so those rows add only the subtype. */
+function rowType(section: string, typeLine: string): string {
+  return section === LEGENDARIES ? frontType(typeLine) : shortType(typeLine);
+}
+
 interface Props {
   deckId: string;
   onBack: () => void;
@@ -71,7 +80,6 @@ export default function DeckEditor({ deckId, onBack }: Props) {
   const settings = useAppStore((s) => s.settings);
   const updateSettings = useAppStore((s) => s.updateSettings);
   const [finding, setFinding] = useState('');
-  const [legendOnly, setLegendOnly] = useState(false);
   const [adding, setAdding] = useState(false);
   const [viewing, setViewing] = useState<DeckCard | null>(null);
   const addToGarage = useAppStore((s) => s.addToGarage);
@@ -203,15 +211,9 @@ export default function DeckEditor({ deckId, onBack }: Props) {
   const found = q ? deck.cards.filter((c) => c.name.toLowerCase().includes(q)) : [];
   const foundCopies = found.reduce((sum, c) => sum + c.count, 0);
   const commanderMatch = q !== '' && (deck.commander?.name.toLowerCase().includes(q) ?? false);
-  const legendCount = deck.cards.filter((c) => isLegendary(c.typeLine)).length;
-  const showing = (c: DeckCard) =>
-    (q === '' || c.name.toLowerCase().includes(q)) && (!legendOnly || isLegendary(c.typeLine));
-  const visibleGroups =
-    q !== '' || legendOnly
-      ? groups
-          .map((g) => ({ ...g, cards: g.cards.filter(showing) }))
-          .filter((g) => g.cards.length > 0)
-      : groups;
+  // The list itself: Legendaries first, then the type sections for the
+  // rest. A search leaves only the sections that still hold a match.
+  const sections = sectionCards(q === '' ? deck.cards : found);
 
   return (
     <div className="screen deck-editor">
@@ -300,6 +302,9 @@ export default function DeckEditor({ deckId, onBack }: Props) {
           <span className="deck-health-chip">Equipment {extras.equipment}</span>
         )}
         {extras.auras > 0 && <span className="deck-health-chip">Auras {extras.auras}</span>}
+        {extras.legendaries > 0 && (
+          <span className="deck-health-chip">Legendaries {extras.legendaries}</span>
+        )}
         <span className="made-of-colors">
           {MANA_COLORS.filter((c) => c !== 'C' && colors[c as 'W'] > 0).map((c) => (
             <span
@@ -351,16 +356,6 @@ export default function DeckEditor({ deckId, onBack }: Props) {
         >
           🖼 {settings.deckArtOn ? 'Art on' : 'Art off'}
         </button>
-        <button
-          className={`ghost deck-art-toggle${legendOnly ? ' deck-legend-on' : ''}`}
-          aria-label="only legendary cards"
-          aria-pressed={legendOnly}
-          disabled={legendCount === 0}
-          title={legendCount === 0 ? 'No legendary cards in the 99 yet' : 'Show only legendary cards'}
-          onClick={() => setLegendOnly((on) => !on)}
-        >
-          ★ Legendary {legendCount}
-        </button>
       </div>
       {q !== '' && (
         <p className="hint deck-find-line">
@@ -372,15 +367,18 @@ export default function DeckEditor({ deckId, onBack }: Props) {
         </p>
       )}
 
-      {visibleGroups.map((group) => (
-        <section key={group.label} className="deck-group">
+      {sections.map((section) => (
+        <section
+          key={section.label}
+          className={`deck-group${section.label === LEGENDARIES ? ' deck-group--legends' : ''}`}
+        >
           <h2 className="deck-group-title">
-            {group.label}
+            {section.label}
             <span className="deck-group-count">
-              {group.cards.reduce((sum, c) => sum + c.count, 0)}
+              {section.cards.reduce((sum, c) => sum + c.count, 0)}
             </span>
           </h2>
-          {group.cards.map((card) => (
+          {section.cards.map((card) => (
             <div key={card.cardId} className="deck-row">
               <button className="deck-row-name" onClick={() => setViewing(card)}>
                 {settings.deckArtOn &&
@@ -396,8 +394,8 @@ export default function DeckEditor({ deckId, onBack }: Props) {
                   ))}
                 <span className="deck-row-title">
                   <span className="deck-row-cardname">{card.name}</span>
-                  {shortType(card.typeLine) !== '' && (
-                    <span className="deck-row-type">{shortType(card.typeLine)}</span>
+                  {rowType(section.label, card.typeLine) !== '' && (
+                    <span className="deck-row-type">{rowType(section.label, card.typeLine)}</span>
                   )}
                 </span>
               </button>

@@ -194,11 +194,17 @@ function bucketOf(typeLine: string): string {
   return 'Other';
 }
 
+/** The whole type line of a card's front face, supertype and all:
+ * "Legendary Creature — Elf Druid". */
+export function frontType(typeLine: string): string {
+  return typeLine.split(' // ')[0];
+}
+
 /** The display subtype: "Creature — Elf Druid" → "Elf Druid". Cards
  * without a dash add nothing (the group header already says the type);
  * double-faced cards read their front face. */
 export function shortType(typeLine: string): string {
-  const face = typeLine.split(' // ')[0];
+  const face = frontType(typeLine);
   const dash = face.indexOf('—');
   return dash === -1 ? '' : face.slice(dash + 1).trim();
 }
@@ -206,7 +212,7 @@ export function shortType(typeLine: string): string {
 /** Legendary by its front face — the side a card is while it sits in a
  * deck or a binder. Any card type: creatures, lands, Backgrounds… */
 export function isLegendary(typeLine: string): boolean {
-  return /\bLegendary\b/.test(typeLine.split(' // ')[0]);
+  return /\bLegendary\b/.test(frontType(typeLine));
 }
 
 export function groupCards(cards: DeckCard[]): { label: string; cards: DeckCard[] }[] {
@@ -222,6 +228,22 @@ export function groupCards(cards: DeckCard[]): { label: string; cards: DeckCard[
       label,
       cards: [...buckets.get(label)!].sort((a, b) => a.name.localeCompare(b.name)),
     }));
+}
+
+/** The section legendary cards are filed under, in a deck list and in
+ * the Curation. */
+export const LEGENDARIES = 'Legendaries';
+
+/** A deck list as the editor shows it: every legendary card first, in a
+ * section of its own whatever its type, A–Z; then the type groups, which
+ * hold only the rest. (`groupCards` alone still counts a legendary
+ * creature as a creature — that is what the "Made of" line wants.) */
+export function sectionCards(cards: DeckCard[]): { label: string; cards: DeckCard[] }[] {
+  const legends = cards
+    .filter((c) => isLegendary(c.typeLine))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const rest = groupCards(cards.filter((c) => !isLegendary(c.typeLine)));
+  return legends.length > 0 ? [{ label: LEGENDARIES, cards: legends }, ...rest] : rest;
 }
 
 /** {2}{G}{G} → 4. X counts 0; hybrids count their digit if any, else 1. */
@@ -284,15 +306,22 @@ export function colorBreakdown(
   return out;
 }
 
-/** Subtypes players track by name that the big buckets hide. */
-export function compositionExtras(cards: DeckCard[]): { equipment: number; auras: number } {
+/** What players track by name that the big buckets hide: two subtypes,
+ * and the legendary cards of every type. */
+export function compositionExtras(cards: DeckCard[]): {
+  equipment: number;
+  auras: number;
+  legendaries: number;
+} {
   let equipment = 0;
   let auras = 0;
+  let legendaries = 0;
   for (const c of cards) {
     if (/\bEquipment\b/.test(c.typeLine)) equipment += c.count;
     if (/\bAura\b/.test(c.typeLine)) auras += c.count;
+    if (isLegendary(c.typeLine)) legendaries += c.count;
   }
-  return { equipment, auras };
+  return { equipment, auras, legendaries };
 }
 
 /** 0–5 stars per card: how hard it leans into the commander's themes,

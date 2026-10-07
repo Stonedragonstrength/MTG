@@ -99,6 +99,32 @@ const amy: CardRecord = {
   colorIdentity: ['R'],
 };
 
+const cradle: CardRecord = {
+  ...ashaya,
+  id: 'c-cradle',
+  name: "Gaea's Cradle",
+  nameLower: "gaea's cradle",
+  typeLine: 'Legendary Land',
+  oracleText: '{T}: Add {G} for each creature you control.',
+  manaCost: '',
+  power: null,
+  toughness: null,
+};
+
+const clamp: CardRecord = {
+  ...ashaya,
+  id: 'c-clamp',
+  name: 'Skullclamp',
+  nameLower: 'skullclamp',
+  typeLine: 'Artifact — Equipment',
+  oracleText: 'Equipped creature gets +1/-1.',
+  manaCost: '{1}',
+  power: null,
+  toughness: null,
+  colors: [],
+  colorIdentity: [],
+};
+
 vi.mock('../data/synergy', () => ({
   findCommandersFor: vi.fn(async () => []),
   findSynergiesFor: vi.fn(async () => []),
@@ -121,6 +147,8 @@ vi.mock('../data/scryfall', () => ({
           'c-tymna': tymna,
           'c-toothy': toothy,
           'c-amy': amy,
+          'c-cradle': cradle,
+          'c-clamp': clamp,
         }
       ) as Record<string, CardRecord>)[id],
   ),
@@ -218,27 +246,76 @@ test('an ordinary commander shows no partner slot', async () => {
   expect(screen.queryByRole('button', { name: /add partner/i })).not.toBeInTheDocument();
 });
 
-test('legendary cards are their own choice in a deck: one tap shows only them', async () => {
-  const deck = addCard(sampleDeck(), thrasios); // a legendary creature among the 99
-  useAppStore.setState({ decks: [deck] });
-  const user = userEvent.setup();
-  render(<DeckEditor deckId="deck-1" onBack={() => {}} />);
-  const chip = screen.getByRole('button', { name: /only legendary cards/i });
-  expect(chip).toHaveTextContent('1');
-  await user.click(chip);
-  expect(chip).toHaveAttribute('aria-pressed', 'true');
-  expect(screen.getByText('Thrasios, Triton Hero')).toBeInTheDocument();
-  expect(screen.queryByText('Llanowar Elves')).not.toBeInTheDocument();
-  expect(screen.queryByText('Forest')).not.toBeInTheDocument();
-  expect(screen.getByText('11 / 100')).toBeInTheDocument(); // the deck itself is untouched
-  await user.click(chip);
-  expect(screen.getByText('Llanowar Elves')).toBeInTheDocument();
+/** The sample deck with two legendary cards of different types among the 99. */
+function legendDeck(): Deck {
+  const deck = addCard(addCard(sampleDeck(), thrasios), cradle);
+  return changeCardCount(deck, 'c-thrasios', 1); // two copies, to tell copies from cards
+}
+
+/** The card list as the player reads it, top to bottom: each section's title, copies and cards. */
+function listed(container: HTMLElement) {
+  return Array.from(container.querySelectorAll('.deck-group')).map((section) => ({
+    title: section.querySelector('.deck-group-title')!.firstChild!.textContent,
+    count: section.querySelector('.deck-group-count')!.textContent,
+    cards: Array.from(section.querySelectorAll('.deck-row-cardname')).map((el) => el.textContent),
+  }));
+}
+
+test('legendary cards in the 99 are listed first, in a Legendaries section of their own', async () => {
+  useAppStore.setState({ decks: [legendDeck()] });
+  const { container } = render(<DeckEditor deckId="deck-1" onBack={() => {}} />);
+  await screen.findByText('Lands 9/36'); // the card records are in
+  expect(listed(container)).toEqual([
+    // whatever their type, A–Z; the header counts copies like the others
+    { title: 'Legendaries', count: '3', cards: ["Gaea's Cradle", 'Thrasios, Triton Hero'] },
+    { title: 'Creatures', count: '1', cards: ['Llanowar Elves'] }, // the type sections hold the rest
+    { title: 'Lands', count: '8', cards: ['Forest'] },
+  ]);
+  // The section took the place of the "★ Legendary" filter: nothing hides the other cards.
+  expect(screen.queryByRole('button', { name: /only legendary cards/i })).not.toBeInTheDocument();
 });
 
-test('a deck with no legendary cards among the 99 has nothing to choose', () => {
+test('a row in Legendaries says its whole type, because that section mixes them', async () => {
+  useAppStore.setState({ decks: [legendDeck()] });
   render(<DeckEditor deckId="deck-1" onBack={() => {}} />);
-  expect(screen.getByRole('button', { name: /only legendary cards/i })).toBeDisabled();
+  await screen.findByText('Lands 9/36'); // the card records are in
+  const typeUnder = (name: string) =>
+    screen.getByText(name).closest('.deck-row-title')!.querySelector('.deck-row-type')?.textContent;
+  expect(typeUnder('Thrasios, Triton Hero')).toBe('Legendary Creature — Merfolk Wizard');
+  expect(typeUnder("Gaea's Cradle")).toBe('Legendary Land');
+  expect(typeUnder('Llanowar Elves')).toBe('Elf Druid'); // its section header already says Creatures
 });
+
+test('the commander stays in the hero block: with no other legendary card there is no Legendaries section', async () => {
+  const { container } = render(<DeckEditor deckId="deck-1" onBack={() => {}} />);
+  await screen.findByText('Lands 8/36'); // the card records are in
+  expect(listed(container).map((section) => section.title)).toEqual(['Creatures', 'Lands']);
+  expect(screen.queryByText(/^Legendaries/)).not.toBeInTheDocument(); // no empty section, no "Legendaries 0"
+});
+
+test('"Made of" still counts a legendary creature as a creature, and adds the Legendaries after the extras', async () => {
+  useAppStore.setState({ decks: [addCard(legendDeck(), clamp)] });
+  const { container } = render(<DeckEditor deckId="deck-1" onBack={() => {}} />);
+  const chips = Array.from(container.querySelectorAll('.deck-made-of .deck-health-chip')).map(
+    (el) => el.textContent,
+  );
+  expect(chips).toEqual(['Creatures 3', 'Artifacts 1', 'Lands 9', 'Equipment 1', 'Legendaries 3']);
+  // Deck health reads the cards the same way: a legendary land is a land.
+  expect(await screen.findByText('Lands 9/36')).toBeInTheDocument();
+});
+
+test('the deck search narrows Legendaries like any other section, and an emptied section disappears', async () => {
+  useAppStore.setState({ decks: [legendDeck()] });
+  const user = userEvent.setup();
+  const { container } = render(<DeckEditor deckId="deck-1" onBack={() => {}} />);
+  const box = screen.getByRole('searchbox', { name: /find in deck/i });
+  await user.type(box, 'cradle');
+  expect(listed(container)).toEqual([{ title: 'Legendaries', count: '1', cards: ["Gaea's Cradle"] }]);
+  await user.clear(box);
+  await user.type(box, 'fore');
+  expect(listed(container)).toEqual([{ title: 'Lands', count: '8', cards: ['Forest'] }]);
+});
+
 test('each mana-curve bar says how many cards sit at that cost', () => {
   render(<DeckEditor deckId="deck-1" onBack={() => {}} />);
   const curve = screen.getByLabelText('mana curve');

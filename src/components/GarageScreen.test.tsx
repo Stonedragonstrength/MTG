@@ -10,6 +10,10 @@ const records: Record<string, Partial<CardRecord>> = {
   sol: { colorIdentity: [], manaCost: '{1}', priceUsd: 2.5 },
   elves: { colorIdentity: ['G'], manaCost: '{G}' },
   hoof: { colorIdentity: ['G'], manaCost: '{5}{G}{G}{G}' },
+  // legendary cards of three different types, for the tests that add them
+  lathril: { colorIdentity: ['B', 'G'], manaCost: '{2}{B}{G}' },
+  cradle: { colorIdentity: ['G'], manaCost: '' },
+  karn: { colorIdentity: [], manaCost: '{7}' },
 };
 
 vi.mock('../data/scryfall', () => ({
@@ -189,35 +193,127 @@ test('the manage stepper never drops below one — removal is its own gesture', 
   expect(useAppStore.getState().setGarageCount).toHaveBeenCalledWith('elves', 2);
 });
 
-test('legendary cards are their own choice: one tap shows only them, in every grouping', async () => {
+/** The usual binder plus three legendary cards of different types. */
+function addLegends() {
   useAppStore.setState({
     garage: [
       ...useAppStore.getState().garage,
       row('lathril', 'Lathril, Blade of the Elves', 'Legendary Creature — Elf Noble', 1),
       row('cradle', "Gaea's Cradle", 'Legendary Land', 2),
+      row('karn', 'Karn Liberated', 'Legendary Planeswalker — Karn', 1),
     ],
   });
-  const user = userEvent.setup();
-  render(<GarageScreen onBack={() => {}} />);
-  const chip = screen.getByRole('button', { name: /only legendary cards/i });
-  expect(chip).toHaveTextContent('2'); // two legendary cards in the collection
-  expect(chip).toHaveAttribute('aria-pressed', 'false');
+}
 
-  await user.click(chip);
-  expect(chip).toHaveAttribute('aria-pressed', 'true');
-  expect(screen.getByRole('img', { name: 'Lathril, Blade of the Elves' })).toBeInTheDocument();
-  expect(screen.getByRole('img', { name: "Gaea's Cradle" })).toBeInTheDocument();
-  expect(screen.queryByRole('img', { name: 'Llanowar Elves' })).not.toBeInTheDocument();
-  expect(screen.queryByRole('img', { name: 'Lightning Bolt' })).not.toBeInTheDocument();
-  // still grouped the way the binder is set: a legendary land is a land
-  expect(screen.getByRole('heading', { name: /^Creatures/ })).toBeInTheDocument();
-  expect(screen.getByRole('heading', { name: /^Lands/ })).toBeInTheDocument();
+const LEGENDS_AZ = ["Gaea's Cradle", 'Karn Liberated', 'Lathril, Blade of the Elves'];
 
-  await user.click(chip); // and off again
-  expect(screen.getByRole('img', { name: 'Lightning Bolt' })).toBeInTheDocument();
+/** The binder as it reads top to bottom: each section's title, copies and cards. */
+function shelves(container: HTMLElement) {
+  return Array.from(container.querySelectorAll('.deck-group:not(.curation-removed)')).map(
+    (section) => ({
+      title: section.querySelector('.deck-group-title')!.firstChild!.textContent,
+      count: section.querySelector('.deck-group-count')!.textContent,
+      cards: Array.from(section.querySelectorAll('.curation-card img')).map((img) =>
+        img.getAttribute('alt'),
+      ),
+    }),
+  );
+}
+
+test('legendary cards have a section of their own, first, whatever their type', async () => {
+  addLegends();
+  const { container } = render(<GarageScreen onBack={() => {}} />);
+  await screen.findByText(/\$9\.00/); // the card data is in
+  expect(shelves(container)).toEqual([
+    { title: 'Legendaries', count: '4', cards: LEGENDS_AZ }, // copies: the Cradle is a pair
+    { title: 'Creatures', count: '2', cards: ['Craterhoof Behemoth', 'Llanowar Elves'] },
+    { title: 'Instants', count: '4', cards: ['Lightning Bolt'] },
+    { title: 'Artifacts', count: '2', cards: ['Sol Ring'] },
+    // no Planeswalkers, no Lands: the only ones here are legendary
+  ]);
+  // The section took the place of the "★ Legendary" filter: nothing hides the other cards.
+  expect(screen.queryByRole('button', { name: /only legendary cards/i })).not.toBeInTheDocument();
 });
 
-test('a collection with no legendary cards says so instead of offering an empty choice', () => {
-  render(<GarageScreen onBack={() => {}} />);
-  expect(screen.getByRole('button', { name: /only legendary cards/i })).toBeDisabled();
+test('grouping by color or by cost keeps Legendaries first and files only the rest', async () => {
+  addLegends();
+  const user = userEvent.setup();
+  const { container } = render(<GarageScreen onBack={() => {}} />);
+  const legends = { title: 'Legendaries', count: '4', cards: LEGENDS_AZ };
+
+  await user.click(screen.getByRole('button', { name: /group by color/i }));
+  await screen.findByRole('heading', { name: /^Red/ }); // color identities have loaded
+  expect(shelves(container)).toEqual([
+    legends, // not split over Multicolor, Colorless and Lands
+    { title: 'Red', count: '4', cards: ['Lightning Bolt'] },
+    { title: 'Green', count: '2', cards: ['Craterhoof Behemoth', 'Llanowar Elves'] },
+    { title: 'Colorless', count: '2', cards: ['Sol Ring'] },
+  ]);
+
+  await user.click(screen.getByRole('button', { name: /group by cost/i }));
+  expect(shelves(container)).toEqual([
+    legends, // not split over 4 mana, 7+ mana and Lands
+    { title: '1 mana', count: '7', cards: ['Lightning Bolt', 'Llanowar Elves', 'Sol Ring'] },
+    { title: '7+ mana', count: '1', cards: ['Craterhoof Behemoth'] },
+  ]);
+});
+
+test('A–Z stays one flat list: legendary cards keep their place in the alphabet', async () => {
+  addLegends();
+  const user = userEvent.setup();
+  const { container } = render(<GarageScreen onBack={() => {}} />);
+  await user.click(screen.getByRole('button', { name: /group by a–z/i }));
+  expect(shelves(container)).toEqual([
+    {
+      title: 'All cards',
+      count: '12',
+      cards: [
+        'Craterhoof Behemoth',
+        "Gaea's Cradle",
+        'Karn Liberated',
+        'Lathril, Blade of the Elves',
+        'Lightning Bolt',
+        'Llanowar Elves',
+        'Sol Ring',
+      ],
+    },
+  ]);
+});
+
+test('the text filter and the color pips narrow Legendaries along with everything else', async () => {
+  addLegends();
+  const user = userEvent.setup();
+  const { container } = render(<GarageScreen onBack={() => {}} />);
+  await user.type(screen.getByRole('searchbox'), 'elves');
+  expect(shelves(container)).toEqual([
+    { title: 'Legendaries', count: '1', cards: ['Lathril, Blade of the Elves'] },
+    { title: 'Creatures', count: '1', cards: ['Llanowar Elves'] },
+  ]);
+
+  await user.clear(screen.getByRole('searchbox'));
+  await user.click(screen.getByRole('button', { name: /only green cards/i }));
+  await screen.findByRole('img', { name: 'Llanowar Elves' }); // color identities have loaded
+  expect(shelves(container)).toEqual([
+    { title: 'Legendaries', count: '3', cards: ["Gaea's Cradle", 'Lathril, Blade of the Elves'] },
+    { title: 'Creatures', count: '2', cards: ['Craterhoof Behemoth', 'Llanowar Elves'] },
+  ]);
+});
+
+test('sorting by cost reorders the cards inside Legendaries too', async () => {
+  addLegends();
+  const user = userEvent.setup();
+  const { container } = render(<GarageScreen onBack={() => {}} />);
+  const legends = () => shelves(container)[0];
+  expect(legends()).toEqual({ title: 'Legendaries', count: '4', cards: LEGENDS_AZ });
+  await user.click(screen.getByRole('button', { name: /sort by cost/i }));
+  await vi.waitFor(() =>
+    // a land costs nothing, Lathril four, Karn seven
+    expect(legends().cards).toEqual(["Gaea's Cradle", 'Lathril, Blade of the Elves', 'Karn Liberated']),
+  );
+});
+
+test('a binder with no legendary cards has no Legendaries section', async () => {
+  const { container } = render(<GarageScreen onBack={() => {}} />);
+  await screen.findByText(/\$9\.00/); // the card data is in
+  expect(shelves(container).map((shelf) => shelf.title)).toEqual(['Creatures', 'Instants', 'Artifacts']);
 });

@@ -504,6 +504,15 @@ label {
   overflow: hidden;
 }
 
+/* A Legendaries row says its whole type ("Legendary Creature — Elf Druid"):
+   on a narrow screen it runs onto a second line before it is cut short. */
+.deck-group--legends .deck-row-type {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
+}
+
 .deck-tools {
   display: flex;
   gap: 8px;
@@ -517,20 +526,6 @@ label {
 }
 
 .deck-art-toggle { white-space: nowrap; }
-
-/* "★ Legendary": a switched-on choice wears the accent, in the deck and the binder. */
-.deck-legend-on,
-.legend-chip.chip--recent {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-/* Phones: the search keeps a line to itself, the view choices sit under it. */
-@media (max-width: 480px) {
-  .deck-tools { flex-wrap: wrap; }
-  .deck-tools input[type='search'] { flex: 1 1 100%; }
-  .deck-tools .deck-art-toggle { flex: 1; }
-}
 
 .deck-find-line { margin: 4px 2px 0; }
 
