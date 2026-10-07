@@ -725,6 +725,147 @@ describe('cards mode', () => {
     expect(guard(counted, orig)).toBe(false);
   });
 
+  /** The op and the replay guard the last action handed to the sync module. */
+  const lastSynced = () => {
+    const [op, orig, opts] = (tableSync.onLocalMutation as ReturnType<typeof vi.fn>).mock.lastCall!;
+    return {
+      op: op as (g: GameState) => GameState,
+      orig: orig as GameState,
+      guard: (opts as { guard: (b: GameState, o: GameState) => boolean }).guard,
+    };
+  };
+  /** Another device at the same table, holding the state `g`. */
+  const deviceAt = (g: GameState) => {
+    const other = createAppStore();
+    other.setState({ game: g });
+    return other;
+  };
+  const libraryOf = (g: GameState) => g.players[0].cards!.library.map((c) => c.iid);
+  /** `g` with only these cards in seat 0's library, top first. */
+  const withLibrary = (g: GameState, iids: string[]): GameState => ({
+    ...g,
+    players: g.players.map((p, i) => {
+      if (i !== 0) return p;
+      const library = iids.map((iid) => p.cards!.library.find((c) => c.iid === iid)!);
+      return { ...p, cards: { ...p.cards!, library } };
+    }),
+  });
+
+  test('a draw or mill made before a scry was heard of is skipped, and the scried card stays put', async () => {
+    for (const take of ['drawCards', 'millCards'] as const) {
+      const store = await cardsStore(); // this device still shows x on top
+      const unheard = store.getState().game!;
+      const [x] = libraryOf(unheard);
+      const scryer = deviceAt(unheard);
+      scryer.getState().arrangeTop(0, [x], { top: [], bottom: [x], graveyard: [], hand: [] });
+      const table = scryer.getState().game!; // what the table holds once the scry lands
+      expect(libraryOf(table).at(-1)).toBe(x);
+
+      store.getState()[take](0, 1); // a tap on the pile, aimed at x
+      const { guard, orig } = lastSynced();
+      expect(guard(orig, orig)).toBe(true); // nothing arranged since: it stands
+      expect(guard(table, orig)).toBe(false); // the scry got there first: x is not dug back out
+    }
+  });
+
+  test('after a scry, a draw of cards that are still on top stands, whatever order they are in', async () => {
+    const store = await cardsStore();
+    const unheard = store.getState().game!;
+    const [x, y] = libraryOf(unheard);
+    const scryer = deviceAt(unheard);
+    scryer.getState().arrangeTop(0, [x, y], { top: [y, x], bottom: [], graveyard: [], hand: [] }); // swapped
+    const table = scryer.getState().game!;
+
+    store.getState().drawCards(0, 2); // x and y: the same two cards either way
+    const both = lastSynced();
+    expect(both.guard(table, both.orig)).toBe(true);
+
+    deviceAt(unheard).getState().drawCards(0, 1); // x alone, which now sits under y
+    const one = lastSynced();
+    expect(one.guard(table, one.orig)).toBe(false);
+  });
+
+  test('every scry marks the library anew: a draw made between two of them is skipped by the second', async () => {
+    const store = await cardsStore();
+    const [x, y] = libraryOf(store.getState().game!);
+    store.getState().arrangeTop(0, [x, y], { top: [y, x], bottom: [], graveyard: [], hand: [] }); // heard of here
+    const scryer = deviceAt(store.getState().game!);
+    scryer.getState().arrangeTop(0, [y], { top: [], bottom: [y], graveyard: [], hand: [] }); // not yet
+    const table = scryer.getState().game!;
+
+    store.getState().drawCards(0, 1); // y, which the second scry sent away
+    const { guard, orig } = lastSynced();
+    expect(guard(orig, orig)).toBe(true);
+    expect(guard(table, orig)).toBe(false);
+  });
+
+  test('a draw that raced a shuffle still keeps the card it drew, on a scried library too', async () => {
+    const store = await cardsStore();
+    const [x, y, z] = libraryOf(store.getState().game!);
+    store.getState().drawCards(0, 1); // x, off a library nobody has arranged
+    const plain = lastSynced();
+    expect(plain.guard(withLibrary(plain.orig, [z, y, x]), plain.orig)).toBe(true); // "drew first" stands
+
+    store.getState().arrangeTop(0, [y], { top: [y], bottom: [], graveyard: [], hand: [] }); // a scry heard of here
+    store.getState().drawCards(0, 1); // y
+    const scried = lastSynced();
+    expect(scried.guard(withLibrary(scried.orig, [z, y]), scried.orig)).toBe(true); // a shuffle is not a scry
+    expect(scried.guard(withLibrary(scried.orig, [z]), scried.orig)).toBe(false); // y itself is gone: off
+  });
+
+  test('a scry replayed onto a moved table leaves the same mark, so the draw made after it replays too', async () => {
+    const store = await cardsStore();
+    const before = store.getState().game!;
+    const [x, y] = libraryOf(before);
+    store.getState().arrangeTop(0, [x, y], { top: [y], bottom: [x], graveyard: [], hand: [] });
+    const scry = lastSynced();
+    const mark = store.getState().game!.players[0].cards!.stacked;
+    expect(mark).toBeTruthy();
+    store.getState().drawCards(0, 1); // y, off the top it just arranged
+    const drew = lastSynced();
+
+    // A life total changed meanwhile: a rebase replays both onto that table, in order.
+    const moved = { ...before, players: before.players.map((p, i) => (i === 1 ? { ...p, life: 31 } : p)) };
+    expect(scry.guard(moved, scry.orig)).toBe(true);
+    const replayed = scry.op(moved);
+    expect(replayed.players[0].cards!.stacked).toBe(mark);
+    expect(drew.guard(replayed, drew.orig)).toBe(true);
+    expect(drew.op(replayed).players[0].cards!.hand.at(-1)!.iid).toBe(y);
+  });
+
+  test('a draw that follows a scry made here still stands when a shuffle elsewhere calls that scry off', async () => {
+    const store = await cardsStore();
+    const before = store.getState().game!;
+    const [x, y, z] = libraryOf(before);
+    store.getState().arrangeTop(0, [x], { top: [x], bottom: [], graveyard: [], hand: [] }); // this one lands
+    const landed = store.getState().game!;
+    store.getState().arrangeTop(0, [x], { top: [], bottom: [x], graveyard: [], hand: [] }); // this one will not
+    const scry = lastSynced();
+    store.getState().drawCards(0, 1); // y, the new top
+    const drew = lastSynced();
+
+    const shuffled = withLibrary(landed, [z, y, x]); // another device shuffled first
+    expect(scry.guard(shuffled, scry.orig)).toBe(false); // x is not on top any more: the scry is off
+    expect(drew.guard(shuffled, drew.orig)).toBe(true); // nobody else arranged anything: y was drawn first
+    expect(drew.guard(withLibrary(before, [z, y, x]), drew.orig)).toBe(true); // the same had neither scry landed
+  });
+
+  test('a draw that follows a scry made here is still skipped when someone else’s scry got there first', async () => {
+    const store = await cardsStore();
+    const before = store.getState().game!;
+    const [x, y] = libraryOf(before);
+    const scryer = deviceAt(before);
+    scryer.getState().arrangeTop(0, [x, y], { top: [], bottom: [x, y], graveyard: [], hand: [] }); // unheard of here
+    const table = scryer.getState().game!;
+
+    store.getState().arrangeTop(0, [x], { top: [], bottom: [x], graveyard: [], hand: [] });
+    const scry = lastSynced();
+    store.getState().drawCards(0, 1); // y, which the other scry sent to the bottom
+    const drew = lastSynced();
+    expect(scry.guard(table, scry.orig)).toBe(false);
+    expect(drew.guard(table, drew.orig)).toBe(false);
+  });
+
   test('remote feed entries merge into the local log exactly once', async () => {
     const store = createAppStore();
     await store.getState().init();

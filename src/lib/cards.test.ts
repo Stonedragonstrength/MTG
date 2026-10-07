@@ -17,6 +17,7 @@ import {
   seedSeat,
   setCardCounter,
   setHandHeld,
+  shuffleLibrary,
   spendMana,
   tapCard,
   untapAllCards,
@@ -201,6 +202,47 @@ describe('arrangeTop (scry, surveil, look-and-pick)', () => {
       ),
     };
     expect(arrangeTop(buried, 0, [a, b], { top: [b, a], bottom: [], graveyard: [], hand: [] })).toBe(buried);
+  });
+
+  test('marks the library with the id it is given, and the next arrangement marks it anew', () => {
+    const g = seeded();
+    expect('stacked' in g.players[0].cards!).toBe(false); // a fresh seat has never been arranged
+    const [a, b] = top3(g);
+    const once = arrangeTop(g, 0, [a, b], { top: [b, a], bottom: [], graveyard: [], hand: [] }, 'look-1');
+    expect(once.players[0].cards!.stacked).toBe('look-1');
+    const twice = arrangeTop(once, 0, [b], { top: [], bottom: [b], graveyard: [], hand: [] }, 'look-2');
+    expect(twice.players[0].cards!.stacked).toBe('look-2');
+  });
+
+  test('an arrangement that is called off marks nothing', () => {
+    const g = seeded();
+    const [a, b] = top3(g);
+    const drawn = draw(g, 0, [a]); // a is gone, so a look at a and b is void
+    expect(arrangeTop(drawn, 0, [a, b], { top: [b, a], bottom: [], graveyard: [], hand: [] }, 'look-1')).toBe(
+      drawn,
+    );
+  });
+
+  test('nothing but an arrangement touches the mark: not a draw, a mill, a shuffle or a card put on top', () => {
+    const g = seeded();
+    const [a, b] = top3(g);
+    const marked = arrangeTop(g, 0, [a], { top: [a], bottom: [], graveyard: [], hand: [] }, 'look-1');
+    const held = g.players[0].cards!.hand[0].iid;
+    const others: ((from: GameState) => GameState)[] = [
+      (from) => draw(from, 0, [a]),
+      (from) => millN(from, 0, [a]),
+      (from) => shuffleLibrary(from, 0, 7),
+      (from) => mulligan(from, 0, 7),
+      (from) => bottomCards(from, 0, [held]),
+      (from) => keepHand(from, 0, [held]),
+      (from) => moveCard(from, 0, held, 'hand', 'library', { pos: 'top' }),
+      (from) => moveCard(from, 0, b, 'library', 'hand'),
+    ];
+    for (const act of others) {
+      expect(act(marked)).not.toBe(marked); // it did happen
+      expect(act(marked).players[0].cards!.stacked).toBe('look-1');
+      expect('stacked' in act(g).players[0].cards!).toBe(false); // and it never starts one
+    }
   });
 });
 

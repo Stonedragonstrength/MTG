@@ -175,6 +175,27 @@ function payFrom(
   };
 }
 
+/** Replay guard for a draw or a mill: `iids` are the cards the acting
+ * device saw on top, `known` the marks it knew the seat's library by.
+ * As long as the library's mark is one of those, the cards are taken
+ * wherever they now sit — "drew first" has to survive a shuffle. Any
+ * other mark is a look that device had not heard of: then they are taken
+ * only if they are still the top, so a tap aimed at a card that has
+ * since been scried to the bottom does not dig it back out. */
+function takeGuard(
+  seat: number,
+  iids: string[],
+  known: (string | undefined)[],
+): (base: GameState) => boolean {
+  return (base) => {
+    const cards = base.players[seat]?.cards;
+    if (!cards || !iids.every((i) => cards.library.some((c) => c.iid === i))) return false;
+    if (known.includes(cards.stacked)) return true;
+    const top = cards.library.slice(0, iids.length);
+    return iids.every((i) => top.some((c) => c.iid === i));
+  };
+}
+
 export function createAppStore() {
   return create<AppStore>()((set, get) => {
     let history: GameState[] = [];
@@ -260,6 +281,13 @@ export function createAppStore() {
       };
       mutateGame(fn, undefined, { guard: guard ?? (() => true), maxAgeMs });
     };
+
+    // A look made on this device is not news to it: when the table calls
+    // one off (someone shuffled first), the draw made after it has to
+    // stand all the same. So each mark minted here remembers the marks
+    // this device already knew that library by, and a draw carries them all.
+    const ownLooks = new Map<string | undefined, (string | undefined)[]>();
+    const knownMarks = (stacked: string | undefined) => ownLooks.get(stacked) ?? [stacked];
 
     return {
       setupDone: false,
@@ -438,10 +466,7 @@ export function createAppStore() {
         cardMutate(
           (base) => cardsLib.draw(base, seat, iids),
           text,
-          (base) => {
-            const baseLib = base.players[seat]?.cards?.library;
-            return !!baseLib && iids.every((i) => baseLib.some((c) => c.iid === i));
-          },
+          takeGuard(seat, iids, knownMarks(g.players[seat]?.cards?.stacked)),
         );
       },
 
@@ -532,10 +557,7 @@ export function createAppStore() {
         cardMutate(
           (base) => cardsLib.millN(base, seat, iids),
           `${seatName(g, seat)} mills ${iids.length}`,
-          (base) => {
-            const baseLib = base.players[seat]?.cards?.library;
-            return !!baseLib && iids.every((i) => baseLib.some((c) => c.iid === i));
-          },
+          takeGuard(seat, iids, knownMarks(g.players[seat]?.cards?.stacked)),
         );
       },
 
@@ -561,8 +583,10 @@ export function createAppStore() {
           plan.hand.length > 0 && `${plan.hand.length} in hand`,
         ].filter(Boolean);
         if (parts.length === 0) return;
+        const mark = cardsLib.newIid(); // minted at act time: a replay leaves the same mark
+        ownLooks.set(mark, [mark, ...knownMarks(g.players[seat]?.cards?.stacked)]);
         cardMutate(
-          (base) => cardsLib.arrangeTop(base, seat, looked, plan),
+          (base) => cardsLib.arrangeTop(base, seat, looked, plan, mark),
           `${seatName(g, seat)} puts ${parts.join(', ')}`,
           (base) => {
             const top = base.players[seat]?.cards?.library.slice(0, looked.length);

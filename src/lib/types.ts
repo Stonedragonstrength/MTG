@@ -60,6 +60,10 @@ export interface SeatCards {
    * it has gone back to the command zone, i.e. its own tax ÷ 2. Absent on
    * seats dealt before commanders were tracked per card. */
   cmd?: Record<string, number>;
+  /** Id of the last look that arranged the top of the library (scry,
+   * surveil): a draw or mill made before it cannot trust the top it saw.
+   * A shuffle leaves it alone. Absent until the first such look. */
+  stacked?: string;
 }
 
 /** Synced announcement ring — the trust model's deterrent. Cap 30. */

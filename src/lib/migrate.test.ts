@@ -82,4 +82,21 @@ describe('cards-mode migration', () => {
     good.feed = [{ id: 'f1', t: 1, text: 'A draws 1' }];
     expect(isValidGame(good)).toBe(true);
   });
+
+  test('a scried library keeps its mark through validation and migration', () => {
+    const save = structuredClone(TRACKER_SAVE);
+    save.players[0].cards = {
+      library: [{ iid: 'i1', cardId: 'c1', name: 'Forest' }],
+      hand: [],
+      battlefield: [],
+      graveyard: [],
+      exile: [],
+      command: [],
+      mulligans: 0,
+      deckName: 'Stompy',
+      stacked: 'look-1',
+    };
+    expect(isValidGame(save)).toBe(true);
+    expect(migrateGame(save).players[0].cards?.stacked).toBe('look-1'); // every remote state passes here
+  });
 });

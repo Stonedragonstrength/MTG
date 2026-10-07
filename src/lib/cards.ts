@@ -161,12 +161,15 @@ export interface TopPlan {
 /** Scry, surveil, "look at the top N and put one in your hand": the cards
  * looked at leave the top of the library and go where the plan says. The
  * plan must account for exactly those cards, and they must still BE the
- * top of the library — a draw or a shuffle in between calls it off. */
+ * top of the library — a draw or a shuffle in between calls it off.
+ * `mark` names this look on the seat. The caller mints it, like a
+ * shuffle's seed: a replay has to leave the same one. */
 export function arrangeTop(
   g: GameState,
   seat: number,
   looked: string[],
   plan: TopPlan,
+  mark?: string,
 ): GameState {
   return updateSeat(g, seat, (cards) => {
     const planned = [...plan.top, ...plan.bottom, ...plan.graveyard, ...plan.hand];
@@ -187,6 +190,7 @@ export function arrangeTop(
       library: [...pick(plan.top), ...t.rest, ...pick(plan.bottom)],
       graveyard: [...cards.graveyard, ...pick(plan.graveyard)],
       hand: [...cards.hand, ...pick(plan.hand)],
+      ...(mark ? { stacked: mark } : {}),
     };
   });
 }
