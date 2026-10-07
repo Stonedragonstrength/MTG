@@ -242,10 +242,11 @@ describe('push loop', () => {
     expect(ops[2] ?? saveMock.mock.calls[2]?.[3]).not.toBe(ops[0]); // rebase = fresh opId
   });
 
-  test('this build writes schema 3, so one that predates turn rules stops writing at its table', () => {
-    // Sick flags and land plays live in the shared state. A build that does not
-    // know them would pass turns without readying anything: it has to go read-only.
-    expect(GAME_SCHEMA).toBe(3);
+  test('this build writes schema 4, so one that predates combat on the cards stops writing at its table', () => {
+    // Sick flags and land plays (3) and the combat (4) live in the shared state. A build
+    // that does not know the combat would show no bar, could not block, and its Pass turn
+    // would end a fight it never saw: it has to go read-only.
+    expect(GAME_SCHEMA).toBe(4);
   });
 
   test('a build behind the table goes read-only instead of fighting', async () => {

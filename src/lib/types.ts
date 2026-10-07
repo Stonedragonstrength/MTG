@@ -136,6 +136,10 @@ export interface GameState {
   turnStartedAt: number;
   feed?: FeedEntry[]; // synced announcement ring, cap 30, deduped by id
   reveal?: Reveal; // the latest reveal only: the next one replaces it
+  /** The fight on the table, if any. Read it through liveCombat() in
+   * lib/combat.ts, never directly: a finished or stale one stays here
+   * until the turn passes. */
+  combat?: CombatState;
 }
 
 export interface DeckCard {
@@ -190,4 +194,42 @@ export interface CardRecord {
   isToken: boolean;
   isBasicLand: boolean;
   priceUsd?: number | null; // present on cards imported after prices shipped
+}
+
+// ---- combat on the cards ----
+// Any change to the shape of CombatState has to bump GAME_SCHEMA
+// (data/onlineTable.ts): an older build drops a shape it does not know.
+
+/** One creature in a fight: a real card (its instance id) or a stack (its item id). */
+export interface CombatUnit {
+  kind: 'card' | 'stack';
+  id: string;
+}
+
+/** A blocker; for a stack, how many of its copies stand in the way (omitted = 1). */
+export interface CombatBlock extends CombatUnit {
+  n?: number;
+}
+
+/** One card attacking, or some copies of one stack attacking one player.
+ * A stack's copies are interchangeable, so the state only says how many:
+ * a stack that sends copies at two players has two of these. */
+export interface CombatAttack {
+  unit: CombatUnit; // belongs to the attacking seat
+  n?: number; // stack copies attacking (omitted = 1; a card is always 1)
+  target: number; // the defending seat
+  blockers?: CombatBlock[]; // in the order declared; omitted when none
+  blocked?: true; // stopped by something that is not on the tablet (a paper card)
+  tapped?: number; // how many of these the declaration itself tapped (so a cancel can stand them back up)
+}
+
+export interface CombatState {
+  id: string;
+  turn: number; // GameState.turnNumber when it was declared
+  active: number; // the attacking seat = activePlayerIndex when it was declared
+  /** 'done' is what Apply and Cancel leave behind until the turn passes,
+   * so that a start replayed late meets its own id and does nothing. */
+  step: 'attackers' | 'blockers' | 'damage' | 'done';
+  attacks?: CombatAttack[]; // omitted while empty; gone at 'done'
+  defender?: number; // blockers step: the seat choosing now
 }

@@ -4,6 +4,9 @@ import { getDb, kvDelete, kvGet, kvSet } from '../data/db';
 import * as tableSync from '../data/onlineTable';
 import type { SyncOpts, TableStatus } from '../data/onlineTable';
 import * as cardsLib from '../lib/cards';
+import * as combatLib from '../lib/combat';
+import type { CombatOutcome } from '../lib/combat';
+import { hasKeyword, readSeat, readUnit } from '../lib/combatEngine';
 import { attackerLabel } from '../lib/commanders';
 import { isValidGame, migrateGame } from '../lib/migrate';
 import { DEFAULT_SETTINGS, getSettings, saveSettings, type Settings } from '../data/settings';
@@ -16,6 +19,7 @@ import type {
   BoardItem,
   CardRecord,
   CardZone,
+  CombatUnit,
   Deck,
   FeedEntry,
   GameConfig,
@@ -87,6 +91,25 @@ export interface AppStore {
   /** Shows cards to the whole table, by name. They stay where they are. */
   revealCards(seat: number, iids: string[], from: 'hand' | 'library'): void;
   setHandHeld(seat: number, held: boolean): void;
+  // ---- combat on the cards (lib/combat.ts; read the fight with liveCombat) ----
+  /** Opens a fight for the active seat. */
+  startCombat(): void;
+  /** Attackers step: `n` copies of `unit` attack `target` (a card: 1 or 0; 0 takes it back). */
+  setAttacker(unit: CombatUnit, target: number, n: number): void;
+  /** Declares the attack: taps the attackers without vigilance, then the first defender is up. */
+  confirmAttackers(): Promise<void>;
+  /** Blockers step: `n` copies of the defender's `blocker` stand in `attacker`'s way (0 takes it back). */
+  setBlocker(defender: number, attacker: CombatUnit, blocker: CombatUnit, n: number): void;
+  /** The paper-blocker mark: `attacker` is stopped by something that is not on the tablet. */
+  setAttackBlocked(defender: number, attacker: CombatUnit, blocked: boolean): void;
+  /** That seat has finished blocking: the next defender is up, or damage. */
+  finishBlocks(defender: number): void;
+  /** Damage step: writes the outcome the table confirmed and ends the fight. */
+  applyCombat(outcome: CombatOutcome): void;
+  /** Calls the fight off: no damage, and what the declaration tapped stands back up. */
+  cancelCombat(): void;
+  /** A correction: how many times that commander has gone home (its tax ÷ 2). */
+  setCommanderReturns(seat: number, iid: string, n: number): void;
   undo(): void;
   canUndo(): boolean;
   adjustLife(playerIdx: number, delta: number): void;
@@ -847,6 +870,144 @@ export function createAppStore() {
         cardMutate((base) => cardsLib.setHandHeld(base, seat, held), null);
       },
 
+      // ---- combat on the cards ----
+      // The fight is shared table state (lib/combat.ts). Every action names
+      // the fight it was pressed in, and every guard compares the table
+      // with the state the press was made on (`orig`) — "same id, expected
+      // step" is not enough: Undo brings an id back, so a napping phone's
+      // Done could land on a different attack than the one it saw.
+
+      startCombat() {
+        const g = get().game;
+        if (!g) return;
+        // Minted at press time, like a look's mark: a replay starts this
+        // very fight, in the turn it was meant for, or nothing.
+        const stamp = { id: cardsLib.newIid(), turn: g.turnNumber, active: g.activePlayerIndex };
+        cardMutate(
+          (base) => combatLib.startCombat(base, stamp),
+          null,
+          // The table's combat record must still be the one this device
+          // saw: a start replayed after its own fight finished meets the
+          // 'done' marker and is dropped.
+          (base, orig) => isTurn(base, stamp) && combatLib.sameRecord(base, orig),
+        );
+      },
+
+      setAttacker(unit, target, n) {
+        const g = get().game;
+        const fight = g && combatLib.liveCombat(g);
+        if (!fight) return;
+        cardMutate(
+          (base) => combatLib.setAttack(base, fight.id, unit, target, n),
+          null,
+          combatLib.sameStep,
+        );
+      },
+
+      async confirmAttackers() {
+        const seen = get().game;
+        const opened = seen && combatLib.liveCombat(seen);
+        if (!seen || !opened || opened.step !== 'attackers') return;
+        // Vigilance is on the cards: read them first, like playCard does.
+        const records = await seatRecords(seen, opened.active);
+        const g = get().game;
+        const fight = g && combatLib.liveCombat(g);
+        if (!g || !fight || fight.id !== opened.id || fight.step !== 'attackers') return;
+        const attacks = fight.attacks ?? [];
+        const seat = readSeat(g, fight.active, records);
+        const taps: combatLib.AttackTaps = { cards: [], stacks: {} };
+        for (const a of attacks) {
+          // What cannot be read is tapped like any attacker: standing a
+          // creature back up by hand is one tap, a missed tap is a free block.
+          const read = readUnit(g, fight.active, a.unit, records, seat);
+          if (!read || hasKeyword(read, 'vigilance')) continue;
+          if (a.unit.kind === 'card') taps.cards.push(a.unit.id);
+          else taps.stacks[a.unit.id] = (taps.stacks[a.unit.id] ?? 0) + combatLib.copiesOf(a);
+        }
+        cardMutate(
+          (base) => combatLib.confirmAttackers(base, fight.id, taps),
+          attacks.length > 0 ? combatLib.attackLine(g, fight) : null, // nobody attacks: it just ends
+          combatLib.sameAttacks, // the declaration this device confirmed, not one changed since
+        );
+      },
+
+      setBlocker(defender, attacker, blocker, n) {
+        const g = get().game;
+        const fight = g && combatLib.liveCombat(g);
+        if (!fight) return;
+        cardMutate(
+          (base) => combatLib.setBlock(base, fight.id, defender, attacker, blocker, n),
+          null,
+          (base, orig) => combatLib.sameAttacks(base, orig) && combatLib.sameDefender(base, orig),
+        );
+      },
+
+      setAttackBlocked(defender, attacker, blocked) {
+        const g = get().game;
+        const fight = g && combatLib.liveCombat(g);
+        if (!fight) return;
+        cardMutate(
+          (base) => combatLib.setBlocked(base, fight.id, defender, attacker, blocked),
+          null,
+          (base, orig) => combatLib.sameAttacks(base, orig) && combatLib.sameDefender(base, orig),
+        );
+      },
+
+      finishBlocks(defender) {
+        const g = get().game;
+        const fight = g && combatLib.liveCombat(g);
+        if (!g || !fight) return;
+        cardMutate(
+          (base) => combatLib.finishBlocks(base, fight.id, defender),
+          combatLib.blockLine(g, fight, defender),
+          // Two devices pressing Done for the same player: the second one
+          // meets a table where somebody else is up, and is dropped.
+          (base, orig) => combatLib.sameAttacks(base, orig) && combatLib.sameDefender(base, orig),
+        );
+      },
+
+      applyCombat(outcome) {
+        const g = get().game;
+        const fight = g && combatLib.liveCombat(g);
+        if (!g || !fight) return;
+        cardMutate(
+          (base) => combatLib.applyCombat(base, fight.id, outcome),
+          combatLib.outcomeLine(g, outcome),
+          // The result was worked out from these attacks and these blocks:
+          // if either changed since, it is the result of another fight.
+          (base, orig) => combatLib.sameAttacks(base, orig) && combatLib.sameBlocks(base, orig),
+        );
+      },
+
+      cancelCombat() {
+        const g = get().game;
+        const fight = g && combatLib.liveCombat(g);
+        if (!g || !fight) return;
+        cardMutate(
+          (base) => combatLib.cancelCombat(base, fight.id),
+          // Before the attack is confirmed nobody else has acted on it: silent.
+          fight.step === 'attackers' ? null : `${seatName(g, fight.active)} calls off the attack`,
+          combatLib.sameAttacks, // the same fight, at the step it was called off in
+        );
+      },
+
+      setCommanderReturns(seat, iid, n) {
+        const g = get().game;
+        const cards = g?.players[seat]?.cards;
+        const before = cards?.cmd?.[iid];
+        if (!g || !cards || before === undefined || !Number.isFinite(n)) return;
+        const zones = [cards.command, cards.battlefield, cards.graveyard, cards.exile, cards.hand, cards.library];
+        const name = zones.flat().find((c) => c.iid === iid)?.name ?? 'Commander';
+        const returns = Math.max(0, Math.floor(n));
+        cardMutate(
+          (base) => cardsLib.setCommanderReturns(base, seat, iid, returns),
+          `${seatName(g, seat)}: ${name} has gone home ${returns === 1 ? 'once' : `${returns} times`} (tax +${returns * 2})`,
+          // A correction of the count this device saw: if the commander
+          // has gone home again since, it no longer stands.
+          (base) => base.players[seat]?.cards?.cmd?.[iid] === before,
+        );
+      },
+
       endGame() {
         // Online: ending on any device ends it for everyone (shared-tablet model).
         if (get().online) {
@@ -905,14 +1066,20 @@ export function createAppStore() {
             // Their turn begins: what arrived since their last one is no
             // longer summoning sick. Only theirs — and only here, never on
             // the untap button.
-            return boardLib.readyItems(cardsLib.readyCards(untapped, incoming), incoming);
+            const readied = boardLib.readyItems(cardsLib.readyCards(untapped, incoming), incoming);
+            // The turn is over, and so is whatever fight there was in it.
+            return combatLib.dropCombat(readied);
           },
           (_prev, next) => `Turn ${next.turnNumber}: ${playerName(next, next.activePlayerIndex)}`,
           {
             // Online: if someone else already passed, don't double-advance.
+            // And the fight on the table must be the one this device saw
+            // (or none on both sides): a phone that had not heard of the
+            // combat must not erase it with a Pass turn.
             guard: (base, orig) =>
               base.activePlayerIndex === orig.activePlayerIndex &&
-              base.turnNumber === orig.turnNumber,
+              base.turnNumber === orig.turnNumber &&
+              combatLib.sameLiveCombat(base, orig),
           },
         );
       },

@@ -100,6 +100,37 @@ export function changeCount(
   );
 }
 
+/** Copies of a stack die in a fight: `n` leave, of which `tappedDead` were
+ * tapped attackers. Not changeCount — that only clamps the tapped count,
+ * so of five soldiers with three tapped attackers, two of them dead, the
+ * two that stayed home would be left looking tapped. Copies that only
+ * just arrived can be no more than the copies left; the stack goes at
+ * zero. The same state comes back when the stack is not there. */
+export function killCopies(
+  s: GameState,
+  playerIdx: number,
+  itemId: string,
+  n: number,
+  tappedDead = 0,
+): GameState {
+  const item = s.players[playerIdx]?.board.find((it) => it.id === itemId);
+  if (!item || !Number.isFinite(n) || n < 1) return s;
+  const dead = Math.min(Math.floor(n), item.count);
+  const count = item.count - dead;
+  if (count <= 0) return removeItem(s, playerIdx, itemId);
+  const stoodUp = Math.min(Math.max(0, Math.floor(tappedDead) || 0), dead);
+  return updateBoard(s, playerIdx, (board) =>
+    board.map((it) => {
+      if (it.id !== itemId) return it;
+      const tapped = Math.min(Math.max(0, (it.tapped ?? 0) - stoodUp), count);
+      return withSick(
+        { ...it, count, ...(it.tapped === undefined ? {} : { tapped }) },
+        Math.min(it.sick ?? 0, count),
+      );
+    }),
+  );
+}
+
 export function tapItem(
   s: GameState,
   playerIdx: number,

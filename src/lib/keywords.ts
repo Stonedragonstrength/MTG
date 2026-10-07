@@ -2,7 +2,8 @@ import type { BoardItem, CardInstance, CardRecord } from './types';
 
 /** Reading keyword abilities off rules text: which ones a card has itself,
  * and which ones a seat's other permanents hand to its creatures. Summoning
- * sickness asks about haste; combat will ask about the rest.
+ * sickness asks about haste (keywordsOf + grantedKeywords: generous);
+ * combat asks about the rest (keywordsOf + combatGrants: strict).
  *
  * Like the mana reading in mana.ts this reads generously and by shape, not
  * from a list of every keyword ever printed: a keyword line is a line with
@@ -63,11 +64,22 @@ function readLine(line: string): Keyword[] {
   return found;
 }
 
-function readKeywords(oracleText: string): Keyword[] {
-  // A two-faced card is on the battlefield front face up (data/scryfall.ts
-  // joins the faces with a line of "//"); reminder text is not rules text.
+/** The lines of rules text a permanent has as it sits on the battlefield.
+ * A two-faced card is there front face up (data/scryfall.ts joins the
+ * faces with a line of "//"); reminder text is not rules text; and what
+ * stands under a level is not there until the level is reached — the
+ * "LEVEL 2-4" block of a creature that levels up, the "{1}{W}: Level 2"
+ * block of a Class. The app does not track levels, so those are left out:
+ * an unlevelled Student of Warfare has no first strike. */
+function standingLines(oracleText: string): string[] {
   const front = oracleText.split('\n//\n')[0].replace(/\([^)]*\)/g, '');
-  return front.split('\n').flatMap(readLine);
+  const lines = front.split('\n').map((line) => line.trim());
+  const level = lines.findIndex((line) => /^level \d/i.test(line) || /: level \d+$/i.test(line));
+  return level === -1 ? lines : lines.slice(0, level);
+}
+
+function readKeywords(oracleText: string): Keyword[] {
+  return standingLines(oracleText).flatMap(readLine);
 }
 
 /** The keyword abilities a card has itself, read from its keyword lines
@@ -121,6 +133,75 @@ export function grantedKeywords(texts: string[]): Set<string> {
     }
   }
   return out;
+}
+
+/** One permanent as the combat reading sees it. */
+export interface GrantSource {
+  /** Names the permanent, so that "other" can leave it out: one key per
+   * card on the battlefield, one per board stack. */
+  key: string;
+  /** Its rules text ('' when the card is not read on this device). */
+  text: string;
+  /** How many of it there are: the copies of one stack are each other's
+   * "other". Omitted = 1. */
+  copies?: number;
+}
+
+/** What a seat's permanents hand to its creatures in a fight. */
+export interface Grants {
+  /** The keywords handed to the creature that IS the permanent `key`
+   * (pass any key that names no source for a creature that hands out
+   * nothing itself). Lower case, bare names, as keywordsOf gives them. */
+  to(key: string): Set<string>;
+  /** The number a handed-out keyword carries ("toxic 1"), added up over
+   * every permanent that hands it to that creature. */
+  amount(key: string, keyword: string): number;
+}
+
+// The whole line, nothing before it and one sentence only: a condition in
+// front, a cost, a quote or a second sentence all fail to match.
+const GRANT_LINE =
+  /^(other )?(?:creatures|permanents) you control (?:get [+-]\d+\/[+-]\d+ and )?have ([^.:"“”]+)\.?$/i;
+/** "…as long as you control a Dragon", "…until end of turn": not standing. */
+const CONDITIONAL = /\b(?:as long as|if|unless|during|while|until|except)\b/i;
+
+/** The strict reading a fight is worked out from. grantedKeywords above is
+ * generous on purpose — a wrong "yes, it may attack" costs nothing — but
+ * arithmetic has no generous side: a keyword read wrongly is a wrong death
+ * either way. So only whole lines of the front face count, and only these:
+ *   "Creatures you control have …"
+ *   "Other creatures you control have …" / "Other permanents you control have …"
+ * (also behind a boost, "…get +1/+1 and have …": the boost is not read,
+ * the keywords are). Each listed keyword is judged on its own; a word that
+ * is no keyword sinks nothing. "Other" leaves out the very permanent that
+ * says it — by instance, not by name: two of the same card hand it to
+ * each other, one Nylea does not grant herself trample. Not read at all:
+ * "Attacking creatures you control have …" (it would be handed to the
+ * same seat's blockers), anything conditional ("as long as …"), grants to
+ * only some creatures, "All creatures have …", and anything under a level. */
+export function combatGrants(sources: GrantSource[]): Grants {
+  const grants: { from: string; copies: number; other: boolean; keyword: Keyword }[] = [];
+  for (const source of sources) {
+    for (const line of standingLines(source.text)) {
+      const m = line.match(GRANT_LINE);
+      if (!m || CONDITIONAL.test(m[2])) continue;
+      for (const piece of m[2].toLowerCase().split(/[,;]|\band\b/)) {
+        const keyword = readPart(piece.trim());
+        // "…protection from black and from red": the second half is no keyword
+        if (!keyword || /^from\b/.test(keyword.name)) continue;
+        grants.push({ from: source.key, copies: source.copies ?? 1, other: !!m[1], keyword });
+      }
+    }
+  }
+  const handed = (key: string) =>
+    grants.filter((g) => !g.other || g.from !== key || g.copies > 1).map((g) => g.keyword);
+  return {
+    to: (key) => new Set(handed(key).map((k) => k.name)),
+    amount: (key, keyword) =>
+      handed(key)
+        .filter((k) => k.name === keyword)
+        .reduce((sum, k) => sum + (/^\d+$/.test(k.value) ? Number(k.value) : 0), 0),
+  };
 }
 
 /** Thousand-Year Elixir and Tyvar, Jubilant Brawler: "You may activate

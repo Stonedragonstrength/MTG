@@ -7,6 +7,7 @@ import {
   computedPT,
   createBoardItem,
   createCustomToken,
+  killCopies,
   readyItems,
   removeItem,
   setCounter,
@@ -349,5 +350,63 @@ describe('custom tokens and removal', () => {
     g = addItem(g, 0, item);
     g = removeItem(g, 0, item.id);
     expect(g.players[0].board).toHaveLength(0);
+  });
+
+  // ---- killCopies: the copies of a stack that died in a fight ----
+
+  /** `count` soldiers that have been here a while, `tapped` of them tapped. */
+  function soldiers(count: number, tapped: number): { g: GameState; id: string } {
+    const item = createBoardItem(soldier);
+    let g = readyItems(addItem(freshGame(), 0, { ...item, count }), 0);
+    if (tapped > 0) g = tapItem(g, 0, item.id, tapped);
+    return { g, id: item.id };
+  }
+  const first = (g: GameState) => g.players[0].board[0];
+
+  test('dead attackers leave with their tap: 5 with 3 tapped, 2 tapped attackers die, 3 with 1 tapped', () => {
+    const { g, id } = soldiers(5, 3);
+    const after = killCopies(g, 0, id, 2, 2);
+    expect([first(after).count, first(after).tapped]).toEqual([3, 1]); // the two that stayed home still stand
+    // changeCount would have left all three looking tapped: that is why this exists
+    expect(first(changeCount(g, 0, id, -2)).tapped).toBe(3);
+  });
+
+  test('dead blockers were not tapped: the tapped count stays, clamped to what is left', () => {
+    const { g, id } = soldiers(5, 1);
+    expect([first(killCopies(g, 0, id, 2)).count, first(killCopies(g, 0, id, 2)).tapped]).toEqual([3, 1]);
+    const { g: mostly, id: mostlyId } = soldiers(4, 3);
+    expect(first(killCopies(mostly, 0, mostlyId, 2)).tapped).toBe(2); // only two are left to be tapped
+    const { g: fresh, id: freshId } = soldiers(3, 0);
+    expect('tapped' in first(killCopies(fresh, 0, freshId, 1))).toBe(false); // nothing written that was not there
+  });
+
+  test('the sick count is clamped to the copies left, and left out at zero', () => {
+    const item = createBoardItem(soldier);
+    const arrived = addItem(freshGame(), 0, { ...item, count: 4 }); // all four only just arrived
+    expect(first(killCopies(arrived, 0, item.id, 3)).sick).toBe(1);
+    const { g, id } = soldiers(4, 0);
+    expect('sick' in first(killCopies(g, 0, id, 1))).toBe(false);
+  });
+
+  test('the stack is removed when its last copy dies, and never goes below zero', () => {
+    const { g, id } = soldiers(2, 2);
+    expect(killCopies(g, 0, id, 2, 2).players[0].board).toHaveLength(0);
+    expect(killCopies(g, 0, id, 9, 9).players[0].board).toHaveLength(0);
+  });
+
+  test('more tapped dead than dead, or than tapped, is clamped', () => {
+    const { g, id } = soldiers(5, 1);
+    const after = killCopies(g, 0, id, 2, 5); // at most two of the dead can have been tapped
+    expect([first(after).count, first(after).tapped]).toEqual([3, 0]);
+  });
+
+  test('a stack that is gone, a seat that is not there or a count that makes no sense changes nothing', () => {
+    const { g, id } = soldiers(3, 1);
+    expect(killCopies(g, 0, 'nope', 1)).toBe(g);
+    expect(killCopies(g, 7, id, 1)).toBe(g);
+    expect(killCopies(g, 0, id, 0)).toBe(g);
+    expect(killCopies(g, 0, id, -2)).toBe(g);
+    expect(killCopies(g, 0, id, Number.NaN)).toBe(g);
+    expect(killCopies(g, 1, id, 1)).toBe(g); // somebody else's seat does not hold it
   });
 });

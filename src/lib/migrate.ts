@@ -1,4 +1,5 @@
 import type { CardInstance, FeedEntry, GameState, Reveal, SeatCards } from './types';
+import type { CombatBlock, CombatState } from './types';
 
 function validInstance(c: unknown): c is CardInstance {
   const i = c as CardInstance | null;
@@ -84,8 +85,62 @@ export function isValidGame(v: unknown): v is GameState {
   );
 }
 
+const COMBAT_STEPS = ['attackers', 'blockers', 'damage', 'done'];
+
+/** Is this a combat the app can read without tripping? Its SHAPE only:
+ * the types, a step from the list, seats that exist at this table. It
+ * never asks whether a creature in it still exists — creatures die and
+ * leave in the middle of a fight, and that must not call the fight off
+ * (the engine skips them). */
+function validCombat(v: unknown, seats: number): v is CombatState {
+  const seat = (n: unknown) => Number.isInteger(n) && (n as number) >= 0 && (n as number) < seats;
+  const count = (n: unknown) => n === undefined || (Number.isInteger(n) && (n as number) >= 1);
+  const unit = (u: unknown) => {
+    const x = u as CombatBlock | null;
+    return (
+      !!x && (x.kind === 'card' || x.kind === 'stack') && typeof x.id === 'string' && count(x.n)
+    );
+  };
+  const c = v as CombatState | null;
+  return (
+    !!c &&
+    typeof c === 'object' &&
+    typeof c.id === 'string' &&
+    typeof c.turn === 'number' &&
+    seat(c.active) &&
+    COMBAT_STEPS.includes(c.step) &&
+    (c.defender === undefined || seat(c.defender)) &&
+    (c.attacks === undefined ||
+      (Array.isArray(c.attacks) &&
+        c.attacks.every(
+          (a) =>
+            !!a &&
+            unit(a.unit) &&
+            count(a.n) &&
+            seat(a.target) &&
+            (a.blocked === undefined || a.blocked === true) &&
+            (a.tapped === undefined || (Number.isInteger(a.tapped) && a.tapped >= 0)) &&
+            (a.blockers === undefined || (Array.isArray(a.blockers) && a.blockers.every(unit))),
+        )))
+  );
+}
+
+/** A combat that cannot be read, or that belongs to a turn that is over,
+ * is taken out of the state — left out, not written as undefined — so no
+ * reader ever meets one. Never fatal: the game itself always loads. */
+function soundCombat(saved: GameState): GameState {
+  if (!('combat' in saved)) return saved;
+  const { combat, ...rest } = saved;
+  const keep =
+    validCombat(combat, saved.players.length) &&
+    combat.turn === saved.turnNumber &&
+    combat.active === saved.activePlayerIndex;
+  return keep ? saved : rest;
+}
+
 /** Fill in fields added after a save was written (or sent by an older build). */
 export function migrateGame(saved: GameState): GameState {
+  saved = soundCombat(saved); // before the spread below copies it along
   const { reveal, ...rest } = saved;
   return {
     ...rest,

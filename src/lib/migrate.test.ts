@@ -1,10 +1,11 @@
 import { describe, expect, test } from 'vitest';
 import { readyItems } from './board';
 import { landsPlayed, readyCards } from './cards';
+import { liveCombat } from './combat';
 import { isSummoningSick, sickCopies } from './keywords';
 import { sourcesFrom } from './pay';
 import { canPlayLand } from './turnRules';
-import type { BoardItem, CardRecord, GameState, SeatCards } from './types';
+import type { BoardItem, CardRecord, CombatState, GameState, SeatCards } from './types';
 import { isValidGame, migrateGame } from './migrate';
 
 /** A pre-cards-mode save, exactly as a 2026-10-05 build persisted it. */
@@ -267,5 +268,109 @@ describe('turn-rules migration', () => {
     expect(g.players[0].cards!.landPlays).toEqual({ turn: 5, active: 0, n: 1 });
     expect(g.players[0].board[0].sick).toBe(2);
     expect(landsPlayed(g, 0)).toBe(1);
+  });
+
+  // ---- combat on the cards ----
+
+  /** A fight in the turn this save is in (turn 5, seat 0), at the blockers step. */
+  const FIGHT: CombatState = {
+    id: 'c1',
+    turn: 5,
+    active: 0,
+    step: 'blockers',
+    defender: 1,
+    attacks: [
+      { unit: { kind: 'card', id: 'b1' }, target: 1, tapped: 1, blockers: [{ kind: 'stack', id: 'tok-9', n: 2 }] },
+      { unit: { kind: 'stack', id: 'tok-1' }, n: 3, target: 1, blocked: true },
+    ],
+  };
+  const withCombat = (combat: unknown): GameState => ({ ...oldSave(), combat: combat as CombatState });
+
+  test('a save from before combat loads untouched: no combat appears in it', () => {
+    const g = migrateGame(oldSave());
+    expect('combat' in g).toBe(false);
+    expect(liveCombat(g)).toBeNull();
+  });
+
+  test('a fight in progress passes validation and migration exactly as it is', () => {
+    const save = withCombat(structuredClone(FIGHT));
+    expect(isValidGame(save)).toBe(true);
+    const g = migrateGame(save); // every remote state passes here
+    expect(g.combat).toEqual(FIGHT);
+    expect(liveCombat(g)).toEqual(FIGHT);
+  });
+
+  test('a fight whose creature no longer exists is KEPT: a death mid-combat must not call the combat off', () => {
+    const fight: CombatState = {
+      ...FIGHT,
+      attacks: [
+        { unit: { kind: 'card', id: 'died-since' }, target: 1, blockers: [{ kind: 'card', id: 'bounced' }] },
+        { unit: { kind: 'stack', id: 'sacrificed' }, n: 4, target: 1 },
+      ],
+    };
+    expect(migrateGame(withCombat(fight)).combat).toEqual(fight);
+  });
+
+  test('the marker a finished fight leaves behind is kept for as long as its turn lasts', () => {
+    const done: CombatState = { id: 'c1', turn: 5, active: 0, step: 'done' };
+    expect(migrateGame(withCombat(done)).combat).toEqual(done);
+    const justStarted: CombatState = { id: 'c2', turn: 5, active: 0, step: 'attackers' }; // nobody picked yet
+    expect(migrateGame(withCombat(justStarted)).combat).toEqual(justStarted);
+  });
+
+  test('a stale fight is dropped: one from another turn, or from another seat’s turn', () => {
+    for (const stale of [
+      { ...FIGHT, turn: 4 },
+      { ...FIGHT, turn: 6 },
+      { ...FIGHT, active: 1, defender: 0, attacks: [] },
+      { id: 'c0', turn: 4, active: 0, step: 'done' },
+    ]) {
+      const save = withCombat(stale);
+      expect(isValidGame(save)).toBe(true);
+      const g = migrateGame(save);
+      expect('combat' in g, JSON.stringify(stale)).toBe(false); // left out, not written as undefined
+      expect(g.players[0].life).toBe(34); // and the game is still the game
+    }
+  });
+
+  test.each<[string, unknown]>([
+    ['not an object', 'fight'],
+    ['a number', 7],
+    ['null', null],
+    ['a list', [FIGHT]],
+    ['no id', { ...FIGHT, id: undefined }],
+    ['an id that is not text', { ...FIGHT, id: 12 }],
+    ['a turn that is not a number', { ...FIGHT, turn: '5' }],
+    ['a step that is not in the list', { ...FIGHT, step: 'declare' }],
+    ['no step', { ...FIGHT, step: undefined }],
+    ['an attacking seat outside the table', { ...FIGHT, turn: 5, active: 2 }],
+    ['an attacking seat that is not a whole number', { ...FIGHT, active: 0.5 }],
+    ['a defender outside the table', { ...FIGHT, defender: 9 }],
+    ['a defender that is not a number', { ...FIGHT, defender: 'Sam' }],
+    ['attacks that are not a list', { ...FIGHT, attacks: { 0: FIGHT.attacks![0] } }],
+    ['an attack that is nothing', { ...FIGHT, attacks: [null] }],
+    ['an attack without a unit', { ...FIGHT, attacks: [{ target: 1 }] }],
+    ['a unit of an unknown kind', { ...FIGHT, attacks: [{ unit: { kind: 'token', id: 'x' }, target: 1 }] }],
+    ['a unit whose id is not text', { ...FIGHT, attacks: [{ unit: { kind: 'card', id: 4 }, target: 1 }] }],
+    ['a target outside the table', { ...FIGHT, attacks: [{ unit: { kind: 'card', id: 'b1' }, target: 2 }] }],
+    ['a target that is not a number', { ...FIGHT, attacks: [{ unit: { kind: 'card', id: 'b1' }, target: '1' }] }],
+    ['no target', { ...FIGHT, attacks: [{ unit: { kind: 'card', id: 'b1' } }] }],
+    ['a count of zero', { ...FIGHT, attacks: [{ unit: { kind: 'stack', id: 't' }, n: 0, target: 1 }] }],
+    ['a count that is not whole', { ...FIGHT, attacks: [{ unit: { kind: 'stack', id: 't' }, n: 1.5, target: 1 }] }],
+    ['a count that is text', { ...FIGHT, attacks: [{ unit: { kind: 'stack', id: 't' }, n: '2', target: 1 }] }],
+    ['blockers that are not a list', { ...FIGHT, attacks: [{ unit: { kind: 'card', id: 'b1' }, target: 1, blockers: 'wall' }] }],
+    ['a blocker that is nothing', { ...FIGHT, attacks: [{ unit: { kind: 'card', id: 'b1' }, target: 1, blockers: [null] }] }],
+    ['a blocker of an unknown kind', { ...FIGHT, attacks: [{ unit: { kind: 'card', id: 'b1' }, target: 1, blockers: [{ kind: 'wall', id: 'w' }] }] }],
+    ['a blocker count below one', { ...FIGHT, attacks: [{ unit: { kind: 'card', id: 'b1' }, target: 1, blockers: [{ kind: 'stack', id: 'w', n: -1 }] }] }],
+    ['a blocked mark that is not the mark', { ...FIGHT, attacks: [{ unit: { kind: 'card', id: 'b1' }, target: 1, blocked: 'yes' }] }],
+    ['a tapped count below zero', { ...FIGHT, attacks: [{ unit: { kind: 'card', id: 'b1' }, target: 1, tapped: -1 }] }],
+    ['a tapped count that is not a number', { ...FIGHT, attacks: [{ unit: { kind: 'card', id: 'b1' }, target: 1, tapped: true }] }],
+  ])('a combat of the wrong shape is dropped, never fatal: %s', (_what, combat) => {
+    const save = withCombat(combat);
+    expect(isValidGame(save)).toBe(true); // it accepts what it accepted before: the game is not thrown away
+    const g = migrateGame(save);
+    expect('combat' in g).toBe(false);
+    expect(liveCombat(g)).toBeNull();
+    expect(g.players[0].cards!.battlefield).toHaveLength(2); // everything else came through
   });
 });

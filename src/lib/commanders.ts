@@ -1,4 +1,4 @@
-import type { GameState } from './types';
+import type { CombatUnit, GameState, SeatCards } from './types';
 
 /** One source of commander damage. The rules count 21 from the SAME
  * commander, so a partner pair is two attackers, each with its own total. */
@@ -25,15 +25,58 @@ export function seatCommanders(game: GameState, seatIdx: number): Attacker[] {
   const pair = pairNames(game, seatIdx);
   if (!pair) return [{ key: profile.id, label: profile.name, short: short(profile.name) }];
   return pair.map((name, i) => ({
-    key: i === 0 ? profile.id : `${profile.id}#${i + 1}`,
+    key: keyAt(profile.id, i),
     label: `${profile.name} — ${name}`,
     short: short(name),
   }));
 }
 
+/** The seat's tracked commanders in the ONE order their keys are handed
+ * out in: by instance id. Not the order `cmd` lists them — the online
+ * table keeps the game as jsonb, which hands object keys back in its own
+ * order, so a pair read that way swapped gauges after a round trip. */
+function commanderIids(cards: SeatCards | undefined): string[] {
+  return Object.keys(cards?.cmd ?? {}).sort();
+}
+
+/** The key of the seat's n-th commander (see Attacker.key). */
+const keyAt = (profileId: string, i: number) => (i === 0 ? profileId : `${profileId}#${i + 1}`);
+
+const frontFace = (name: string) => name.split(' // ')[0].trim().toLowerCase();
+
+/** The commander-damage key this card or stack deals its damage under, or
+ * null when it is not a commander (plain damage, an ordinary death).
+ * Combat credits its damage by this, and the gauges (seatCommanders) hand
+ * their keys out by the same order and the same names, so the two cannot
+ * disagree about which gauge is whose.
+ * - A seat that tracks its commanders (`cards.cmd`): by instance id.
+ * - A tracker seat, or a seat dealt before `cmd` existed: by front-face
+ *   name against the profile's commanderName / partnerName — a tile added
+ *   by hand is the commander when it carries the commander's name. */
+export function commanderKey(game: GameState, seatIdx: number, unit: CombatUnit): string | null {
+  const profile = game.config.profiles[seatIdx];
+  const player = game.players[seatIdx];
+  if (!profile || !player) return null;
+  if (player.cards?.cmd) {
+    const at = unit.kind === 'card' ? commanderIids(player.cards).indexOf(unit.id) : -1;
+    return at === -1 ? null : keyAt(profile.id, at);
+  }
+  const name =
+    unit.kind === 'card'
+      ? player.cards?.battlefield.find((c) => c.iid === unit.id)?.name
+      : player.board.find((it) => it.id === unit.id)?.name;
+  if (!name || !profile.commanderName) return null;
+  if (frontFace(name) === frontFace(profile.commanderName)) return profile.id;
+  // Only a pair has a second key, and it is the partner's.
+  if (profile.partnerName && frontFace(name) === frontFace(profile.partnerName)) {
+    return keyAt(profile.id, 1);
+  }
+  return null;
+}
+
 function pairNames(game: GameState, seatIdx: number): string[] | null {
   const cards = game.players[seatIdx]?.cards;
-  const iids = Object.keys(cards?.cmd ?? {});
+  const iids = commanderIids(cards);
   if (cards && iids.length > 1) {
     // The commanders may be anywhere by now: at home, on the battlefield, dead.
     const everywhere = [

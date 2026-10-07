@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import {
+  combatGrants,
   grantedKeywords,
   isSummoningSick,
   keywordAmount,
@@ -38,6 +39,72 @@ const DELVER =
   'At the beginning of your upkeep, look at the top card of your library. You may reveal that card. If an instant or sorcery card is revealed this way, transform Delver of Secrets.\n//\nFlying';
 const KNIGHT_OF_GRACE =
   'First strike\nHexproof from black (This creature can’t be the target of black spells or abilities your opponents control.)\nKnight of Grace gets +1/+0 as long as any player controls a black permanent.';
+
+// The cards combat is held to, word for word as the card database stores them
+// (a two-faced card: both faces, joined by a line of "//").
+const ATRAXA_FULL =
+  'Flying, vigilance, deathtouch, lifelink\nAt the beginning of your end step, proliferate. (Choose any number of permanents and/or players, then give each another counter of each kind already there.)';
+const BANESLAYER_ANGEL = 'Flying, first strike, lifelink, protection from Demons and from Dragons';
+const VAMPIRE_NIGHTHAWK =
+  'Flying\nDeathtouch (Any amount of damage this deals to a creature is enough to destroy it.)\nLifelink (Damage dealt by this creature also causes you to gain that much life.)';
+const ZETALPA = 'Flying, double strike, vigilance, trample, indestructible';
+const BLIGHTSTEEL =
+  'Trample, infect, indestructible\nIf Blightsteel Colossus would be put into a graveyard from anywhere, reveal Blightsteel Colossus and shuffle it into its owner\'s library instead.';
+const ABOMINATION_OF_LLANOWAR =
+  "Vigilance; menace (This creature can't be blocked except by two or more creatures.)\nAbomination of Llanowar's power and toughness are each equal to the number of Elves you control plus the number of Elf cards in your graveyard.";
+const WALL_OF_OMENS = 'Defender\nWhen this creature enters, draw a card.';
+const GARRUKS_UPRISING =
+  "When this enchantment enters, if you control a creature with power 4 or greater, draw a card.\nCreatures you control have trample. (Each of those creatures can deal excess combat damage to the player or planeswalker it's attacking.)\nWhenever a creature you control with power 4 or greater enters, draw a card.";
+const WHIP_OF_EREBOS =
+  'Creatures you control have lifelink.\n{2}{B}{B}, {T}: Return target creature card from your graveyard to the battlefield. It gains haste. Exile it at the beginning of the next end step. If it would leave the battlefield, exile it instead of putting it anywhere else. Activate only as a sorcery.';
+const TRUE_CONVICTION = 'Creatures you control have double strike and lifelink.';
+const ELDRAZI_MONUMENT =
+  "Creatures you control get +1/+1 and have flying and indestructible.\nAt the beginning of your upkeep, sacrifice a creature. If you can't, sacrifice this artifact.";
+const ARCHETYPE_OF_COURAGE =
+  "Creatures you control have first strike.\nCreatures your opponents control lose first strike and can't have or gain first strike.";
+const AVACYN = 'Flying, vigilance, indestructible\nOther permanents you control have indestructible.';
+const NYLEA =
+  "Indestructible\nAs long as your devotion to green is less than five, Nylea isn't a creature. (Each {G} in the mana costs of permanents you control counts toward your devotion to green.)\nOther creatures you control have trample.\n{3}{G}: Target creature gets +2/+2 until end of turn.";
+const ZAGRAS =
+  'This spell costs {1} less to cast for each creature in your party.\nFlying, deathtouch, haste\nOther creatures you control have deathtouch.\nWhenever a creature you control deals combat damage to a planeswalker, destroy that planeswalker.';
+const OHRAN_FROSTFANG =
+  'Attacking creatures you control have deathtouch.\nWhenever a creature you control deals combat damage to a player, draw a card.';
+const BERSERKERS_ONSLAUGHT = 'Attacking creatures you control have double strike.';
+const GRUUL_WAR_CHANT = 'Attacking creatures you control get +1/+0 and have menace.';
+const JETMIR =
+  'Creatures you control get +1/+0 and have vigilance as long as you control three or more creatures.\nCreatures you control also get +1/+0 and have trample as long as you control six or more creatures.\nCreatures you control also get +1/+0 and have double strike as long as you control nine or more creatures.';
+const ANGELIC_FIELD_MARSHAL =
+  'Flying\nLieutenant — As long as you control your commander, this creature gets +2/+2 and creatures you control have vigilance.';
+const BRAWN =
+  'Trample\nAs long as this card is in your graveyard and you control a Forest, creatures you control have trample.';
+const KWENDE = 'Double strike\nCreatures you control with first strike have double strike.';
+const HALVAR =
+  "Creatures you control that are enchanted or equipped have double strike.\nAt the beginning of each combat, you may attach target Aura or Equipment attached to a creature you control to target creature you control.\n//\nEquipped creature gets +2/+0 and has vigilance.\nWhenever equipped creature dies, return it to its owner's hand.\nEquip {1}{W}";
+const SHALAI =
+  'Flying\nYou, planeswalkers you control, and other creatures you control have hexproof.\n{4}{G}{G}: Put a +1/+1 counter on each creature you control.';
+const INTANGIBLE_VIRTUE = 'Creature tokens you control get +1/+1 and have vigilance.';
+const ALWAYS_WATCHING = 'Nontoken creatures you control get +1/+1 and have vigilance.';
+const ESIKA =
+  'Vigilance\n{T}: Add one mana of any color.\nOther legendary creatures you control have vigilance and "{T}: Add one mana of any color."\n//\nAt the beginning of your upkeep, reveal cards from the top of your library until you reveal a creature or planeswalker card. Put that card onto the battlefield and the rest on the bottom of your library in a random order.';
+const ABZAN_FALCONER =
+  'Outlast {W} ({W}, {T}: Put a +1/+1 counter on this creature. Outlast only as a sorcery.)\nEach creature you control with a +1/+1 counter on it has flying.';
+const ODRIC =
+  'At the beginning of each combat, creatures you control gain first strike until end of turn if a creature you control has first strike. The same is true for flying, deathtouch, double strike, haste, hexproof, indestructible, lifelink, menace, reach, skulk, trample, and vigilance.';
+const BLOODLINE_KEEPER =
+  'Flying\n{T}: Create a 2/2 black Vampire creature token with flying.\n{B}: Transform this creature. Activate only if you control five or more Vampires.\n//\nFlying\nOther Vampire creatures you control get +2/+2.\n{T}: Create a 2/2 black Vampire creature token with flying.';
+const WESTVALE_ABBEY =
+  '{T}: Add {C}.\n{5}, {T}, Pay 1 life: Create a 1/1 white and black Human Cleric creature token.\n{5}, {T}, Sacrifice five creatures: Transform this land, then untap it.\n//\nFlying, lifelink, indestructible, haste';
+const BRUTAL_CATHAR =
+  'Whenever this creature enters or transforms into Brutal Cathar, exile target creature an opponent controls until this creature leaves the battlefield.\nDaybound (If a player casts no spells during their own turn, it becomes night next turn.)\n//\nFirst strike\nWard—Pay 3 life.\nNightbound (If a player casts at least two spells during their own turn, it becomes day next turn.)';
+const ELUSIVE_TORMENTOR =
+  "{1}, Discard a card: Transform this creature.\n//\nHexproof, indestructible\nThis creature can't block and can't be blocked.\nWhenever this creature attacks and isn't blocked, you may pay {2}{B}. If you do, transform it.";
+const LUDEVICS_TEST_SUBJECT =
+  'Defender\n{1}{U}: Put a hatchling counter on this creature. Then if there are five or more hatchling counters on it, remove all of them and transform it.\n//\nTrample';
+// A creature that levels up, and a Class: what stands under a level is not there yet.
+const STUDENT_OF_WARFARE =
+  'Level up {W} ({W}: Put a level counter on this. Level up only as a sorcery.)\nLEVEL 2-6\n3/3\nFirst strike\nLEVEL 7+\n4/4\nDouble strike';
+const ROGUE_CLASS =
+  "(Gain the next level as a sorcery to add its ability.)\nWhenever a creature you control deals combat damage to a player, exile the top card of that player's library face down. You may look at it for as long as it remains exiled.\n{1}{U}{B}: Level 2\nCreatures you control have menace.\n{2}{U}{B}: Level 3\nYou may play cards exiled with Rogue Class, and you may spend mana as though it were mana of any color to cast those spells.";
 
 describe('keywordsOf', () => {
   test('a keyword line gives up each of its keywords, in lower case', () => {
@@ -157,6 +224,70 @@ describe('keywordsOf', () => {
   test('no text, no keywords', () => {
     expect(keywordsOf('').size).toBe(0);
   });
+
+  // ---- held to the combat rules: real lines, exactly as the card database stores them ----
+
+  test('real keyword lines give up every keyword: Atraxa, Akroma, Baneslayer Angel, Vampire Nighthawk', () => {
+    expect(sorted(keywordsOf(ATRAXA_FULL))).toEqual(['deathtouch', 'flying', 'lifelink', 'vigilance']);
+    expect(sorted(keywordsOf(AKROMA))).toEqual([
+      'first strike',
+      'flying',
+      'haste',
+      'protection',
+      'trample',
+      'vigilance',
+    ]);
+    // a line that ends in "protection from …" still gives up first strike and lifelink
+    expect(sorted(keywordsOf(BANESLAYER_ANGEL))).toEqual(['first strike', 'flying', 'lifelink', 'protection']);
+    // three one-word lines, two of them with reminder text
+    expect(sorted(keywordsOf(VAMPIRE_NIGHTHAWK))).toEqual(['deathtouch', 'flying', 'lifelink']);
+    expect(sorted(keywordsOf(ZETALPA))).toEqual(['double strike', 'flying', 'indestructible', 'trample', 'vigilance']);
+    expect(sorted(keywordsOf(BLIGHTSTEEL))).toEqual(['indestructible', 'infect', 'trample']);
+    expect(sorted(keywordsOf(ABOMINATION_OF_LLANOWAR))).toEqual(['menace', 'vigilance']); // a semicolon list
+    expect(keywordsOf(WALL_OF_OMENS).has('defender')).toBe(true);
+  });
+
+  test('a sentence is never a keyword line, however many keywords it lists: Odric gets nothing', () => {
+    expect(keywordsOf(ODRIC).size).toBe(0);
+    expect(keywordsOf(NYLEA).has('trample')).toBe(false); // she hands it out; she has only indestructible
+    expect(sorted(keywordsOf(NYLEA))).toEqual(['indestructible']);
+    expect(keywordsOf(OHRAN_FROSTFANG).size).toBe(0);
+    expect(keywordsOf(WHIP_OF_EREBOS).size).toBe(0);
+  });
+
+  test('a two-faced card has only what its front face says', () => {
+    expect(sorted(keywordsOf(BLOODLINE_KEEPER))).toEqual(['flying']);
+    expect(keywordsOf(WESTVALE_ABBEY).size).toBe(0); // the Demon on its back flies, lifelinks and never dies
+    const cathar = keywordsOf(BRUTAL_CATHAR);
+    expect(cathar.has('first strike')).toBe(false); // that is the Moonrage Brute
+    expect(cathar.has('ward')).toBe(false);
+    expect(sorted(cathar)).toEqual(['daybound']);
+    expect(keywordsOf(ELUSIVE_TORMENTOR).size).toBe(0); // no indestructible from the Mist
+    expect(sorted(keywordsOf(LUDEVICS_TEST_SUBJECT))).toEqual(['defender']); // no trample from the Abomination
+  });
+
+  test('a custom token’s chips: a bare Ward and a word the app does not know sink nothing', () => {
+    expect(sorted(keywordsOf('Lifelink, Deathtouch, Ward'))).toEqual(['deathtouch', 'lifelink', 'ward']);
+    expect(sorted(keywordsOf('Double Strike, Trample, Indestructible'))).toEqual([
+      'double strike',
+      'indestructible',
+      'trample',
+    ]);
+    const mixed = keywordsOf('Flying, banding, lifelink');
+    expect(mixed.has('flying')).toBe(true);
+    expect(mixed.has('lifelink')).toBe(true);
+  });
+
+  test('a level the creature has not reached is not read', () => {
+    const student = keywordsOf(STUDENT_OF_WARFARE);
+    expect(student.has('first strike')).toBe(false); // that is level 2
+    expect(student.has('double strike')).toBe(false); // and that is level 7
+    expect(sorted(student)).toEqual(['level up']);
+    expect(sorted(keywordsOf('Flying\nLevel up {1}\nLEVEL 1-3\n2/3\nFlying, vigilance'))).toEqual([
+      'flying',
+      'level up',
+    ]);
+  });
 });
 
 describe('toxic', () => {
@@ -249,6 +380,142 @@ describe('grantedKeywords', () => {
 
   test('no permanents, no grants', () => {
     expect(grantedKeywords([]).size).toBe(0);
+  });
+
+  // ---- combatGrants: the strict reading a fight is worked out from ----
+  // (grantedKeywords above stays generous: it only ever answers "may this attack?")
+
+  /** A seat whose permanents carry these texts; the keywords a plain bear of that seat is handed. */
+  const handedBy = (...texts: string[]) =>
+    sorted(combatGrants(texts.map((text, i) => ({ key: `p${i}`, text }))).to('bear'));
+
+  test('combat grants: real standing grants are read off whole lines of the front face', () => {
+    expect(handedBy(GARRUKS_UPRISING)).toEqual(['trample']);
+    expect(handedBy(WHIP_OF_EREBOS)).toEqual(['lifelink']);
+    expect(handedBy(TRUE_CONVICTION)).toEqual(['double strike', 'lifelink']);
+    expect(handedBy(AKROMAS_MEMORIAL)).toEqual([
+      'first strike',
+      'flying',
+      'haste',
+      'protection',
+      'trample',
+      'vigilance',
+    ]);
+    expect(handedBy(ARCHETYPE_OF_COURAGE)).toEqual(['first strike']);
+    expect(handedBy(FERVOR)).toEqual(['haste']);
+    expect(handedBy(SERRA_ANGEL, WHIP_OF_EREBOS, GARRUKS_UPRISING)).toEqual(['lifelink', 'trample']); // every permanent
+  });
+
+  test('combat grants: a keyword handed out beside a boost is still handed out', () => {
+    // The +1/+1 itself is not read (sizes are printed size plus counters), the keywords are.
+    expect(handedBy(ELDRAZI_MONUMENT)).toEqual(['flying', 'indestructible']);
+  });
+
+  test('combat grants: "Other" leaves out the very permanent that says it — by instance, not by name', () => {
+    const nylea = combatGrants([
+      { key: 'nylea', text: NYLEA },
+      { key: 'bear', text: '' },
+    ]);
+    expect(nylea.to('bear').has('trample')).toBe(true);
+    expect(nylea.to('nylea').has('trample')).toBe(false); // one Nylea does not grant herself trample
+    // two of the same card hand it to each other
+    const two = combatGrants([
+      { key: 'nylea-1', text: NYLEA },
+      { key: 'nylea-2', text: NYLEA },
+    ]);
+    expect(two.to('nylea-1').has('trample')).toBe(true);
+    expect(two.to('nylea-2').has('trample')).toBe(true);
+    // "Other permanents you control have indestructible."
+    const avacyn = combatGrants([{ key: 'avacyn', text: AVACYN }]);
+    expect(sorted(avacyn.to('bear'))).toEqual(['indestructible']);
+    expect(avacyn.to('avacyn').size).toBe(0); // her own is printed on her
+    expect(sorted(combatGrants([{ key: 'zagras', text: ZAGRAS }]).to('bear'))).toEqual(['deathtouch']);
+  });
+
+  test('combat grants: the copies of one stack are each other’s "other"', () => {
+    const text = 'Other creatures you control have trample.';
+    expect(combatGrants([{ key: 'tok', text, copies: 3 }]).to('tok').has('trample')).toBe(true);
+    expect(combatGrants([{ key: 'tok', text, copies: 1 }]).to('tok').has('trample')).toBe(false);
+    expect(combatGrants([{ key: 'tok', text }]).to('tok').has('trample')).toBe(false); // one copy unless told
+  });
+
+  test('combat grants: what only attackers, only some creatures or only sometimes get is not read', () => {
+    for (const text of [
+      OHRAN_FROSTFANG, // "Attacking creatures you control have deathtouch."
+      BERSERKERS_ONSLAUGHT,
+      GRUUL_WAR_CHANT,
+      JETMIR, // "…as long as you control three or more creatures."
+      ANGELIC_FIELD_MARSHAL, // "Lieutenant — As long as you control your commander, …"
+      BRAWN, // only from the graveyard
+      KWENDE, // "Creatures you control with first strike have double strike."
+      HALVAR,
+      SHALAI,
+      INTANGIBLE_VIRTUE, // tokens only
+      ALWAYS_WATCHING, // nontoken only
+      ESIKA, // legendary creatures only, and an ability in quotes
+      ABZAN_FALCONER,
+      GOBLIN_CHIEFTAIN,
+      LIGHTNING_GREAVES,
+      CRYPTOLITH_RITE,
+      ODRIC,
+      'All creatures have haste.', // Concordant Crossroads: fine for "may it attack", not for a fight
+      'As long as you control a Mountain, creatures you control have first strike.',
+      'Creatures you control have first strike as long as it is your turn.',
+      'Creatures you control have flying and first strike as long as you control an Island.',
+      'During your turn, creatures you control have first strike.',
+    ]) {
+      expect(handedBy(text), text).toEqual([]);
+    }
+  });
+
+  test('combat grants: an ability, a loan for a turn or a quote is not a standing grant', () => {
+    expect(handedBy('{2}{R}: Creatures you control have trample until end of turn.')).toEqual([]);
+    expect(handedBy('Creatures you control gain trample until end of turn.')).toEqual([]);
+    expect(handedBy('Creatures you control have trample until end of turn.')).toEqual([]);
+    expect(handedBy(GOBLIN_MOTIVATOR)).toEqual([]);
+    expect(handedBy('Trample')).toEqual([]); // a keyword it has is not one it hands out
+    // two sentences on one line: not the whole line, not read
+    expect(handedBy('Creatures you control have trample. Draw a card.')).toEqual([]);
+    expect(handedBy('When this enters, creatures you control have trample.')).toEqual([]);
+  });
+
+  test('combat grants: the back face hands out nothing while the front is up', () => {
+    expect(handedBy('Flying\n//\nCreatures you control have trample.')).toEqual([]);
+    expect(handedBy(BLOODLINE_KEEPER)).toEqual([]);
+    expect(handedBy('Creatures you control have trample.\n//\nCreatures you control have lifelink.')).toEqual([
+      'trample',
+    ]);
+  });
+
+  test('combat grants: a level that has not been reached hands out nothing', () => {
+    // A Class card: what stands under "…: Level 2" is not there until the level is paid for.
+    expect(handedBy(ROGUE_CLASS)).toEqual([]);
+    expect(handedBy('Creatures you control have lifelink.\n{1}{W}: Level 2\nCreatures you control have trample.')).toEqual([
+      'lifelink',
+    ]);
+    // A creature that levels up: the same for what stands under "LEVEL 2-4".
+    expect(handedBy('Level up {2}{W}\nLEVEL 2-4\n3/6\nOther creatures you control have vigilance.')).toEqual([]);
+  });
+
+  test('combat grants: each listed word is judged on its own, and one that is no keyword sinks nothing', () => {
+    expect(handedBy('Creatures you control have trample and a certain something about them.')).toEqual(['trample']);
+    const mixed = handedBy('Other creatures you control have flying, frobnication, and lifelink.');
+    expect(mixed).toContain('flying');
+    expect(mixed).toContain('lifelink');
+    // "…and protection from black and from red": the second half is no keyword of its own
+    expect(handedBy(AKROMAS_MEMORIAL)).not.toContain('from red');
+  });
+
+  test('combat grants: a numbered keyword keeps its number, added up over everything that hands it out', () => {
+    const grants = combatGrants([
+      { key: 'a', text: 'Creatures you control have toxic 1.' },
+      { key: 'b', text: 'Other creatures you control have toxic 2.' },
+    ]);
+    expect(grants.to('bear').has('toxic')).toBe(true);
+    expect(grants.amount('bear', 'toxic')).toBe(3);
+    expect(grants.amount('b', 'toxic')).toBe(1); // not its own "other"
+    expect(grants.amount('bear', 'trample')).toBe(0);
+    expect(combatGrants([]).to('bear').size).toBe(0);
   });
 });
 

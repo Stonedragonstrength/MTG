@@ -6,8 +6,12 @@ import { kvDelete, kvGet, kvSet } from './db';
 /** Bump ONLY when GameState gains a load-bearing field — peers compare it
  * to decide who is running a stale build at a live table.
  * 2: cards mode (SeatCards zones, feed ring).
- * 3: turn rules — sick flags, land plays — and the combat state that follows. */
-export const GAME_SCHEMA = 3;
+ * 3: turn rules — sick flags, land plays.
+ * 4: combat on the cards (GameState.combat). ANY later change to the shape
+ *    of CombatState has to bump this again: a build that does not know the
+ *    new shape drops it in migrateGame, and its next unrelated tap would
+ *    push a state without the combat to everyone at the table. */
+export const GAME_SCHEMA = 4;
 
 export type TableStatus =
   | { kind: 'connecting' }

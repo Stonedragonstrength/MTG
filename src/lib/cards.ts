@@ -287,6 +287,27 @@ export function spendMana(g: GameState, seat: number, iid: string, units: number
   });
 }
 
+/** More mana than any card yields: what `spent` holds on a card that was
+ * tapped for something other than mana. */
+const USED_UP = 999;
+
+/** Tapped, nothing floating: the card was tapped to attack, not for mana.
+ * A plain tapCard would leave an attacking Llanowar Elves' {G} in the pool
+ * to pay for the next spell. A card that is already tapped is left as it
+ * is — whatever it floated was floated on purpose. */
+export function tapSpent(g: GameState, seat: number, iid: string): GameState {
+  return updateSeat(g, seat, (cards) => {
+    const card = cards.battlefield.find((c) => c.iid === iid);
+    if (!card || card.tapped) return null;
+    return {
+      ...cards,
+      battlefield: cards.battlefield.map((c) =>
+        c.iid === iid ? { ...c, tapped: true, spent: USED_UP } : c,
+      ),
+    };
+  });
+}
+
 export function setCardCounter(
   g: GameState,
   seat: number,
@@ -354,6 +375,30 @@ export function commanderDied(
           : {}),
       };
     }),
+  };
+}
+
+/** Puts a wrongly counted trip home right: sets how many times this
+ * commander has gone back to the command zone (its tax ÷ 2). The seat's
+ * running total moves by the same amount, so the two stay in step. Only
+ * for seats that track their commanders per card. */
+export function setCommanderReturns(g: GameState, seat: number, iid: string, n: number): GameState {
+  const player = g.players[seat];
+  const cmd = player?.cards?.cmd;
+  if (!player?.cards || !cmd || !(iid in cmd) || !Number.isFinite(n)) return g;
+  const returns = Math.max(0, Math.floor(n));
+  if (returns === cmd[iid]) return g;
+  return {
+    ...g,
+    players: g.players.map((p, i) =>
+      i === seat
+        ? {
+            ...p,
+            commanderDeaths: Math.max(0, p.commanderDeaths + returns - cmd[iid]),
+            cards: { ...player.cards!, cmd: { ...cmd, [iid]: returns } },
+          }
+        : p,
+    ),
   };
 }
 

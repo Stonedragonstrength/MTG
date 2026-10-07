@@ -20,16 +20,19 @@ import {
   readyCards,
   seedSeat,
   setCardCounter,
+  setCommanderReturns,
   setHandHeld,
   setReveal,
   shuffled,
   shuffleLibrary,
   spendMana,
   tapCard,
+  tapSpent,
   untapAllCards,
 } from './cards';
 import { addCard, changeCardCount, createDeck, setCommander, setPartner } from './deck';
 import { createGame } from './game';
+import { sourcesFrom } from './pay';
 import type { CardRecord, Deck, GameConfig, GameState, Reveal } from './types';
 
 const config: GameConfig = {
@@ -317,6 +320,54 @@ describe('spendMana', () => {
   test('no-ops on a card that is not on the battlefield', () => {
     const g = seeded();
     expect(spendMana(g, 0, 'nope', 1)).toBe(g);
+  });
+
+  // ---- tapSpent: tapped for something that is not mana (an attack) ----
+
+  const ELVES: CardRecord = {
+    ...record('c-elves', 'Llanowar Elves', 'Creature — Elf Druid'),
+    oracleText: '{T}: Add {G}.',
+  };
+  const SOL_RING: CardRecord = { ...record('c-sol', 'Sol Ring', 'Artifact'), oracleText: '{T}: Add {C}{C}.' };
+  /** Seat 0 with one card of that record on the battlefield since before this turn. */
+  function withCard(rec: CardRecord): { g: GameState; iid: string } {
+    const g = seeded();
+    const iid = 'the-card';
+    const cards = g.players[0].cards!;
+    const hand = [{ iid, cardId: rec.id, name: rec.name }, ...cards.hand];
+    const held = { ...g, players: g.players.map((p, i) => (i === 0 ? { ...p, cards: { ...cards, hand } } : p)) };
+    return { g: readyCards(moveCard(held, 0, iid, 'hand', 'battlefield', { row: 'front' }), 0), iid };
+  }
+  const offers = (g: GameState, rec: CardRecord) =>
+    sourcesFrom(g.players[0].cards!.battlefield, { [rec.id]: rec }, g.players[0].board);
+
+  test('a card tapped to attack leaves no mana floating, where a tap by hand floats its yield', () => {
+    const { g, iid } = withCard(ELVES);
+    expect(offers(tapCard(g, 0, iid, true), ELVES)).toHaveLength(1); // by hand: its {G} is in the pool
+    const attacking = tapSpent(g, 0, iid);
+    expect(card(attacking, iid).tapped).toBe(true);
+    expect(offers(attacking, ELVES)).toEqual([]);
+  });
+
+  test('however much the card would have made: a Sol Ring tapped that way floats nothing either', () => {
+    const { g, iid } = withCard(SOL_RING);
+    expect(offers(tapSpent(g, 0, iid), SOL_RING)).toEqual([]);
+  });
+
+  test('untapping it starts its mana over, like any other tap', () => {
+    const { g, iid } = withCard(ELVES);
+    const stood = tapCard(tapSpent(g, 0, iid), 0, iid, false);
+    expect(card(stood, iid)).not.toHaveProperty('tapped');
+    expect(card(stood, iid)).not.toHaveProperty('spent');
+    expect(offers(stood, ELVES)).toHaveLength(1);
+  });
+
+  test('a card that is already tapped, or not on the battlefield, is left exactly as it is', () => {
+    const { g, iid } = withCard(ELVES);
+    const byHand = tapCard(g, 0, iid, true);
+    expect(tapSpent(byHand, 0, iid)).toBe(byHand); // what it floated is still floating
+    expect(tapSpent(g, 0, 'nope')).toBe(g);
+    expect(tapSpent(g, 1, iid)).toBe(g); // a seat without cards
   });
 });
 
@@ -729,6 +780,47 @@ describe('commander + mulligan', () => {
     expect(g3.players[0].cards!.hand.map((c) => c.iid)).toEqual(
       g2.players[0].cards!.hand.map((c) => c.iid),
     ); // seed-deterministic
+  });
+
+  // ---- setCommanderReturns: putting a wrongly counted trip home right ----
+
+  test('setCommanderReturns sets how often that commander has gone home, and its tax follows', () => {
+    let g = seeded();
+    const cmd = g.players[0].cards!.command[0].iid;
+    g = moveCard(g, 0, cmd, 'command', 'battlefield', { row: 'front' });
+    g = commanderDied(g, 0, cmd); // a death the table did not mean
+    expect(commanderTax(g.players[0], cmd)).toBe(2);
+    const fixed = setCommanderReturns(g, 0, cmd, 0);
+    expect(fixed.players[0].cards!.cmd).toEqual({ [cmd]: 0 });
+    expect(commanderTax(fixed.players[0], cmd)).toBe(0);
+    expect(fixed.players[0].commanderDeaths).toBe(0); // the seat's running total moves with it
+    const raised = setCommanderReturns(fixed, 0, cmd, 3);
+    expect(commanderTax(raised.players[0], cmd)).toBe(6);
+    expect(raised.players[0].commanderDeaths).toBe(3);
+  });
+
+  test('setCommanderReturns changes nothing for a card that is no commander, a seat without them, or the count it already has', () => {
+    const g = seeded();
+    const cmd = g.players[0].cards!.command[0].iid;
+    const other = g.players[0].cards!.hand[0].iid;
+    expect(setCommanderReturns(g, 0, cmd, 0)).toBe(g); // already there
+    expect(setCommanderReturns(g, 0, other, 2)).toBe(g);
+    expect(setCommanderReturns(g, 1, cmd, 2)).toBe(g); // a tracker seat
+    expect(setCommanderReturns(g, 0, cmd, Number.NaN)).toBe(g);
+    expect(setCommanderReturns(g, 0, cmd, -3).players[0].cards!.cmd![cmd]).toBe(0); // never below zero
+    const { cmd: _cmd, ...legacy } = g.players[0].cards!;
+    const old = { ...g, players: g.players.map((p, i) => (i === 0 ? { ...p, cards: legacy } : p)) };
+    expect(setCommanderReturns(old, 0, cmd, 2)).toBe(old); // dealt before commanders were tracked per card
+  });
+
+  test('setCommanderReturns leaves a partner alone', () => {
+    const thrasios = record('c-thrasios', 'Thrasios', 'Legendary Creature — Merfolk');
+    const tymna = record('c-tymna', 'Tymna', 'Legendary Creature — Human');
+    const deck = setPartner(setCommander(createDeck('Pair'), thrasios), tymna);
+    const g = seedSeat(createGame(config), 0, buildSeatCards(deck, 42));
+    const [a, b] = g.players[0].cards!.command;
+    const after = setCommanderReturns(g, 0, b.iid, 2);
+    expect(after.players[0].cards!.cmd).toEqual({ [a.iid]: 0, [b.iid]: 2 });
   });
 });
 

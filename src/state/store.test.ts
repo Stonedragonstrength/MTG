@@ -1504,6 +1504,462 @@ describe('cards mode', () => {
     }, 1);
     expect(store.getState().game).toBe(before); // refused, state unchanged
   });
+
+  // ---- combat on the cards ----
+
+  const unitCard = (id: string) => ({ kind: 'card' as const, id });
+  const unitStack = (id: string) => ({ kind: 'stack' as const, id });
+  const fightTokens = (id: string, count: number) => ({ ...soldiers(id), name: id, count });
+  const NAMES = ['A', 'B', 'C', 'D'];
+
+  /** A table of `seats` players, A's turn. A (cards): Grizzly Bears, Serra Angel (vigilance),
+   * Llanowar Elves and three soldier tokens. B (cards): a Wall and two saprolings.
+   * C and D (tracker seats): one knight token each. */
+  async function fightStore(seats = 2) {
+    await getDb().cards.bulkPut([
+      { ...deckRecord('c-bear', 'Grizzly Bears', 'Creature — Bear'), power: '2', toughness: '2' },
+      {
+        ...deckRecord('c-angel', 'Serra Angel', 'Creature — Angel'),
+        power: '4',
+        toughness: '4',
+        oracleText: 'Flying, vigilance',
+      },
+      {
+        ...deckRecord('c-elves', 'Llanowar Elves', 'Creature — Elf Druid'),
+        power: '1',
+        toughness: '1',
+        oracleText: '{T}: Add {G}.',
+      },
+      { ...deckRecord('c-wall', 'Wall of Omens', 'Creature — Wall'), power: '0', toughness: '4', oracleText: 'Defender' },
+    ]);
+    const store = createAppStore();
+    store.getState().startGame({
+      ...config,
+      mode: 'cards',
+      profiles: NAMES.slice(0, seats).map((name, i) => ({ id: `p${i}`, name, avatarUrl: null, commanderName: null })),
+    });
+    const g = store.getState().game!;
+    const cardsSeat = (battlefield: { iid: string; cardId: string; name: string }[]) => ({
+      library: [],
+      hand: [],
+      battlefield: battlefield.map((c) => ({ ...c, row: 'front' as const })),
+      graveyard: [],
+      exile: [],
+      command: [],
+      mulligans: 0,
+      deckName: 'Test',
+    });
+    store.setState({
+      game: {
+        ...g,
+        players: g.players.map((p, i) => {
+          if (i === 0)
+            return {
+              ...p,
+              board: [fightTokens('soldiers', 3)],
+              cards: cardsSeat([
+                { iid: 'bear', cardId: 'c-bear', name: 'Grizzly Bears' },
+                { iid: 'angel', cardId: 'c-angel', name: 'Serra Angel' },
+                { iid: 'elves', cardId: 'c-elves', name: 'Llanowar Elves' },
+              ]),
+            };
+          if (i === 1)
+            return {
+              ...p,
+              board: [fightTokens('saprolings', 2)],
+              cards: cardsSeat([{ iid: 'wall', cardId: 'c-wall', name: 'Wall of Omens' }]),
+            };
+          return { ...p, board: [fightTokens(`knight-${i}`, 1)] };
+        }),
+      },
+    });
+    return store;
+  }
+  const liveOf = async (store: ReturnType<typeof createAppStore>) =>
+    (await import('../lib/combat')).liveCombat(store.getState().game!);
+  /** A starts a fight and sends the bear, the angel, the elves and two soldiers at B. */
+  async function declaredFight(seats = 2) {
+    const store = await fightStore(seats);
+    const s = store.getState();
+    s.startCombat();
+    s.setAttacker(unitCard('bear'), 1, 1);
+    s.setAttacker(unitCard('angel'), 1, 1);
+    s.setAttacker(unitCard('elves'), 1, 1);
+    s.setAttacker(unitStack('soldiers'), 1, 2);
+    return store;
+  }
+  /** …and confirms: B is up to block. */
+  async function blockingFight(seats = 2) {
+    const store = await declaredFight(seats);
+    await store.getState().confirmAttackers();
+    return store;
+  }
+  const lifeOf = (store: ReturnType<typeof createAppStore>, seat: number) => store.getState().game!.players[seat].life;
+
+  test('starting a fight opens it for the active seat, under an id minted at the press, and says nothing', async () => {
+    const store = await fightStore();
+    const feedBefore = store.getState().game!.feed;
+    store.getState().startCombat();
+    const fight = (await liveOf(store))!;
+    expect(fight).toMatchObject({ turn: 1, active: 0, step: 'attackers' });
+    expect(typeof fight.id).toBe('string');
+    expect(store.getState().game!.feed).toBe(feedBefore);
+    const once = store.getState().game;
+    store.getState().startCombat(); // a second press while it is open
+    expect(store.getState().game).toBe(once);
+  });
+
+  test('picks are silent, and need a fight to be picks at all', async () => {
+    const idle = await fightStore();
+    const before = idle.getState().game;
+    idle.getState().setAttacker(unitCard('bear'), 1, 1);
+    idle.getState().setBlocker(1, unitCard('bear'), unitCard('wall'), 1);
+    idle.getState().setAttackBlocked(1, unitCard('bear'), true);
+    idle.getState().finishBlocks(1);
+    idle.getState().cancelCombat();
+    idle.getState().applyCombat({ players: [{ seat: 1, life: -5 }], deaths: [] });
+    await idle.getState().confirmAttackers();
+    expect(idle.getState().game).toBe(before);
+
+    const store = await declaredFight();
+    expect((await liveOf(store))!.attacks).toEqual([
+      { unit: unitCard('bear'), target: 1 },
+      { unit: unitCard('angel'), target: 1 },
+      { unit: unitCard('elves'), target: 1 },
+      { unit: unitStack('soldiers'), n: 2, target: 1 },
+    ]);
+    expect(store.getState().game!.feed ?? []).toEqual([]);
+  });
+
+  test('confirming reads vigilance off the cards: the others are tapped with their mana used up, and the feed says who attacks whom', async () => {
+    const store = await blockingFight();
+    const seat = seat0(store);
+    const of = (iid: string) => seat.battlefield.find((c) => c.iid === iid)!;
+    expect(of('bear').tapped).toBe(true);
+    expect(of('angel').tapped).toBeUndefined(); // vigilance
+    expect(of('elves').tapped).toBe(true);
+    expect(store.getState().game!.players[0].board[0].tapped).toBe(2);
+    // the elf attacked: its {G} is not floating in the pool
+    const { sourcesFrom } = await import('../lib/pay');
+    const { getCardById } = await import('../data/scryfall');
+    const records = { 'c-elves': await getCardById('c-elves'), 'c-bear': await getCardById('c-bear'), 'c-angel': await getCardById('c-angel') };
+    expect(sourcesFrom(seat.battlefield, records, [])).toEqual([]);
+    expect((await liveOf(store))!).toMatchObject({ step: 'blockers', defender: 1 });
+    expect((await liveOf(store))!.attacks!.map((a) => a.tapped ?? 0)).toEqual([1, 0, 1, 2]);
+    expect(feedOf(store)).toEqual(['A attacks B with 5 creatures']);
+    expect(store.getState().log.some((l) => l.text === 'A attacks B with 5 creatures')).toBe(true);
+  });
+
+  test('an attack on several players says how many go at each; confirming with nobody picked just ends it', async () => {
+    const pod = await fightStore(3);
+    pod.getState().startCombat();
+    pod.getState().setAttacker(unitCard('bear'), 1, 1);
+    pod.getState().setAttacker(unitStack('soldiers'), 1, 2);
+    pod.getState().setAttacker(unitCard('angel'), 2, 1);
+    await pod.getState().confirmAttackers();
+    expect(feedOf(pod)).toEqual(['A attacks B (3) and C (1)']);
+
+    const empty = await fightStore();
+    empty.getState().startCombat();
+    await empty.getState().confirmAttackers();
+    expect(await liveOf(empty)).toBeNull();
+    expect(empty.getState().game!.combat?.step).toBe('done');
+    expect(empty.getState().game!.feed ?? []).toEqual([]);
+  });
+
+  test('blocks are silent until the defender is done; then the feed counts the attackers stopped', async () => {
+    const store = await blockingFight();
+    store.getState().setBlocker(1, unitCard('bear'), unitCard('wall'), 1);
+    store.getState().setBlocker(1, unitStack('soldiers'), unitStack('saprolings'), 1);
+    store.getState().setAttackBlocked(1, unitCard('elves'), true);
+    const attacks = (await liveOf(store))!.attacks!;
+    expect(attacks[0].blockers).toEqual([unitCard('wall')]);
+    expect(attacks[3].blockers).toEqual([unitStack('saprolings')]);
+    expect(attacks[2].blocked).toBe(true);
+    expect(feedOf(store)).toHaveLength(1); // still only the attack line
+    store.getState().finishBlocks(1);
+    expect(feedOf(store).at(-1)).toBe('B blocks 3 attackers');
+    expect((await liveOf(store))!.step).toBe('damage');
+
+    const none = await blockingFight();
+    none.getState().finishBlocks(0); // not the seat that is up: nothing, and no line
+    expect(feedOf(none)).toHaveLength(1);
+    none.getState().finishBlocks(1);
+    expect(feedOf(none).at(-1)).toBe("B doesn't block");
+  });
+
+  test('applying writes the confirmed outcome in one move, names it in the feed, and ends the fight', async () => {
+    const store = await blockingFight();
+    store.getState().setBlocker(1, unitCard('bear'), unitCard('wall'), 1);
+    store.getState().finishBlocks(1);
+    store.getState().applyCombat({
+      players: [{ seat: 1, life: -7 }],
+      deaths: [
+        { seat: 0, unit: unitStack('soldiers'), n: 1, tapped: 1 },
+        { seat: 1, unit: unitCard('wall') },
+      ],
+    });
+    expect(lifeOf(store, 1)).toBe(33);
+    expect(store.getState().game!.players[0].board[0]).toMatchObject({ count: 2, tapped: 1 });
+    expect(store.getState().game!.players[1].cards!.graveyard.map((c) => c.iid)).toEqual(['wall']);
+    expect(feedOf(store).at(-1)).toBe('Combat: B takes 7 · soldiers and Wall of Omens die');
+    expect(await liveOf(store)).toBeNull();
+    expect(store.getState().game!.combat?.step).toBe('done');
+    const after = store.getState().game;
+    store.getState().applyCombat({ players: [{ seat: 1, life: -7 }], deaths: [] }); // a second press
+    expect(store.getState().game).toBe(after);
+  });
+
+  test('a player the outcome defeats is announced once, like any other defeat', async () => {
+    const store = await blockingFight();
+    store.getState().finishBlocks(1);
+    store.getState().applyCombat({ players: [{ seat: 1, life: -40 }], deaths: [] });
+    expect(store.getState().game!.players[1].eliminated).toBe(true);
+    expect(store.getState().log.filter((l) => l.text === 'B is defeated')).toHaveLength(1);
+  });
+
+  test('calling the fight off is silent before the attack is confirmed, and says so after — standing the attackers back up', async () => {
+    const early = await declaredFight();
+    early.getState().cancelCombat();
+    expect(await liveOf(early)).toBeNull();
+    expect(early.getState().game!.feed ?? []).toEqual([]);
+
+    const store = await blockingFight();
+    store.getState().cancelCombat();
+    expect(feedOf(store).at(-1)).toBe('A calls off the attack');
+    expect(seat0(store).battlefield.some((c) => c.tapped)).toBe(false);
+    expect(store.getState().game!.players[0].board[0].tapped).toBe(0);
+    expect(await liveOf(store)).toBeNull();
+  });
+
+  test('another fight may follow a finished one in the same turn, and passing the turn clears the table of it', async () => {
+    const store = await declaredFight();
+    const first = (await liveOf(store))!.id;
+    store.getState().cancelCombat();
+    store.getState().startCombat();
+    const second = (await liveOf(store))!;
+    expect(second.id).not.toBe(first);
+    expect(second.step).toBe('attackers');
+    store.getState().passTurn();
+    expect('combat' in store.getState().game!).toBe(false);
+    // and a finished one goes the same way
+    const done = await declaredFight();
+    done.getState().cancelCombat();
+    expect(done.getState().game!.combat?.step).toBe('done');
+    done.getState().passTurn();
+    expect('combat' in done.getState().game!).toBe(false);
+  });
+
+  test('undo steps back through a fight like through anything else', async () => {
+    const store = await blockingFight();
+    store.getState().finishBlocks(1);
+    store.getState().applyCombat({ players: [{ seat: 1, life: -5 }], deaths: [] });
+    store.getState().undo(); // the apply
+    expect(lifeOf(store, 1)).toBe(40);
+    expect((await liveOf(store))!.step).toBe('damage');
+    store.getState().undo(); // the "no blocks"
+    expect((await liveOf(store))!).toMatchObject({ step: 'blockers', defender: 1 });
+    store.getState().undo(); // the declaration
+    expect((await liveOf(store))!.step).toBe('attackers');
+    expect(seat0(store).battlefield.some((c) => c.tapped)).toBe(false);
+  });
+
+  test('a wrongly counted trip home can be put right: the commander’s tax follows, and the feed says so', async () => {
+    const store = await cardsStore();
+    const iid = seat0(store).command[0].iid;
+    store.getState().castCommander(0);
+    await vi.waitFor(() => expect(seat0(store).battlefield).toHaveLength(1));
+    store.getState().commanderDiedAction(0, iid);
+    expect(seat0(store).cmd).toEqual({ [iid]: 1 });
+    store.getState().setCommanderReturns(0, iid, 0);
+    expect(seat0(store).cmd).toEqual({ [iid]: 0 });
+    expect(feedOf(store).at(-1)).toBe('A: Ashaya has gone home 0 times (tax +0)');
+    store.getState().setCommanderReturns(0, iid, 1);
+    expect(feedOf(store).at(-1)).toBe('A: Ashaya has gone home once (tax +2)');
+    const { guard, orig } = lastSynced();
+    expect(guard(orig, orig)).toBe(true);
+    // the commander died again on another device before this correction arrived: it no longer stands
+    const { setCommanderReturns } = await import('../lib/cards');
+    expect(guard(setCommanderReturns(orig, 0, iid, 3), orig)).toBe(false);
+    const before = store.getState().game;
+    store.getState().setCommanderReturns(0, 'not-a-commander', 2);
+    store.getState().setCommanderReturns(1, iid, 2); // a seat without cards
+    expect(store.getState().game).toBe(before);
+  });
+
+  // ---- combat: what a replay may land on ----
+
+  test('a start is replayed only in its own turn and onto the combat record its device saw', async () => {
+    const store = await fightStore();
+    store.getState().startCombat();
+    const { op, guard, orig } = lastSynced();
+    expect(guard(orig, orig)).toBe(true);
+    const lifeMoved = { ...orig, players: orig.players.map((p, i) => (i === 1 ? { ...p, life: 31 } : p)) };
+    expect(guard(lifeMoved, orig)).toBe(true); // an unrelated change: it still starts
+    expect(op(lifeMoved).combat).toMatchObject({ step: 'attackers', active: 0 });
+    expect(guard({ ...orig, turnNumber: orig.turnNumber + 1 }, orig)).toBe(false); // the turn went round
+    expect(guard({ ...orig, activePlayerIndex: 1 }, orig)).toBe(false);
+    // someone else opened a fight first
+    const other = deviceAt(orig);
+    other.getState().startCombat();
+    expect(guard(other.getState().game!, orig)).toBe(false);
+  });
+
+  test('a start replayed after its own fight finished is dropped: the declaration does not come back to life', async () => {
+    const store = await fightStore();
+    store.getState().startCombat();
+    const start = lastSynced();
+    store.getState().setAttacker(unitCard('bear'), 1, 1);
+    const pick = lastSynced();
+    await store.getState().confirmAttackers();
+    const confirm = lastSynced();
+    store.getState().finishBlocks(1);
+    store.getState().applyCombat({ players: [{ seat: 1, life: -2 }], deaths: [] });
+    // The table holds the finished fight (and has played on). The first save's answer was lost and
+    // its id has fallen out of the table's ring: start, pick and confirm are all replayed.
+    const table = store.getState().game!;
+    expect(table.combat).toMatchObject({ step: 'done' });
+    for (const stale of [start, pick, confirm]) {
+      expect(stale.guard(table, stale.orig)).toBe(false);
+      expect(stale.op(table)).toBe(table); // and the reducers would refuse it too
+    }
+    expect(table.players[1].life).toBe(38); // dealt once
+  });
+
+  test('a pick is replayed only onto the same fight at the same step', async () => {
+    const store = await fightStore();
+    store.getState().startCombat();
+    store.getState().setAttacker(unitCard('bear'), 1, 1);
+    const { op, guard, orig } = lastSynced();
+    expect(guard(orig, orig)).toBe(true);
+    const other = deviceAt(orig); // another device picked the angel meanwhile
+    other.getState().setAttacker(unitCard('angel'), 1, 1);
+    expect(guard(other.getState().game!, orig)).toBe(true);
+    expect((await import('../lib/combat')).liveCombat(op(other.getState().game!))!.attacks).toHaveLength(2);
+    await other.getState().confirmAttackers(); // …and then confirmed: picking is over
+    expect(guard(other.getState().game!, orig)).toBe(false);
+    other.getState().cancelCombat();
+    other.getState().startCombat(); // a different fight
+    expect(guard(other.getState().game!, orig)).toBe(false);
+  });
+
+  test('a confirm is replayed only onto the declaration its device confirmed', async () => {
+    const store = await declaredFight();
+    const seen = store.getState().game!;
+    await store.getState().confirmAttackers();
+    const { guard, orig } = lastSynced();
+    expect(orig).toBe(seen);
+    expect(guard(orig, orig)).toBe(true);
+    const other = deviceAt(seen);
+    other.getState().setAttacker(unitCard('angel'), 1, 0); // the angel was taken back elsewhere
+    expect(guard(other.getState().game!, orig)).toBe(false);
+  });
+
+  test('two presses of Done from two devices leave the next defender up', async () => {
+    const tablet = await fightStore(3);
+    tablet.getState().startCombat();
+    tablet.getState().setAttacker(unitCard('bear'), 1, 1);
+    tablet.getState().setAttacker(unitCard('angel'), 2, 1);
+    await tablet.getState().confirmAttackers(); // B is up, then C
+    const phone = deviceAt(tablet.getState().game!);
+    phone.getState().finishBlocks(1); // B says "no blocks" on his phone…
+    const fromPhone = lastSynced();
+    tablet.getState().finishBlocks(1); // …and A taps the same button on the tablet
+    const table = tablet.getState().game!; // the tablet's press lands first
+    expect((await liveOf(tablet))!).toMatchObject({ step: 'blockers', defender: 2 });
+    expect(fromPhone.guard(table, fromPhone.orig)).toBe(false); // the phone's is dropped
+    expect(fromPhone.op(table)).toBe(table); // and could not have skipped C anyway: it names B
+  });
+
+  test('a block, a paper mark and a Done made on an attack that was then re-declared are dropped', async () => {
+    const tablet = await blockingFight();
+    const seen = tablet.getState().game!;
+    const phone = deviceAt(seen); // the defender's phone drops off here
+    phone.getState().setBlocker(1, unitCard('bear'), unitCard('wall'), 1);
+    const block = lastSynced();
+    phone.getState().setAttackBlocked(1, unitCard('elves'), true);
+    const mark = lastSynced();
+    phone.getState().finishBlocks(1);
+    const done = lastSynced();
+    // Meanwhile the attacker takes the declaration back and attacks differently — under the same id.
+    tablet.getState().undo();
+    tablet.getState().setAttacker(unitCard('bear'), 1, 0);
+    await tablet.getState().confirmAttackers();
+    const table = tablet.getState().game!;
+    expect((await liveOf(tablet))!.id).toBe((await import('../lib/combat')).liveCombat(seen)!.id);
+    // Each is judged against the table as the ones before it left it, as a rebase does.
+    expect(block.guard(table, block.orig)).toBe(false);
+    expect(mark.guard(table, mark.orig)).toBe(false);
+    expect(done.guard(table, done.orig)).toBe(false);
+    // On the attack they were made for, they stand.
+    expect(block.guard(seen, block.orig)).toBe(true);
+    expect(mark.guard(block.op(seen), mark.orig)).toBe(true);
+    expect(done.guard(mark.op(block.op(seen)), done.orig)).toBe(true);
+  });
+
+  test('an Apply made on an old block list is dropped', async () => {
+    const tablet = await blockingFight();
+    tablet.getState().finishBlocks(1); // no blocks: the bar says "B −9"
+    const phone = deviceAt(tablet.getState().game!);
+    phone.getState().applyCombat({ players: [{ seat: 1, life: -9 }], deaths: [] }); // pressed as the phone drops off
+    const apply = lastSynced();
+    expect(apply.guard(apply.orig, apply.orig)).toBe(true);
+    tablet.getState().undo(); // "wait, I do block"
+    tablet.getState().setBlocker(1, unitCard('bear'), unitCard('wall'), 1);
+    tablet.getState().finishBlocks(1); // the bar now says "B −7"
+    const table = tablet.getState().game!;
+    expect((await liveOf(tablet))!.step).toBe('damage');
+    expect(apply.guard(table, apply.orig)).toBe(false);
+    // two devices pressing Apply on the same result: the second meets a finished fight
+    const twice = deviceAt(apply.orig);
+    twice.getState().applyCombat({ players: [{ seat: 1, life: -9 }], deaths: [] });
+    expect(apply.guard(twice.getState().game!, apply.orig)).toBe(false);
+    expect(apply.op(twice.getState().game!)).toBe(twice.getState().game);
+  });
+
+  test('a Pass turn made before the combat was heard of is dropped, and one made knowing of it passes', async () => {
+    const tablet = await fightStore();
+    const unheard = tablet.getState().game!;
+    const phone = deviceAt(unheard); // its hub shows no combat: Pass turn is live
+    tablet.getState().startCombat();
+    tablet.getState().setAttacker(unitCard('bear'), 1, 1);
+    await tablet.getState().confirmAttackers();
+    const table = tablet.getState().game!;
+    phone.getState().passTurn();
+    const blind = lastSynced();
+    expect(blind.guard(unheard, blind.orig)).toBe(true); // nothing happened meanwhile: it passes
+    expect(blind.guard(table, blind.orig)).toBe(false); // it must not erase the fight
+    // a device that saw the fight may end it with the turn
+    tablet.getState().passTurn();
+    const knowing = lastSynced();
+    expect(knowing.guard(table, knowing.orig)).toBe(true);
+    expect('combat' in tablet.getState().game!).toBe(false);
+    // …but not a different fight that took its place
+    const other = deviceAt(table);
+    other.getState().cancelCombat();
+    other.getState().startCombat();
+    expect(knowing.guard(other.getState().game!, knowing.orig)).toBe(false);
+    // a finished fight is no fight: a pass made before it was heard of still passes
+    const finished = deviceAt(table);
+    finished.getState().cancelCombat();
+    expect(blind.guard(finished.getState().game!, blind.orig)).toBe(true);
+  });
+
+  test('a Cancel is replayed only onto the fight it called off, at the step it was called off in', async () => {
+    const tablet = await blockingFight();
+    const seen = tablet.getState().game!;
+    const phone = deviceAt(seen);
+    phone.getState().cancelCombat();
+    const cancel = lastSynced();
+    expect(cancel.guard(seen, cancel.orig)).toBe(true);
+    tablet.getState().finishBlocks(1); // the fight moved on to damage first
+    expect(cancel.guard(tablet.getState().game!, cancel.orig)).toBe(false);
+    tablet.getState().undo();
+    tablet.getState().undo(); // back to picking, then a different attack under the same id
+    tablet.getState().setAttacker(unitCard('angel'), 1, 0);
+    await tablet.getState().confirmAttackers();
+    expect(cancel.guard(tablet.getState().game!, cancel.orig)).toBe(false);
+  });
 });
 
 describe('garage', () => {

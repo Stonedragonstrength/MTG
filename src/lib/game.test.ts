@@ -10,6 +10,7 @@ import {
   passTurn,
   setCommanderDeaths,
   setPlayerCounter,
+  settlePlayer,
 } from './game';
 
 function card(typeLine: string, oracleText = ''): CardRecord {
@@ -137,6 +138,76 @@ describe('applyCommanderDamage', () => {
     game = applyCommanderDamage(game, 0, 'p2', 15);
     expect(game.players[0].commanderDamage).toEqual({ p1: 10, p2: 15 });
     expect(game.players[0].eliminated).toBe(false);
+  });
+
+  // ---- settlePlayer: everything one fight does to a player, in one update ----
+
+  test('a fight is one update: a player at 3 who takes 4 and gains 2 lives at 1', () => {
+    const at3 = adjustLife(createGame(commanderConfig()), 1, -37);
+    const after = settlePlayer(at3, 1, { life: -2 }); // the net of −4 and +2
+    expect(after.players[1].life).toBe(1);
+    expect(after.players[1].eliminated).toBe(false);
+    // The same two changes one after the other defeat him for good: that is why this exists.
+    const chained = adjustLife(adjustLife(at3, 1, -4), 1, 2);
+    expect(chained.players[1].life).toBe(1);
+    expect(chained.players[1].eliminated).toBe(true);
+  });
+
+  test('a fight is one update: commander damage is written on the gauge and counted once', () => {
+    const game = settlePlayer(createGame(commanderConfig()), 0, { life: -5, commander: { p1: 3 } });
+    expect(game.players[0].life).toBe(35); // 5 in all, 3 of them from the commander: not 32
+    expect(game.players[0].commanderDamage).toEqual({ p1: 3 });
+    const again = settlePlayer(game, 0, { life: -2, commander: { p1: 2, 'p2#2': 1 } });
+    expect(again.players[0].commanderDamage).toEqual({ p1: 5, 'p2#2': 1 }); // added to what is there
+    expect(again.players[0].life).toBe(33);
+  });
+
+  test('a fight is one update: poison is added to what is there, never set', () => {
+    let game = setPlayerCounter(createGame(commanderConfig()), 2, 'poison', 3);
+    game = setPlayerCounter(game, 2, 'energy', 4);
+    const after = settlePlayer(game, 2, { poison: 2 });
+    expect(after.players[2].counters).toEqual({ poison: 5, energy: 4 });
+    expect(after.players[2].life).toBe(40); // infect takes no life
+    expect(settlePlayer(createGame(commanderConfig()), 2, { poison: 1 }).players[2].counters).toEqual({
+      poison: 1,
+    });
+  });
+
+  test('a fight is one update: the player is judged once, at the end, by whatever is lethal', () => {
+    const fresh = createGame(commanderConfig());
+    // 21 from one commander is lethal at 19 life
+    const byCommander = settlePlayer(fresh, 0, { life: -21, commander: { p1: 21 } });
+    expect([byCommander.players[0].life, byCommander.players[0].eliminated]).toEqual([19, true]);
+    // 11 + 11 from two commanders is not
+    const split = settlePlayer(fresh, 0, { life: -22, commander: { p1: 11, 'p1#2': 11 } });
+    expect(split.players[0].eliminated).toBe(false);
+    // the tenth poison counter is, with every life point left
+    const poisoned = settlePlayer(setPlayerCounter(fresh, 0, 'poison', 8), 0, { poison: 2 });
+    expect([poisoned.players[0].life, poisoned.players[0].eliminated]).toEqual([40, true]);
+    // an infect commander: poison and the gauge, no life
+    const infect = settlePlayer(fresh, 0, { commander: { p1: 4 }, poison: 4 });
+    expect(infect.players[0]).toMatchObject({ life: 40, commanderDamage: { p1: 4 }, eliminated: false });
+    expect(infect.players[0].counters.poison).toBe(4);
+    // life at exactly 0 is
+    expect(settlePlayer(fresh, 0, { life: -40 }).players[0].eliminated).toBe(true);
+    // and nobody else was touched
+    expect(byCommander.players[1]).toBe(fresh.players[1]);
+  });
+
+  test('a fight that changes nothing hands back the same state, and so does a seat that is not there', () => {
+    const game = createGame(commanderConfig());
+    expect(settlePlayer(game, 0, {})).toBe(game);
+    expect(settlePlayer(game, 0, { life: 0, commander: { p1: 0 }, poison: 0 })).toBe(game);
+    expect(settlePlayer(game, 9, { life: -3 })).toBe(game);
+    expect(settlePlayer(game, 0, { life: Number.NaN, poison: Number.NaN })).toBe(game); // nonsense is no change
+  });
+
+  test('a defeated player stays defeated, and a gauge never goes below zero', () => {
+    const dead = adjustLife(createGame(commanderConfig()), 0, -40);
+    expect(settlePlayer(dead, 0, { life: 12 }).players[0].eliminated).toBe(true);
+    const game = settlePlayer(createGame(commanderConfig()), 0, { commander: { p1: -4 }, poison: -2 });
+    expect(game.players[0].commanderDamage.p1 ?? 0).toBe(0);
+    expect(game.players[0].counters.poison ?? 0).toBe(0);
   });
 });
 
