@@ -61,6 +61,8 @@ export interface AppStore {
     opts?: { pos?: 'top' | 'bottom'; row?: 'front' | 'lands' },
   ): void;
   millCards(seat: number, n: number): void;
+  lookNotice(seat: number, n: number): void;
+  arrangeTop(seat: number, looked: string[], plan: cardsLib.TopPlan): void;
   shuffleSeat(seat: number): void;
   mulliganSeat(seat: number): void;
   keepHand(seat: number, bottomIids: string[]): void;
@@ -519,6 +521,38 @@ export function createAppStore() {
           (base) => {
             const baseLib = base.players[seat]?.cards?.library;
             return !!baseLib && iids.every((i) => baseLib.some((c) => c.iid === i));
+          },
+        );
+      },
+
+      lookNotice(seat, n) {
+        const g = get().game;
+        if (!g) return;
+        // Looking is a game action the table gets to know about, even if
+        // the looker then changes nothing.
+        cardMutate(
+          (base) => ({ ...base }), // feed-only op: the entry is the payload
+          `${seatName(g, seat)} looks at the top ${n} of their library`,
+        );
+      },
+
+      arrangeTop(seat, looked, plan) {
+        const g = get().game;
+        if (!g) return;
+        // Counts only: where the cards went is public, which ones is not.
+        const parts = [
+          plan.top.length > 0 && `${plan.top.length} back on top`,
+          plan.bottom.length > 0 && `${plan.bottom.length} on the bottom`,
+          plan.graveyard.length > 0 && `${plan.graveyard.length} in the graveyard`,
+          plan.hand.length > 0 && `${plan.hand.length} in hand`,
+        ].filter(Boolean);
+        if (parts.length === 0) return;
+        cardMutate(
+          (base) => cardsLib.arrangeTop(base, seat, looked, plan),
+          `${seatName(g, seat)} puts ${parts.join(', ')}`,
+          (base) => {
+            const top = base.players[seat]?.cards?.library.slice(0, looked.length);
+            return !!top && looked.every((i) => top.some((c) => c.iid === i));
           },
         );
       },

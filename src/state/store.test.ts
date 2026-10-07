@@ -627,6 +627,22 @@ describe('cards mode', () => {
     expect(feed).toContain('A casts Tymna (tax +2)'); // its own death, its own tax
   });
 
+  test('looking at the top of the library is announced; the result says how many went where, never which', async () => {
+    const store = await cardsStore();
+    const lib = store.getState().game!.players[0].cards!.library;
+    const [a, b, c] = lib.slice(0, 3).map((x) => x.iid);
+    store.getState().lookNotice(0, 3);
+    store.getState().arrangeTop(0, [a, b, c], { top: [c], bottom: [a], graveyard: [], hand: [b] });
+    const seat = store.getState().game!.players[0].cards!;
+    expect(seat.library[0].iid).toBe(c);
+    expect(seat.library.at(-1)!.iid).toBe(a);
+    expect(seat.hand.at(-1)!.iid).toBe(b);
+    const feed = store.getState().game!.feed!.map((e) => e.text);
+    expect(feed).toContain('A looks at the top 3 of their library');
+    expect(feed).toContain('A puts 1 back on top, 1 on the bottom, 1 in hand');
+    expect(feed.join(' ')).not.toMatch(/Forest|Ashaya/); // no card names: the library is hidden
+  });
+
   test('pass turn readies the incoming seat, virtual cards included', async () => {
     const store = await cardsStore();
     const iid = store.getState().game!.players[0].cards!.hand[0].iid;

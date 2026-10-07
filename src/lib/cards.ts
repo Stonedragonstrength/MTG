@@ -149,6 +149,48 @@ export function bottomCards(g: GameState, seat: number, iids: string[]): GameSta
   });
 }
 
+/** Where each card looked at from the top of a library ends up. */
+export interface TopPlan {
+  /** Back on top, in this order (first = new top card). */
+  top: string[];
+  bottom: string[];
+  graveyard: string[];
+  hand: string[];
+}
+
+/** Scry, surveil, "look at the top N and put one in your hand": the cards
+ * looked at leave the top of the library and go where the plan says. The
+ * plan must account for exactly those cards, and they must still BE the
+ * top of the library — a draw or a shuffle in between calls it off. */
+export function arrangeTop(
+  g: GameState,
+  seat: number,
+  looked: string[],
+  plan: TopPlan,
+): GameState {
+  return updateSeat(g, seat, (cards) => {
+    const planned = [...plan.top, ...plan.bottom, ...plan.graveyard, ...plan.hand];
+    if (
+      planned.length !== looked.length ||
+      new Set(planned).size !== planned.length ||
+      !looked.every((iid) => planned.includes(iid))
+    )
+      return null;
+    const onTop = new Set(cards.library.slice(0, looked.length).map((c) => c.iid));
+    if (!looked.every((iid) => onTop.has(iid))) return null;
+    const t = takeFrom(cards.library, looked);
+    if (!t) return null;
+    const byId = new Map(t.taken.map((c) => [c.iid, c]));
+    const pick = (iids: string[]) => iids.map((iid) => byId.get(iid)!);
+    return {
+      ...cards,
+      library: [...pick(plan.top), ...t.rest, ...pick(plan.bottom)],
+      graveyard: [...cards.graveyard, ...pick(plan.graveyard)],
+      hand: [...cards.hand, ...pick(plan.hand)],
+    };
+  });
+}
+
 /** The keep step is terminal: bottom the picks (if any) and mark the hand
  * kept, so a replay or a second press can never bottom twice. */
 export function keepHand(g: GameState, seat: number, iids: string[]): GameState {

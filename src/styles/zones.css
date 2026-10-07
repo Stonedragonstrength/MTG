@@ -2894,3 +2894,136 @@ input[type='checkbox'] {
 .pile-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pile-actions { display: flex; gap: 4px; }
 .pile-actions button { padding: 4px 8px; font-size: 0.72rem; }
+
+/* ---- library: look at the top N (scry, surveil) ---- */
+.library-actions { flex-wrap: wrap; }
+.look-hint { margin: 0; }
+
+.look-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(var(--look-cols, 3), minmax(0, 210px));
+  justify-content: center;
+  gap: 14px;
+}
+
+.look-card {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.look-face {
+  position: relative;
+  aspect-ratio: 63 / 88;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #2b2b33;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+}
+
+/* The name sits under the art: it only shows while there is no image. */
+.look-face::before {
+  content: attr(data-name);
+  padding: 10px;
+  text-align: center;
+  font-size: 0.85rem;
+  opacity: 0.8;
+}
+
+.look-face img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: filter 0.15s;
+}
+
+/* Leaving the top: darkened, never see-through (the name is underneath). */
+.look-card:not(.look-card--top) .look-face img { filter: brightness(0.4) saturate(0.6); }
+.look-card:not(.look-card--top) .look-face::before { opacity: 0.4; }
+
+.look-tag {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.82);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.look-card:not(.look-card--top) .look-tag { color: #e8e8ee; }
+
+.look-order {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.look-move {
+  flex: 0 0 auto;
+  min-width: 40px;
+  min-height: 36px;
+  padding: 4px 8px;
+}
+
+.look-move--up::before { content: '\25C0\FE0E'; }
+.look-move--down::before { content: '\25B6\FE0E'; }
+
+.look-name {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.look-dests {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 4px;
+}
+
+.look-dest {
+  min-height: 36px;
+  padding: 4px 2px;
+  font-size: 0.7rem;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.look-dest--on {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* Phones: one card per line, the card beside its controls. */
+@media (max-width: 700px) {
+  .look-list { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+
+  .look-card {
+    display: grid;
+    grid-template-columns: 112px minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+    gap: 8px 12px;
+  }
+
+  .look-face { grid-row: 1 / span 2; }
+  .look-dests { align-self: end; }
+  .look-dest { font-size: 0.76rem; }
+  .look-move--up::before { content: '\25B2'; }
+  .look-move--down::before { content: '\25BC'; }
+}

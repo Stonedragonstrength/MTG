@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import {
   appendFeed,
+  arrangeTop,
   bottomCards,
   buildSeatCards,
   commanderDied,
@@ -139,6 +140,67 @@ describe('seedSeat', () => {
     expect(g.players[0].cards?.hand).toHaveLength(7);
     const again = seedSeat(g, 0, buildSeatCards(sampleDeck(), 99));
     expect(again).toBe(g);
+  });
+});
+
+describe('arrangeTop (scry, surveil, look-and-pick)', () => {
+  const top3 = (g: GameState) => g.players[0].cards!.library.slice(0, 3).map((c) => c.iid);
+
+  test('puts the looked-at cards where told: reordered on top, bottom, hand', () => {
+    const g = seeded(); // five cards in the library
+    const [a, b, c] = top3(g);
+    const untouched = g.players[0].cards!.library.slice(3).map((x) => x.iid);
+    const next = arrangeTop(g, 0, [a, b, c], { top: [c], bottom: [a], graveyard: [], hand: [b] });
+    const seat = next.players[0].cards!;
+    expect(seat.library.map((x) => x.iid)).toEqual([c, ...untouched, a]); // c on top, a at the very bottom
+    expect(seat.hand.at(-1)!.iid).toBe(b);
+    expect(seat.hand).toHaveLength(8);
+  });
+
+  test('surveil: cards sent to the graveyard land there in the order given', () => {
+    const g = seeded();
+    const [a, b, c] = top3(g);
+    const next = arrangeTop(g, 0, [a, b, c], { top: [b], bottom: [], graveyard: [c, a], hand: [] });
+    expect(next.players[0].cards!.graveyard.map((x) => x.iid)).toEqual([c, a]);
+    expect(next.players[0].cards!.library[0].iid).toBe(b);
+  });
+
+  test('a plan must account for exactly the cards that were looked at', () => {
+    const g = seeded();
+    const [a, b, c] = top3(g);
+    expect(arrangeTop(g, 0, [a, b, c], { top: [a, b], bottom: [], graveyard: [], hand: [] })).toBe(g); // one missing
+    expect(arrangeTop(g, 0, [a, b], { top: [a, b, c], bottom: [], graveyard: [], hand: [] })).toBe(g); // one extra
+    expect(arrangeTop(g, 0, [a, b], { top: [a, a], bottom: [], graveyard: [], hand: [] })).toBe(g); // one twice
+  });
+
+  test('is off entirely if a looked-at card has left the library since', () => {
+    const g = seeded();
+    const [a, b, c] = top3(g);
+    const drawn = draw(g, 0, [a]); // someone drew the top card meanwhile
+    expect(arrangeTop(drawn, 0, [a, b, c], { top: [a, b, c], bottom: [], graveyard: [], hand: [] })).toBe(
+      drawn,
+    );
+  });
+
+  test('what is still on top after a draw can be arranged on its own', () => {
+    const g = seeded();
+    const [a, b, c] = top3(g);
+    const drawn = draw(g, 0, [a]);
+    const next = arrangeTop(drawn, 0, [b, c], { top: [c, b], bottom: [], graveyard: [], hand: [] });
+    expect(next.players[0].cards!.library.slice(0, 2).map((x) => x.iid)).toEqual([c, b]);
+  });
+
+  test('is off if the cards are no longer on top: a shuffle got in between', () => {
+    const g = seeded();
+    const [a, b] = top3(g);
+    const lib = g.players[0].cards!.library;
+    const buried: GameState = {
+      ...g,
+      players: g.players.map((p, i) =>
+        i === 0 ? { ...p, cards: { ...p.cards!, library: [...lib.slice(2), ...lib.slice(0, 2)] } } : p,
+      ),
+    };
+    expect(arrangeTop(buried, 0, [a, b], { top: [b, a], bottom: [], graveyard: [], hand: [] })).toBe(buried);
   });
 });
 
