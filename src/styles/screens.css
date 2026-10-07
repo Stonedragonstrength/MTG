@@ -91,6 +91,15 @@ label {
   z-index: 50;
 }
 
+/* Left behind for a moment by a closing sheet (Sheet.tsx), to swallow the second
+   half of a double tap: over the whole board, which tops out at 40, and under
+   the backdrop of any sheet that opens next. */
+.tap-shield {
+  position: fixed;
+  inset: 0;
+  z-index: 49;
+}
+
 .modal-actions {
   display: flex;
   gap: 10px;

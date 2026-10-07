@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useAppStore } from '../state/store';
 import Sheet from './Sheet';
+import { useConfirmTap } from './useConfirmTap';
 
 const DOT: Record<string, string> = {
   connecting: 'pill-dot--amber',
@@ -22,7 +23,7 @@ export default function TablePill() {
   const exitToHome = useAppStore((s) => s.exitToHome);
   const endGame = useAppStore((s) => s.endGame);
   const [open, setOpen] = useState(false);
-  const [confirmEnd, setConfirmEnd] = useState(false);
+  const ending = useConfirmTap();
 
   if (!online) return null;
   const peers = online.status.kind === 'live' ? online.status.peers : null;
@@ -113,21 +114,16 @@ export default function TablePill() {
             >
               Leave table
             </button>
-            {confirmEnd ? (
-              <button
-                className="danger"
-                onClick={() => {
-                  endGame();
-                  setOpen(false);
-                }}
-              >
-                Really end for everyone?
-              </button>
-            ) : (
-              <button className="danger" onClick={() => setConfirmEnd(true)}>
-                End for everyone
-              </button>
-            )}
+            <button
+              className="danger"
+              onClick={(e) => {
+                if (!ending.confirms(e)) return;
+                endGame();
+                setOpen(false);
+              }}
+            >
+              {ending.armed ? 'Really end for everyone?' : 'End for everyone'}
+            </button>
           </div>
         </Sheet>
       )}

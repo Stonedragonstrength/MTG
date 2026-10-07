@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { addCard, changeCardCount, createDeck, setCommander } from '../lib/deck';
@@ -369,9 +369,40 @@ test('deleting a deck takes a second, deliberate tap', async () => {
   await user.click(screen.getByRole('button', { name: /delete deck/i }));
   expect(useAppStore.getState().deleteDeck).not.toHaveBeenCalled(); // one stray tap costs nothing
   expect(onBack).not.toHaveBeenCalled();
+  await new Promise((r) => setTimeout(r, 650)); // deliberate: a beat after the first
   await user.click(screen.getByRole('button', { name: /really delete/i }));
   expect(useAppStore.getState().deleteDeck).toHaveBeenCalledWith('deck-1');
   expect(onBack).toHaveBeenCalled();
+});
+
+/** A tap that happens at a moment of our choosing (ms): the confirm goes by when taps land. */
+function tapAt(button: HTMLElement, at: number) {
+  const tap = new MouseEvent('click', { bubbles: true, cancelable: true });
+  Object.defineProperty(tap, 'timeStamp', { value: at });
+  fireEvent(button, tap);
+}
+
+test('a stray double tap on Delete deck arms it and takes nothing', async () => {
+  const onBack = vi.fn();
+  render(<DeckEditor deckId="deck-1" onBack={onBack} />);
+  await screen.findByText('Lands 8/36'); // the card records are in
+  const button = screen.getByRole('button', { name: /delete deck/i });
+  tapAt(button, 5000);
+  tapAt(button, 5150); // the second half of the same double tap
+  expect(useAppStore.getState().deleteDeck).not.toHaveBeenCalled();
+  expect(onBack).not.toHaveBeenCalled();
+  expect(button).toHaveTextContent('Really delete this deck?'); // armed, and still asking
+});
+
+test('an impatient tap on the armed Delete button does not start the wait over', async () => {
+  render(<DeckEditor deckId="deck-1" onBack={() => {}} />);
+  await screen.findByText('Lands 8/36'); // the card records are in
+  const button = screen.getByRole('button', { name: /delete deck/i });
+  tapAt(button, 5000);
+  tapAt(button, 5400); // too soon: dropped
+  expect(useAppStore.getState().deleteDeck).not.toHaveBeenCalled();
+  tapAt(button, 5800); // a beat after the first tap, though not after the second
+  expect(useAppStore.getState().deleteDeck).toHaveBeenCalledWith('deck-1');
 });
 
 test('Change commander picks any commander by name, and the old one stays in the deck', async () => {

@@ -27,6 +27,7 @@ import CommanderAlignSheet from './CommanderAlignSheet';
 import DeckCardSheet from './DeckCardSheet';
 import DeckEntrySheet from './DeckEntrySheet';
 import SynergySheet from './SynergySheet';
+import { useConfirmTap } from './useConfirmTap';
 
 /** Commander rules of thumb — a nudge, not a judge. */
 const HEALTH_TARGETS: { key: keyof DeckStats; label: string; target: number }[] = [
@@ -77,7 +78,7 @@ export default function DeckEditor({ deckId, onBack }: Props) {
   const [synergyOpen, setSynergyOpen] = useState(false);
   const [aligning, setAligning] = useState(false);
   const [pickingCommander, setPickingCommander] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const deleting = useConfirmTap();
   const [stats, setStats] = useState<DeckStats | null>(null);
   const [curationMsg, setCurationMsg] = useState('');
 
@@ -475,17 +476,14 @@ export default function DeckEditor({ deckId, onBack }: Props) {
         </button>
         <button
           className="danger"
-          onClick={() => {
-            // A whole deck is a lot of typing: one stray tap must not take it.
-            if (!confirmDelete) {
-              setConfirmDelete(true);
-              return;
-            }
+          onClick={(e) => {
+            // A whole deck is a lot of typing: a stray tap, or two in a row, must not take it.
+            if (!deleting.confirms(e)) return;
             void deleteDeck(deck.id);
             onBack();
           }}
         >
-          {confirmDelete ? 'Really delete this deck?' : 'Delete deck'}
+          {deleting.armed ? 'Really delete this deck?' : 'Delete deck'}
         </button>
       </footer>
       {curationMsg && <p className="entry-last deck-curation-msg">{curationMsg}</p>}
