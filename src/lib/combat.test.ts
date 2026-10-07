@@ -288,7 +288,8 @@ describe('setAttack', () => {
     expect(setAttack(samOut, 'c1', card('bear'), 1, 1)).toBe(samOut); // a defeated player
     const blockers = confirmed();
     expect(setAttack(blockers, 'c1', card('hawk'), 1, 1)).toBe(blockers); // attackers are declared
-    expect(setAttack(pod(), 'c1', card('bear'), 1, 1)).toEqual(pod()); // no fight at all
+    const idle = pod();
+    expect(setAttack(idle, 'c1', card('bear'), 1, 1)).toBe(idle); // no fight at all
   });
 
   test('nothing happens for a unit that is not on the attacker’s side of the table', () => {
@@ -421,7 +422,8 @@ describe('confirmAttackers', () => {
     expect(confirmAttackers(g, 'nope', NO_TAPS)).toBe(g);
     const once = confirmed();
     expect(confirmed(once)).toBe(once); // a second press taps nothing more
-    expect(confirmAttackers(pod(), 'c1', NO_TAPS)).toEqual(pod());
+    const idle = pod();
+    expect(confirmAttackers(idle, 'c1', NO_TAPS)).toBe(idle);
   });
 
   test('a tap list that makes no sense taps nothing and breaks nothing', () => {
@@ -625,7 +627,8 @@ describe('cancelCombat', () => {
     expect(cancelCombat(g, 'nope')).toBe(g);
     const off = cancelCombat(g, 'c1');
     expect(cancelCombat(off, 'c1')).toBe(off);
-    expect(cancelCombat(pod(), 'c1')).toEqual(pod());
+    const idle = pod();
+    expect(cancelCombat(idle, 'c1')).toBe(idle);
   });
 });
 

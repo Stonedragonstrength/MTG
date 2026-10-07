@@ -322,7 +322,6 @@ describe('copies that only just arrived (summoning sickness)', () => {
     expect(readied.players[1].board[0].sick).toBe(1);
     expect(readied.players[1]).toBe(g.players[1]); // untouched, not even copied
     expect(readyItems(readied, 0)).toBe(readied); // a replay changes nothing
-    expect(readyItems(freshGame(), 0)).toEqual(freshGame());
     const empty = freshGame();
     expect(readyItems(empty, 0)).toBe(empty);
     expect(readyItems(empty, 9)).toBe(empty); // no such seat
