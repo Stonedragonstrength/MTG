@@ -7,7 +7,7 @@ import { createGame } from './lib/game';
 import type { Deck, GameConfig } from './lib/types';
 import { useAppStore } from './state/store';
 
-// The whole join flow through the REAL app and store; only the network is
+// Hosting and joining an online table through the REAL app and store; only the network is
 // stood in for. (The sheet's own tests cannot see the screens swap under it.)
 
 vi.mock('./data/cloud', async (importOriginal) => ({
@@ -116,6 +116,31 @@ test('a joiner at a cards table brings a deck and lands in the game with a hand'
   expect(state.game?.players[1].cards?.hand).toHaveLength(7);
   expect(state.game?.players[1].cards?.library).toHaveLength(5);
   expect(screen.queryByText(/bring a deck/i)).not.toBeInTheDocument(); // the game screen took over
+});
+
+test('hosting a cards table from home opens the game with the chosen deck dealt', async () => {
+  useAppStore.setState({
+    saveProfile: vi.fn(async () => {}),
+    profiles: [
+      { id: 'p0', name: 'Nathan', avatarUrl: null, commanderName: null },
+      { id: 'p1', name: 'Sam', avatarUrl: null, commanderName: null },
+    ],
+  });
+  const user = userEvent.setup();
+  render(<App />);
+  await user.click(await screen.findByRole('button', { name: /new game/i }));
+  await user.click(await screen.findByRole('radio', { name: /online/i }));
+  await user.click(screen.getByRole('checkbox', { name: /virtual cards/i }));
+  await user.click(screen.getByRole('button', { name: 'Nathan' }));
+  await user.click(screen.getByRole('button', { name: 'Sam' }));
+  await user.selectOptions(screen.getByLabelText(/deck for Nathan/i), 'deck-1');
+  await user.click(screen.getByRole('button', { name: /start game/i }));
+
+  // The game replaces the setup screen, and the deck is dealt after the swap.
+  expect(await screen.findByRole('button', { name: /online table/i })).toHaveTextContent('KQ7M2X');
+  await vi.waitFor(() => expect(useAppStore.getState().game?.players[0].cards?.hand).toHaveLength(7));
+  expect(useAppStore.getState().game?.players[1].cards).toBeUndefined(); // Sam brings their own
+  expect(useAppStore.getState().inGame).toBe(true);
 });
 
 test('skipping every question still lands in the game', async () => {
