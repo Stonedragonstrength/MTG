@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { getCardById } from '../data/scryfall';
 import { findCommandersFor, type CommanderMatch } from '../data/synergy';
-import { setCommander } from '../lib/deck';
+import { changeCommander } from '../lib/deck';
 import { deckThemeProfile } from '../lib/themes';
+import type { CardRecord } from '../lib/types';
 import { useAppStore } from '../state/store';
 import Sheet from './Sheet';
 
@@ -44,9 +45,15 @@ export default function CommanderAlignSheet({ deckId, onClose }: Props) {
 
   if (!deck) return null;
 
-  function crown(match: CommanderMatch) {
+  /** The old commander is not thrown away: it stays in the deck (and a
+   * partner the new one may still pair with keeps its seat). */
+  async function crown(match: CommanderMatch) {
     if (!deck) return;
-    void saveDeck(setCommander(deck, match.card));
+    const zone: Record<string, CardRecord | undefined> = {};
+    for (const held of [deck.commander, deck.partner]) {
+      if (held) zone[held.cardId] = await getCardById(held.cardId).catch(() => undefined);
+    }
+    void saveDeck(changeCommander(deck, match.card, zone));
     onClose();
   }
 
@@ -68,7 +75,7 @@ export default function CommanderAlignSheet({ deckId, onClose }: Props) {
         <ul className="align-list">
           {matches.map((m) => (
             <li key={m.card.id}>
-              <button className="align-row" onClick={() => crown(m)}>
+              <button className="align-row" onClick={() => void crown(m)}>
                 {m.card.imageNormal ? (
                   <img className="align-thumb" src={m.card.imageNormal} alt="" loading="lazy" />
                 ) : (

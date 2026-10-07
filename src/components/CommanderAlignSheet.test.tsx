@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, test, vi } from 'vitest';
-import { addCard, createDeck } from '../lib/deck';
+import { addCard, createDeck, setCommander } from '../lib/deck';
 import type { CardRecord, Deck } from '../lib/types';
 import { useAppStore } from '../state/store';
 import CommanderAlignSheet from './CommanderAlignSheet';
@@ -65,13 +65,35 @@ test('suggests commanders with an alignment bar and reasons', async () => {
   expect(bar).not.toBeNull();
 });
 
+test('crowning a new commander keeps the old one in the deck', async () => {
+  const old: CardRecord = {
+    ...lathril,
+    id: 'c-old',
+    name: 'Ezuri, Renegade Leader',
+    nameLower: 'ezuri, renegade leader',
+    colorIdentity: ['G'],
+  };
+  const deck = addCard(setCommander({ ...createDeck('Elfball'), id: 'deck-1' }, old), elves);
+  useAppStore.setState({ decks: [deck] });
+  const user = userEvent.setup();
+  render(<CommanderAlignSheet deckId="deck-1" onClose={() => {}} />);
+  await user.click(await screen.findByText('Lathril, Blade of the Elves'));
+  await vi.waitFor(() =>
+    expect(useAppStore.getState().decks[0].commander?.name).toBe('Lathril, Blade of the Elves'),
+  );
+  expect(useAppStore.getState().decks[0].cards.map((c) => c.name).sort()).toEqual([
+    'Ezuri, Renegade Leader',
+    'Llanowar Elves',
+  ]);
+});
+
 test('tapping a suggestion makes it the commander', async () => {
   const onClose = vi.fn();
   const user = userEvent.setup();
   render(<CommanderAlignSheet deckId="deck-1" onClose={onClose} />);
   await user.click(await screen.findByText('Lathril, Blade of the Elves'));
+  await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
   const deck = useAppStore.getState().decks[0];
   expect(deck.commander?.name).toBe('Lathril, Blade of the Elves');
   expect(deck.colors).toEqual(['B', 'G']);
-  expect(onClose).toHaveBeenCalled();
 });

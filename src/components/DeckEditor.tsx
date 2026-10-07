@@ -3,6 +3,7 @@ import { getCardById } from '../data/scryfall';
 import { findPartnersFor } from '../data/synergy';
 import {
   changeCardCount,
+  changeCommander,
   colorBreakdown,
   compositionExtras,
   deckSize,
@@ -15,6 +16,7 @@ import {
   starRatings,
   type DeckStats,
 } from '../lib/deck';
+import { isCommanderLegal } from '../lib/game';
 import { COLOR_NAMES, MANA_COLORS } from '../lib/mana';
 import { canPartner, partnerKinds, partnerOffer } from '../lib/partner';
 import type { CardRecord, DeckCard } from '../lib/types';
@@ -72,6 +74,8 @@ export default function DeckEditor({ deckId, onBack }: Props) {
   const addToGarage = useAppStore((s) => s.addToGarage);
   const [synergyOpen, setSynergyOpen] = useState(false);
   const [aligning, setAligning] = useState(false);
+  const [pickingCommander, setPickingCommander] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [stats, setStats] = useState<DeckStats | null>(null);
   const [curationMsg, setCurationMsg] = useState('');
 
@@ -177,6 +181,15 @@ export default function DeckEditor({ deckId, onBack }: Props) {
     setPartnerOptions(options);
   }
 
+  const commanderAction = deck.commander ? 'Change commander' : 'Choose commander';
+  // Rules text of whoever sits in the command zone, keyed the way the deck
+  // names them — and only once it has caught up with the deck.
+  const zoneRecords: Record<string, CardRecord> = {};
+  if (deck.commander && cmdRecord?.name === deck.commander.name)
+    zoneRecords[deck.commander.cardId] = cmdRecord;
+  if (deck.partner && partnerRecord?.name === deck.partner.name)
+    zoneRecords[deck.partner.cardId] = partnerRecord;
+
   const groups = groupCards(deck.cards);
   const size = deckSize(deck);
   const offColor = new Set(offColorCards(deck).map((c) => c.cardId));
@@ -253,6 +266,9 @@ export default function DeckEditor({ deckId, onBack }: Props) {
                 Goes well with…
               </button>
             )}
+            <button className="ghost deck-synergy-btn" onClick={() => setPickingCommander(true)}>
+              {commanderAction}
+            </button>
             <button className="ghost deck-synergy-btn" onClick={() => setAligning(true)}>
               Align commander
             </button>
@@ -444,11 +460,16 @@ export default function DeckEditor({ deckId, onBack }: Props) {
         <button
           className="danger"
           onClick={() => {
+            // A whole deck is a lot of typing: one stray tap must not take it.
+            if (!confirmDelete) {
+              setConfirmDelete(true);
+              return;
+            }
             void deleteDeck(deck.id);
             onBack();
           }}
         >
-          Delete deck
+          {confirmDelete ? 'Really delete this deck?' : 'Delete deck'}
         </button>
       </footer>
       {curationMsg && <p className="entry-last deck-curation-msg">{curationMsg}</p>}
@@ -464,6 +485,17 @@ export default function DeckEditor({ deckId, onBack }: Props) {
         />
       )}
       {aligning && <CommanderAlignSheet deckId={deck.id} onClose={() => setAligning(false)} />}
+      {pickingCommander && (
+        <AvatarPicker
+          title={commanderAction}
+          filter={isCommanderLegal}
+          onPick={(card) => {
+            void saveDeck(changeCommander(deck, card, zoneRecords));
+            setPickingCommander(false);
+          }}
+          onClose={() => setPickingCommander(false)}
+        />
+      )}
       {partnerOptions && (
         <AvatarPicker
           title={partnerSlot ?? 'Add partner'}

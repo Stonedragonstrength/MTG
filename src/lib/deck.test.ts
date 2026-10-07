@@ -3,6 +3,7 @@ import type { CardRecord } from './types';
 import {
   addCard,
   changeCardCount,
+  changeCommander,
   colorBreakdown,
   compositionExtras,
   createDeck,
@@ -133,6 +134,94 @@ describe('partner commander', () => {
   test('a partner needs a commander to stand beside', () => {
     const deck = createDeck('Empty');
     expect(setPartner(deck, tymna)).toBe(deck);
+  });
+});
+
+describe('changeCommander (handing the deck to someone else)', () => {
+  const PARTNER = 'Partner (You can have two commanders if both have partner.)';
+  const legend = (name: string, identity: string[], oracleText = ''): CardRecord => ({
+    ...card(name, 'Legendary Creature — Human'),
+    oracleText,
+    colorIdentity: identity,
+  });
+  const lathril = legend('Lathril, Blade of the Elves', ['B', 'G']);
+  const thrasios = legend('Thrasios, Triton Hero', ['G', 'U'], PARTNER);
+  const tymna = legend('Tymna the Weaver', ['W', 'B'], PARTNER);
+  const kraum = legend("Kraum, Ludevic's Opus", ['U', 'R'], PARTNER);
+  const ring: CardRecord = { ...card('Sol Ring', 'Artifact'), colorIdentity: [] };
+  const names = (deck: { cards: { name: string }[] }) => deck.cards.map((c) => c.name).sort();
+  const pair = () => setPartner(setCommander(createDeck('Pair'), thrasios), tymna);
+  // What the editor has at hand: the rules text of whoever sits in the command zone.
+  const zone = { [thrasios.id]: thrasios, [tymna.id]: tymna };
+
+  test('the new commander leads and the old one stays in the deck as a card', () => {
+    const before = addCard(setCommander(createDeck('Elves'), lathril), ring);
+    const deck = changeCommander(before, thrasios);
+    expect(deck.commander?.name).toBe('Thrasios, Triton Hero');
+    expect(deck.colors).toEqual(['G', 'U']);
+    expect(names(deck)).toEqual(['Lathril, Blade of the Elves', 'Sol Ring']);
+    expect(deckSize(deck)).toBe(3); // nothing was lost
+  });
+
+  test('a commander promoted from the 99 leaves the 99', () => {
+    const before = addCard(addCard(setCommander(createDeck('Elves'), lathril), thrasios), ring);
+    const deck = changeCommander(before, thrasios);
+    expect(deck.commander?.name).toBe('Thrasios, Triton Hero');
+    expect(names(deck)).toEqual(['Lathril, Blade of the Elves', 'Sol Ring']);
+    expect(deckSize(deck)).toBe(deckSize(before));
+  });
+
+  test('the second commander keeps its seat when the rules still allow the pair', () => {
+    const deck = changeCommander(pair(), kraum, zone);
+    expect([deck.commander?.name, deck.partner?.name]).toEqual(["Kraum, Ludevic's Opus", 'Tymna the Weaver']);
+    expect([...deck.colors].sort()).toEqual(['B', 'R', 'U', 'W']);
+    expect(names(deck)).toEqual(['Thrasios, Triton Hero']);
+  });
+
+  test('a second commander the new one cannot pair with joins the 99', () => {
+    const deck = changeCommander(pair(), lathril, zone);
+    expect(deck.commander?.name).toBe('Lathril, Blade of the Elves');
+    expect(deck.partner ?? null).toBeNull();
+    expect(names(deck)).toEqual(['Thrasios, Triton Hero', 'Tymna the Weaver']);
+    expect(deck.colors).toEqual(['B', 'G']);
+  });
+
+  test('promoting the second commander swaps the two', () => {
+    const deck = changeCommander(pair(), tymna, zone);
+    expect([deck.commander?.name, deck.partner?.name]).toEqual(['Tymna the Weaver', 'Thrasios, Triton Hero']);
+    expect(deck.cards).toEqual([]);
+  });
+
+  test('without its rules text at hand the second commander is kept as a card, never dropped', () => {
+    const deck = changeCommander(pair(), kraum);
+    expect(deck.partner ?? null).toBeNull();
+    expect(names(deck)).toEqual(['Thrasios, Triton Hero', 'Tymna the Weaver']);
+  });
+
+  test('picking the commander the deck already has changes nothing', () => {
+    const before = pair();
+    expect(changeCommander(before, thrasios, zone)).toBe(before);
+  });
+
+  test('a deck with no commander simply gets one', () => {
+    const before = addCard(createDeck('Pile'), ring);
+    const deck = changeCommander(before, lathril);
+    expect(deck.commander?.name).toBe('Lathril, Blade of the Elves');
+    expect(names(deck)).toEqual(['Sol Ring']);
+  });
+});
+
+describe('seating a card in the command zone', () => {
+  const thrasios: CardRecord = { ...card('Thrasios', 'Legendary Creature — Merfolk'), colorIdentity: ['G', 'U'] };
+  const tymna: CardRecord = { ...card('Tymna', 'Legendary Creature — Human'), colorIdentity: ['W', 'B'] };
+
+  test('takes it out of the 99: no card is in both places', () => {
+    let deck = addCard(addCard(createDeck('Pile'), thrasios), tymna);
+    deck = setCommander(deck, thrasios);
+    expect(deck.cards.map((c) => c.name)).toEqual(['Tymna']);
+    deck = setPartner(deck, tymna);
+    expect(deck.cards).toEqual([]);
+    expect(deckSize(deck)).toBe(2);
   });
 });
 

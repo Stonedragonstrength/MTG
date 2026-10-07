@@ -48,14 +48,20 @@ export function changeCardCount(deck: Deck, cardId: string, delta: number): Deck
   return touched({ ...deck, cards });
 }
 
+/** A data refresh can hand the same card a new id, so the name counts too. */
+const isCard = (held: DeckCard | null | undefined, card: CardRecord) =>
+  !!held && (held.cardId === card.id || held.name === card.name);
+
 /** A new commander starts alone: whether a second commander is legal
- * depends on the first, so the old pairing is dropped with it. */
+ * depends on the first, so the old pairing is dropped with it. A card
+ * seated in the command zone leaves the 99 — it is never in both. */
 export function setCommander(deck: Deck, card: CardRecord): Deck {
   return touched({
     ...deck,
     commander: toDeckCard(card),
     partner: null,
     colors: card.colorIdentity ?? card.colors,
+    cards: deck.cards.filter((c) => !isCard(c, card)),
   });
 }
 
@@ -70,12 +76,36 @@ export function setPartner(deck: Deck, card: CardRecord | null): Deck {
   const commander = { ...deck.commander, colorIdentity: own };
   const theirs = partner?.colorIdentity ?? (card ? card.colors : []);
   const colors = [...own, ...theirs.filter((c) => !own.includes(c))];
-  return touched({ ...deck, commander, partner, colors });
+  const cards = card ? deck.cards.filter((c) => !isCard(c, card)) : deck.cards;
+  return touched({ ...deck, commander, partner, colors, cards });
 }
 
-/** A data refresh can hand the same card a new id, so the name counts too. */
-const isCard = (held: DeckCard | null | undefined, card: CardRecord) =>
-  !!held && (held.cardId === card.id || held.name === card.name);
+/** Hands the deck to a new commander and loses nothing: whoever leaves
+ * the command zone stays in the deck as an ordinary card. The second
+ * commander keeps its seat when the rules still allow the pair (its
+ * record must be in `records`, keyed by card id, to tell), and promoting
+ * the second commander swaps the two. */
+export function changeCommander(
+  deck: Deck,
+  card: CardRecord,
+  records: Record<string, CardRecord | null | undefined> = {},
+): Deck {
+  if (isCard(deck.commander, card)) return deck;
+  // The partner first: it already was the second commander.
+  const leaving = [deck.partner, deck.commander].filter(
+    (held): held is DeckCard => !!held && !isCard(held, card),
+  );
+  const staying = leaving.find((held) => {
+    const record = records[held.cardId];
+    return !!record && canPartner(card, record);
+  });
+  let next = setCommander(deck, card);
+  if (staying) next = setPartner(next, records[staying.cardId]!);
+  const kept = leaving
+    .filter((held) => held !== staying && !next.cards.some((c) => c.cardId === held.cardId))
+    .map((held) => ({ ...held, count: 1 }));
+  return kept.length > 0 ? { ...next, cards: [...next.cards, ...kept] } : next;
+}
 
 function copiesOf(deck: Deck, card: CardRecord): number {
   return (

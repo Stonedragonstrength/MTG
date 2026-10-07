@@ -106,7 +106,10 @@ vi.mock('../data/synergy', () => ({
 }));
 
 vi.mock('../data/scryfall', () => ({
-  loadNameIndex: vi.fn(async () => []),
+  loadNameIndex: vi.fn(async () => [
+    { id: 'c-thrasios', name: 'Thrasios, Triton Hero' },
+    { id: 'c-elves', name: 'Llanowar Elves' },
+  ]),
   getCardById: vi.fn(
     async (id: string) =>
       ((
@@ -338,11 +341,65 @@ test('send to curation tops up instead of double-counting', async () => {
   expect(garage.find((g) => g.name === 'Llanowar Elves')?.count).toBe(1);
 });
 
-test('delete deck asks the store and goes back', async () => {
+test('deleting a deck takes a second, deliberate tap', async () => {
   const onBack = vi.fn();
   const user = userEvent.setup();
   render(<DeckEditor deckId="deck-1" onBack={onBack} />);
   await user.click(screen.getByRole('button', { name: /delete deck/i }));
+  expect(useAppStore.getState().deleteDeck).not.toHaveBeenCalled(); // one stray tap costs nothing
+  expect(onBack).not.toHaveBeenCalled();
+  await user.click(screen.getByRole('button', { name: /really delete/i }));
   expect(useAppStore.getState().deleteDeck).toHaveBeenCalledWith('deck-1');
   expect(onBack).toHaveBeenCalled();
+});
+
+test('Change commander picks any commander by name, and the old one stays in the deck', async () => {
+  const user = userEvent.setup();
+  render(<DeckEditor deckId="deck-1" onBack={() => {}} />);
+  await user.click(screen.getByRole('button', { name: /^change commander$/i }));
+  const search = screen.getByPlaceholderText(/search card names/i);
+  await user.type(search, 'llan');
+  await new Promise((r) => setTimeout(r, 60));
+  expect(document.querySelectorAll('.preview-card')).toHaveLength(0); // Llanowar Elves cannot lead a deck
+  await user.clear(search);
+  await user.type(search, 'thras');
+  await user.click(await screen.findByRole('button', { name: /thrasios, triton hero/i }));
+
+  const saved = useAppStore.getState().decks.find((d) => d.id === 'deck-1')!;
+  expect(saved.commander?.name).toBe('Thrasios, Triton Hero');
+  expect(saved.colors).toEqual(['G', 'U']);
+  expect(saved.cards.map((c) => c.name)).toContain('Ashaya, Soul of the Wild'); // kept, not thrown away
+  expect(await screen.findByText('11 / 100')).toBeInTheDocument(); // one more: the newcomer, nobody lost
+  expect(screen.queryByPlaceholderText(/search card names/i)).not.toBeInTheDocument(); // picker closed
+});
+
+test('a deck with no commander offers to choose one', async () => {
+  useAppStore.setState({ decks: [addCard({ ...createDeck('Pile'), id: 'deck-3' }, elves)] });
+  const user = userEvent.setup();
+  render(<DeckEditor deckId="deck-3" onBack={() => {}} />);
+  await user.click(screen.getByRole('button', { name: /^choose commander$/i }));
+  await user.type(screen.getByPlaceholderText(/search card names/i), 'thras');
+  await user.click(await screen.findByRole('button', { name: /thrasios, triton hero/i }));
+  const saved = useAppStore.getState().decks.find((d) => d.id === 'deck-3')!;
+  expect(saved.commander?.name).toBe('Thrasios, Triton Hero');
+  expect(saved.cards.map((c) => c.name)).toEqual(['Llanowar Elves']);
+});
+
+test('changing the commander keeps a partner the new one may still pair with', async () => {
+  const { setPartner } = await import('../lib/deck');
+  const pair = setPartner(setCommander({ ...createDeck('Pair'), id: 'deck-2' }, tymna), toothy);
+  useAppStore.setState({ decks: [pair] });
+  const user = userEvent.setup();
+  render(<DeckEditor deckId="deck-2" onBack={() => {}} />);
+  await screen.findByRole('button', { name: /remove partner/i });
+  await new Promise((r) => setTimeout(r, 30)); // the zone's rules text has loaded
+  await user.click(screen.getByRole('button', { name: /^change commander$/i }));
+  await user.type(screen.getByPlaceholderText(/search card names/i), 'thras');
+  await user.click(await screen.findByRole('button', { name: /thrasios, triton hero/i }));
+  const saved = useAppStore.getState().decks.find((d) => d.id === 'deck-2')!;
+  expect(saved.commander?.name).toBe('Thrasios, Triton Hero');
+  // Toothy only partners with Pir, so it steps down into the deck; Tymna (plain Partner) is
+  // the old first commander and may sit beside Thrasios.
+  expect(saved.partner?.name).toBe('Tymna the Weaver');
+  expect(saved.cards.map((c) => c.name)).toEqual(['Toothy, Imaginary Friend']);
 });
