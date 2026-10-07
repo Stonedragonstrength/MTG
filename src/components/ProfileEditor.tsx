@@ -4,6 +4,7 @@ import type { CommanderEntry, PlayerProfile } from '../lib/types';
 import { useAppStore } from '../state/store';
 import AvatarPicker from './AvatarPicker';
 import Sheet from './Sheet';
+import { useConfirmTap } from './useConfirmTap';
 
 const HISTORY_CAP = 8;
 
@@ -27,6 +28,7 @@ export default function ProfileEditor({ profile, onDone }: Props) {
     profile?.commanderImage ?? null,
   );
   const [picking, setPicking] = useState<'avatar' | 'commander' | null>(null);
+  const deleting = useConfirmTap();
   const history = profile?.commanderHistory ?? [];
   const recentOthers = history.filter((h) => h.name !== commanderName);
 
@@ -61,18 +63,21 @@ export default function ProfileEditor({ profile, onDone }: Props) {
       onClose={onDone}
       footer={
         <>
-          <button className="primary" disabled={!name.trim()} onClick={save}>
+          <button className="primary snug" disabled={!name.trim()} onClick={save}>
             Save
           </button>
           {profile && (
             <button
-              className="danger"
-              onClick={async () => {
+              className="danger snug"
+              onClick={async (e) => {
+                // The player goes from every device this one syncs with: a
+                // stray tap, or two in a row, must not take them.
+                if (!deleting.confirms(e)) return;
                 await deleteProfile(profile.id);
                 onDone();
               }}
             >
-              Delete
+              {deleting.armed ? 'Really delete?' : 'Delete'}
             </button>
           )}
         </>

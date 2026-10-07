@@ -1,10 +1,14 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, test, vi } from 'vitest';
+import { getDb } from '../data/db';
 import { addCard, createDeck, setCommander } from '../lib/deck';
 import type { CardRecord, Deck } from '../lib/types';
 import { useAppStore } from '../state/store';
 import DecksScreen from './DecksScreen';
+
+// The store's own actions, before any test swaps them for stand-ins.
+const real = useAppStore.getState();
 
 const ashaya: CardRecord = {
   id: 'c-ashaya',
@@ -121,4 +125,108 @@ test('opens straight into a deck when told which one', () => {
   useAppStore.setState({ decks: [deck] });
   render(<DecksScreen onBack={() => {}} initialOpenId="deck-direct" />);
   expect(screen.getByLabelText('deck name')).toHaveValue('Stompy'); // the editor, not the list
+});
+
+// ---- "Recently deleted": a deletion travels to every device, so it needs a way back ----
+
+/** The real store underneath, with nothing saved. */
+async function realStore() {
+  const db = getDb();
+  await Promise.all([db.decks.clear(), db.kv.clear()]);
+  useAppStore.setState({
+    decks: [],
+    saveDeck: real.saveDeck,
+    deleteDeck: real.deleteDeck,
+    removedDecks: real.removedDecks,
+    restoreDeck: real.restoreDeck,
+  });
+  return useAppStore.getState();
+}
+
+test('with nothing deleted there is no shelf', async () => {
+  const store = await realStore();
+  await store.saveDeck(sampleDeck());
+  render(<DecksScreen onBack={() => {}} />);
+  await screen.findByText('Stompy');
+  expect(screen.queryByText(/recently deleted/i)).not.toBeInTheDocument();
+});
+
+test('a deleted deck waits on a shelf under the grid, and Restore brings it back whole', async () => {
+  const store = await realStore();
+  const deck = sampleDeck();
+  await store.saveDeck(deck);
+  await store.saveDeck({ ...createDeck('Keeper'), id: 'keeper' });
+  await store.deleteDeck(deck.id);
+
+  const user = userEvent.setup();
+  const { container } = render(<DecksScreen onBack={() => {}} />);
+  const shelf = (await screen.findByRole('heading', { name: /recently deleted/i })).closest('section')!;
+  expect(within(shelf).getByText('Stompy')).toBeInTheDocument();
+  expect(within(shelf).getByText(/2 cards/)).toBeInTheDocument(); // what would come back
+  expect(screen.queryByRole('button', { name: /open deck Stompy/i })).not.toBeInTheDocument();
+  // Under the grid, not in it.
+  const grid = container.querySelector('.profile-grid')!;
+  expect(grid.compareDocumentPosition(shelf) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+  await user.click(within(shelf).getByRole('button', { name: /restore deck Stompy/i }));
+  expect(await screen.findByRole('button', { name: /open deck Stompy/i })).toBeInTheDocument();
+  await waitFor(() => expect(screen.queryByText(/recently deleted/i)).not.toBeInTheDocument());
+  const back = useAppStore.getState().decks.find((d) => d.id === deck.id)!;
+  expect(back.commander?.name).toBe('Ashaya, Soul of the Wild');
+  expect(back.cards.map((c) => c.name)).toEqual(['Forest']);
+});
+
+test('the shelf lists the newest deletion first', async () => {
+  const store = await realStore();
+  for (const name of ['First gone', 'Then this one']) {
+    await store.saveDeck({ ...createDeck(name), id: name });
+    await store.deleteDeck(name);
+  }
+  render(<DecksScreen onBack={() => {}} />);
+  const shelf = (await screen.findByRole('heading', { name: /recently deleted/i })).closest('section')!;
+  const listed = Array.from(shelf.querySelectorAll('.deck-row-cardname')).map((el) => el.textContent);
+  expect(listed).toEqual(['Then this one', 'First gone']);
+});
+
+test('a deck deleted on another device shows up on the shelf when the sync lands', async () => {
+  const store = await realStore();
+  const deck = sampleDeck();
+  await store.saveDeck(deck);
+  render(<DecksScreen onBack={() => {}} />);
+  await screen.findByRole('button', { name: /open deck Stompy/i });
+  expect(screen.queryByText(/recently deleted/i)).not.toBeInTheDocument();
+
+  // What a sync leaves behind: the tombstone in the database, then the lists re-read.
+  const row = (await getDb().decks.get(deck.id))!;
+  await getDb().decks.put({ ...row, deleted: true, updatedAt: row.updatedAt + 1, dirty: 0 });
+  await act(() => useAppStore.getState().refreshSynced());
+  expect(await screen.findByRole('heading', { name: /recently deleted/i })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /open deck Stompy/i })).not.toBeInTheDocument();
+});
+
+test('a new deck opens in its editor although the save lands a moment later', async () => {
+  await realStore();
+  const user = userEvent.setup();
+  render(<DecksScreen onBack={() => {}} />);
+  await user.click(screen.getByRole('button', { name: /start from cards/i }));
+  // The real save is asynchronous: the editor must wait for the deck, not walk away.
+  expect(await screen.findByDisplayValue(/untitled deck/i)).toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: 'Decks' })).not.toBeInTheDocument();
+});
+
+test('a deck deleted elsewhere while it is open closes its editor instead of leaving a blank screen', async () => {
+  const store = await realStore();
+  const deck = sampleDeck();
+  await store.saveDeck(deck);
+  const user = userEvent.setup();
+  render(<DecksScreen onBack={() => {}} />);
+  await user.click(await screen.findByRole('button', { name: /open deck Stompy/i }));
+  expect(screen.getByLabelText('deck name')).toHaveValue('Stompy');
+
+  const row = (await getDb().decks.get(deck.id))!;
+  await getDb().decks.put({ ...row, deleted: true, updatedAt: row.updatedAt + 1, dirty: 0 });
+  await act(() => useAppStore.getState().refreshSynced());
+  expect(await screen.findByRole('heading', { name: 'Decks' })).toBeInTheDocument(); // back at the list
+  expect(screen.queryByLabelText('deck name')).not.toBeInTheDocument();
+  expect(await screen.findByRole('heading', { name: /recently deleted/i })).toBeInTheDocument();
 });

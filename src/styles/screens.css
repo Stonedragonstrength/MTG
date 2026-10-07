@@ -169,6 +169,15 @@ label {
   justify-content: center;
 }
 
+/* The player editor's footer: "Delete" asks again in place ("Really delete?",
+   useConfirmTap), and on a phone the question has to fit the same half-width
+   button without wrapping under the finger. Both buttons give up their side
+   padding, so they stay the same width. */
+.sheet-footer button.snug {
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
 .format-toggle {
   border: 1px solid #3a3a44;
   border-radius: 10px;
@@ -568,6 +577,27 @@ label {
   justify-content: center;
 }
 
+/* "Recently deleted", under the deck grid. A row is the deck's name with,
+   under it, what would come back and when it went — and Restore at the end.
+   The name gets the whole line: on a phone it is all there is to tell two
+   deleted decks apart. */
+.decks-removed {
+  margin-top: 8px;
+}
+
+.decks-removed .deck-row {
+  padding: 4px 0;
+}
+
+.decks-removed .deck-row-title {
+  flex: 1;
+}
+
+.decks-removed .deck-row button {
+  flex: 0 0 auto;
+  padding: 8px 14px;
+}
+
 .entry-status {
   display: flex;
   align-items: baseline;
@@ -964,6 +994,37 @@ label {
   font-family: Consolas, Menlo, monospace;
   font-size: 1rem;
   line-height: 1.45;
+}
+
+/* The status line beside "Sync now" names three things now and can run to two
+   lines: it is the line that wraps, never the button. */
+.cloud-status button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* The one-time step for decks and players (Settings → Cloud sync): a line of
+   plain words, the SQL to take away, and Copy. The SQL is there to be copied,
+   not studied: small, and it scrolls inside its own box. */
+.cloud-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+}
+
+.cloud-setup .hint {
+  margin: 0;
+}
+
+.cloud-setup .paste-box--sql {
+  font-size: 0.74rem;
+  resize: none;
+}
+
+.cloud-setup button {
+  align-self: flex-end;
+  min-height: 44px;
 }
 
 /* ---- curation binder ---- */

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
-import { pokeSync } from '../data/cloud';
+import { pokeOnResume, pokeSync } from '../data/cloud';
 import { getDb, kvDelete, kvGet, kvSet } from '../data/db';
+import { bare, type DeckRow, type ProfileRow, type Synced } from '../lib/sync';
 import * as tableSync from '../data/onlineTable';
 import type { SyncOpts, TableStatus } from '../data/onlineTable';
 import * as cardsLib from '../lib/cards';
@@ -127,11 +128,21 @@ export interface AppStore {
   setCounter(playerIdx: number, itemId: string, counterName: string, value: number): void;
   setManaMode(playerIdx: number, itemId: string, mode: BoardItem['manaMode']): void;
   removeItem(playerIdx: number, itemId: string): void;
+  // Decks and players follow their owner to other devices (data/cloud.ts).
+  // These four are where that bookkeeping lives: every save is stamped and
+  // marked as waiting to go up, every delete leaves a tombstone. The lists
+  // hold live rows only, without the bookkeeping.
   saveProfile(p: PlayerProfile): Promise<void>;
   deleteProfile(id: string): Promise<void>;
   decks: Deck[];
   saveDeck(deck: Deck): Promise<void>;
   deleteDeck(id: string): Promise<void>;
+  /** The last few deleted decks, newest first: the "Recently deleted" shelf. */
+  removedDecks(): Promise<Deck[]>;
+  restoreDeck(id: string): Promise<void>;
+  /** Reads decks, players and the Curation again from the database: a sync
+   * writes there, not here. */
+  refreshSynced(): Promise<void>;
   garage: GarageCard[]; // live (non-tombstoned) collection, name-sorted
   addToGarage(
     card: Pick<CardRecord, 'id' | 'name' | 'typeLine' | 'imageNormal'>,
@@ -260,6 +271,54 @@ function takeGuard(
   };
 }
 
+// ---- decks and players that follow their owner (lib/sync.ts, data/cloud.ts) ----
+
+/** The stamp for a save made now. Across devices the newest stamp wins, so
+ * it is this device's clock — never the same reading twice, so that two
+ * saves in one millisecond still have an order — and in any case newer than
+ * the copy the save replaces: a tablet whose clock runs behind must not
+ * lose its edit to the very copy it edited. */
+let lastTick = 0;
+function freshStamp(replaces?: { updatedAt?: number }): number {
+  lastTick = Math.max(Date.now(), lastTick + 1);
+  const replaced = replaces?.updatedAt;
+  const floor = typeof replaced === 'number' && Number.isFinite(replaced) ? replaced + 1 : 0;
+  return Math.max(lastTick, floor);
+}
+
+const newestFirst = (a: Deck, b: Deck) => b.updatedAt - a.updatedAt;
+
+/** Stored rows as the app sees them: no tombstones, no bookkeeping. */
+function liveContent<T>(rows: Synced<T>[]): T[] {
+  return rows.filter((row) => !row.deleted).map((row) => bare<T>(row));
+}
+
+/** `fresh` in the order the screen already shows: rows that were listed
+ * keep their places, arrivals go to the end. */
+function keepPlaces<T extends { id: string }>(current: T[], fresh: T[]): T[] {
+  const byId = new Map(fresh.map((row) => [row.id, row]));
+  const listed = new Set(current.map((row) => row.id));
+  return [
+    ...current.flatMap((row) => byId.get(row.id) ?? []),
+    ...fresh.filter((row) => !listed.has(row.id)),
+  ];
+}
+
+/** The list a re-read leaves in the store: every row that is still the
+ * version the store holds stays the same object, and a re-read that changed
+ * nothing hands back `current` itself — most syncs bring nothing new, and
+ * must not redraw every screen. */
+function reread<T extends { id: string; updatedAt?: number }>(current: T[], fresh: T[]): T[] {
+  const held = new Map(current.map((row) => [row.id, row]));
+  const next = fresh.map((row) => {
+    const mine = held.get(row.id);
+    return mine && mine.updatedAt === row.updatedAt ? mine : row;
+  });
+  return next.length === current.length && next.every((row, i) => row === current[i])
+    ? current
+    : next;
+}
+
 export function createAppStore() {
   return create<AppStore>()((set, get) => {
     let history: GameState[] = [];
@@ -381,8 +440,8 @@ export function createAppStore() {
 
       async init() {
         const imported = await kvGet('cardsImportedAt');
-        const profiles = await getDb().profiles.toArray();
-        const decks = (await getDb().decks.toArray()).sort((a, b) => b.updatedAt - a.updatedAt);
+        const profiles = liveContent(await getDb().profiles.toArray());
+        const decks = liveContent(await getDb().decks.toArray()).sort(newestFirst);
         const garage = (await getDb().garage.toArray())
           .filter((g) => !g.deleted)
           .sort((a, b) => a.name.localeCompare(b.name));
@@ -401,7 +460,9 @@ export function createAppStore() {
         set({ setupDone: imported !== undefined, profiles, decks, garage, game, settings });
         // A reload keeps the table as it was turned. Only a look: it never stops the app starting.
         set({ seatFlips: readSeatFlips(await kvGet('seatFlips').catch(() => undefined)) });
-        pokeSync(() => void get().refreshGarage());
+        pokeSync(() => void get().refreshSynced());
+        // The tablet's app is rarely launched: it is brought back to the front.
+        pokeOnResume(() => void get().refreshSynced());
 
         tableSync.bindTable({
           getGame: () => get().game,
@@ -1199,25 +1260,91 @@ export function createAppStore() {
       },
 
       async saveProfile(p) {
-        await getDb().profiles.put(p);
-        const existing = get().profiles.filter((x) => x.id !== p.id);
-        set({ profiles: [...existing, p] });
+        const db = getDb();
+        // Stamped on EVERY save, whatever came in: the stamp decides which
+        // device's copy wins, and an old one would lose to the other device.
+        const row: ProfileRow = {
+          ...bare(p),
+          updatedAt: freshStamp(await db.profiles.get(p.id)),
+          dirty: 1,
+        };
+        await db.profiles.put(row);
+        const saved = bare(row);
+        set({ profiles: [...get().profiles.filter((x) => x.id !== saved.id), saved] });
+        pokeSync(() => void get().refreshSynced());
       },
 
       async deleteProfile(id) {
-        await getDb().profiles.delete(id);
-        set({ profiles: get().profiles.filter((x) => x.id !== id) });
+        const db = getDb();
+        const row = await db.profiles.get(id);
+        // A tombstone, not a hole: the other devices have to hear of it.
+        const gone = !!row && !row.deleted;
+        if (gone)
+          await db.profiles.put({ ...row, deleted: true, updatedAt: freshStamp(row), dirty: 1 });
+        if (get().profiles.some((x) => x.id === id))
+          set({ profiles: get().profiles.filter((x) => x.id !== id) });
+        if (gone) pokeSync(() => void get().refreshSynced());
       },
 
       async saveDeck(deck) {
-        await getDb().decks.put(deck);
-        const others = get().decks.filter((d) => d.id !== deck.id);
-        set({ decks: [deck, ...others].sort((a, b) => b.updatedAt - a.updatedAt) });
+        const db = getDb();
+        // Stamped on EVERY save: a rename or the "I own these" switch never
+        // went through touched(), and a stale stamp loses to the other device.
+        const row: DeckRow = {
+          ...bare(deck),
+          updatedAt: freshStamp(await db.decks.get(deck.id)),
+          dirty: 1,
+        };
+        await db.decks.put(row);
+        const saved = bare(row);
+        set({ decks: [saved, ...get().decks.filter((d) => d.id !== saved.id)].sort(newestFirst) });
+        pokeSync(() => void get().refreshSynced());
       },
 
       async deleteDeck(id) {
-        await getDb().decks.delete(id);
-        set({ decks: get().decks.filter((d) => d.id !== id) });
+        const db = getDb();
+        const row = await db.decks.get(id);
+        // A tombstone, not a hole: the deletion travels to every device, and
+        // the row keeps the whole deck so that it can be brought back.
+        const gone = !!row && !row.deleted;
+        if (gone)
+          await db.decks.put({ ...row, deleted: true, updatedAt: freshStamp(row), dirty: 1 });
+        if (get().decks.some((d) => d.id === id))
+          set({ decks: get().decks.filter((d) => d.id !== id) });
+        if (gone) pokeSync(() => void get().refreshSynced());
+      },
+
+      async removedDecks() {
+        const rows = await getDb().decks.toArray();
+        return rows
+          .filter((d) => d.deleted)
+          .sort(newestFirst)
+          .slice(0, 6)
+          .map((d) => bare<Deck>(d));
+      },
+
+      async restoreDeck(id) {
+        const row = await getDb().decks.get(id);
+        // A restore is a save: its fresh stamp outranks the tombstone on
+        // every device.
+        if (row?.deleted) await get().saveDeck(bare<Deck>(row));
+      },
+
+      async refreshSynced() {
+        const db = getDb();
+        // One read of both tables, and the lists are set in the same breath
+        // (no await in between). The database runs a save's write after this
+        // read or this read after the save's write, never in the middle — so
+        // a save made while a sync was finishing cannot be set back by a
+        // list that was read just before it.
+        const [deckRows, profileRows] = await db.transaction('r', db.decks, db.profiles, () =>
+          Promise.all([db.decks.toArray(), db.profiles.toArray()]),
+        );
+        const was = get();
+        const decks = reread(was.decks, liveContent(deckRows).sort(newestFirst));
+        const profiles = reread(was.profiles, keepPlaces(was.profiles, liveContent(profileRows)));
+        if (decks !== was.decks || profiles !== was.profiles) set({ decks, profiles });
+        await get().refreshGarage();
       },
 
       async refreshGarage() {
@@ -1242,7 +1369,7 @@ export function createAppStore() {
         };
         await db.garage.put(row);
         await get().refreshGarage();
-        pokeSync(() => void get().refreshGarage());
+        pokeSync(() => void get().refreshSynced());
       },
 
       async setGarageCount(cardId, count) {
@@ -1259,7 +1386,7 @@ export function createAppStore() {
           dirty: 1,
         });
         await get().refreshGarage();
-        pokeSync(() => void get().refreshGarage());
+        pokeSync(() => void get().refreshSynced());
       },
 
       async removedGarage() {
@@ -1282,7 +1409,7 @@ export function createAppStore() {
           dirty: 1,
         });
         await get().refreshGarage();
-        pokeSync(() => void get().refreshGarage());
+        pokeSync(() => void get().refreshSynced());
       },
     };
   });

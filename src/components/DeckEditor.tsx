@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getCardById } from '../data/scryfall';
 import { findPartnersFor } from '../data/synergy';
 import {
@@ -94,6 +94,16 @@ export default function DeckEditor({ deckId, onBack }: Props) {
   const [cmdRecord, setCmdRecord] = useState<CardRecord | null>(null);
   const [partnerRecord, setPartnerRecord] = useState<CardRecord | null>(null);
   const [partnerOptions, setPartnerOptions] = useState<CardRecord[] | null>(null); // null = picker shut
+
+  // A sync can take the open deck away (it was deleted on another device).
+  // Leave then, rather than sit on a blank screen that still owns the back
+  // button. Only a deck that WAS here: a brand-new one is opened a moment
+  // before its first save lands in the list.
+  const wasHere = useRef(false);
+  useEffect(() => {
+    if (deck) wasHere.current = true;
+    else if (wasHere.current) onBack();
+  }, [deck, onBack]);
 
   // Rules text and identities live in the card database, not the deck —
   // fetch once per deck change, derive everything else from the map.

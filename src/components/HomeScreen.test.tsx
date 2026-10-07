@@ -76,6 +76,16 @@ test('settings open straight from the home screen', async () => {
   expect(await screen.findByRole('heading', { name: /settings/i })).toBeInTheDocument();
 });
 
+test('the player editor closes when its player is gone: a sync deleted them, or folded them into another', async () => {
+  const user = userEvent.setup();
+  render(<HomeScreen />);
+  await user.click(screen.getByRole('button', { name: /cinco/i }));
+  expect(await screen.findByRole('heading', { name: /edit player/i })).toBeInTheDocument();
+  // Left open, its Save would bring them back under an id no other device knows.
+  act(() => useAppStore.setState({ profiles: [] }));
+  expect(screen.queryByRole('heading', { name: /edit player/i })).not.toBeInTheDocument();
+});
+
 test('a player tile shows their chosen commander card', () => {
   render(<HomeScreen />);
   const img = screen.getByAltText('Magda, Brazen Outlaw');

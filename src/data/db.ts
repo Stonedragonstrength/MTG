@@ -1,5 +1,6 @@
 import Dexie, { type Table } from 'dexie';
-import type { CardRecord, Deck, GarageCard, PlayerProfile } from '../lib/types';
+import type { DeckRow, ProfileRow } from '../lib/sync';
+import type { CardRecord, GarageCard } from '../lib/types';
 
 export interface KvEntry {
   key: string;
@@ -8,13 +9,16 @@ export interface KvEntry {
 
 export class AppDb extends Dexie {
   cards!: Table<CardRecord, string>;
-  profiles!: Table<PlayerProfile, string>;
+  // Decks and profiles are stored with their sync bookkeeping (tombstone,
+  // awaiting-push flag); the store hands the app the content only. Neither
+  // flag is indexed — the tables are small — so no schema version for them.
+  profiles!: Table<ProfileRow, string>;
   kv!: Table<KvEntry, string>;
-  decks!: Table<Deck, string>;
+  decks!: Table<DeckRow, string>;
   garage!: Table<GarageCard, string>;
 
-  constructor() {
-    super('mtg-companion');
+  constructor(name = 'mtg-companion') {
+    super(name);
     // Booleans are not valid IndexedDB keys, so isToken/isBasicLand are not indexed;
     // those lookups are rare one-off scans.
     this.version(1).stores({
@@ -36,6 +40,15 @@ let instance: AppDb | null = null;
 export function getDb(): AppDb {
   if (!instance) instance = new AppDb();
   return instance;
+}
+
+/** Test hook: points the whole app at another database, so one test can
+ * be two devices. Called with no name it returns to the real one. */
+const opened = new Map<string, AppDb>();
+export function _useDbForTests(name = 'mtg-companion'): void {
+  if (instance) opened.set(instance.name, instance);
+  if (!opened.has(name)) opened.set(name, new AppDb(name));
+  instance = opened.get(name)!;
 }
 
 export async function kvGet<T>(key: string): Promise<T | undefined> {

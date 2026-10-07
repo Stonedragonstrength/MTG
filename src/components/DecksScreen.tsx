@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { registerBack } from '../lib/backstack';
 import { createDeck, deckSize, setCommander } from '../lib/deck';
 import { isCommanderLegal } from '../lib/game';
@@ -12,6 +12,14 @@ function deckAccent(deck: Deck): string {
   return deck.colors.length === 1 ? COLOR_HEX[deck.colors[0]] : 'var(--accent)';
 }
 
+function timeAgo(t: number): string {
+  const mins = Math.max(1, Math.round((Date.now() - t) / 60000));
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 48) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
 interface Props {
   onBack: () => void;
   /** Open this deck's editor straight away (e.g. one just started from a
@@ -22,8 +30,33 @@ interface Props {
 export default function DecksScreen({ onBack, initialOpenId }: Props) {
   const decks = useAppStore((s) => s.decks);
   const saveDeck = useAppStore((s) => s.saveDeck);
+  const removedDecks = useAppStore((s) => s.removedDecks);
+  const restoreDeck = useAppStore((s) => s.restoreDeck);
   const [openId, setOpenId] = useState<string | null>(initialOpenId ?? null);
   const [picking, setPicking] = useState(false);
+  const [removed, setRemoved] = useState<Deck[]>([]);
+  const shelved = useRef(0); // how many the shelf shows now
+
+  // The safety shelf: a deletion travels to every device, so deleted decks
+  // wait here for a Restore. Read again whenever a deck joins or leaves the
+  // list — one deleted on another device leaves it when the sync lands —
+  // but not on every edit: the editor saves on each keystroke.
+  const listed = decks
+    .map((d) => d.id)
+    .sort()
+    .join(',');
+  useEffect(() => {
+    let cancelled = false;
+    void removedDecks().then((rows) => {
+      // Empty, and still empty: nothing to redraw.
+      if (cancelled || (rows.length === 0 && shelved.current === 0)) return;
+      shelved.current = rows.length;
+      setRemoved(rows);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [removedDecks, listed]);
 
   // A deck that is open from the very first render must not claim the back
   // button before the screen that opened Decks has: effects run child
@@ -109,6 +142,32 @@ export default function DecksScreen({ onBack, initialOpenId }: Props) {
           <span className="deck-tile-count">find the commander later</span>
         </button>
       </div>
+
+      {removed.length > 0 && (
+        <section className="deck-group decks-removed">
+          <h2 className="deck-group-title">Recently deleted</h2>
+          <p className="hint">
+            Accidents park here — Restore brings the whole deck back, on every device.
+          </p>
+          {removed.map((deck) => (
+            <div key={deck.id} className="deck-row">
+              <span className="deck-row-title">
+                <span className="deck-row-cardname">{deck.name}</span>
+                <span className="deck-row-type">
+                  {deckSize(deck)} cards · {timeAgo(deck.updatedAt)}
+                </span>
+              </span>
+              <button
+                className="ghost"
+                aria-label={`restore deck ${deck.name}`}
+                onClick={() => void restoreDeck(deck.id)}
+              >
+                Restore
+              </button>
+            </div>
+          ))}
+        </section>
+      )}
 
       {picking && (
         <AvatarPicker

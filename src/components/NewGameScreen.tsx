@@ -46,10 +46,18 @@ export default function NewGameScreen({ onBack }: Props) {
     if (format !== 'commander') setCardsMode(false);
   }, [format]);
 
+  // A sync can take a player away while this screen is open (deleted on
+  // another device, or found to be one the cloud already had): only players
+  // still in the list are seated.
+  const here = (id: string) => profiles.some((p) => p.id === id);
+  const seated = selected.filter(here);
+
   function toggle(id: string) {
-    setSelected((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : prev.length < 4 ? [...prev, id] : prev,
-    );
+    setSelected((prev) => {
+      const live = prev.filter(here);
+      if (live.includes(id)) return live.filter((x) => x !== id);
+      return live.length < 4 ? [...live, id] : live;
+    });
   }
 
   /** A chosen deck brings its commander along for this game (and sticks
@@ -73,7 +81,7 @@ export default function NewGameScreen({ onBack }: Props) {
   function seedChosenDecks() {
     // Shared tablet (or host): every seat whose player picked a deck
     // gets seated with it. Guests on their own devices bring their own.
-    selected.forEach((id, seatIdx) => {
+    seated.forEach((id, seatIdx) => {
       const deck = decks.find((d) => d.id === deckChoice[id]);
       if (deck) seedSeatFromDeck(seatIdx, deck);
     });
@@ -85,7 +93,7 @@ export default function NewGameScreen({ onBack }: Props) {
       format,
       startingLife: format === 'commander' ? (40 as const) : (20 as const),
       commanderDamageThreshold: Number.isFinite(n) && n >= 1 ? Math.floor(n) : 21,
-      profiles: selected.map((id) => withDeck(profiles.find((p) => p.id === id)!)),
+      profiles: seated.map((id) => withDeck(profiles.find((p) => p.id === id)!)),
       ...(format === 'commander' && cardsMode ? { mode: 'cards' as const } : {}),
     };
     const seeding = format === 'commander' && cardsMode;
@@ -133,7 +141,7 @@ export default function NewGameScreen({ onBack }: Props) {
             onChange={() => setWhere('online')}
           />
           Online — everyone's own device
-          {!cloudReady && <small> (sign in under Settings → Curation cloud sync first)</small>}
+          {!cloudReady && <small> (sign in under Settings → Cloud sync first)</small>}
         </label>
       </fieldset>
       <fieldset className="format-toggle">
@@ -177,7 +185,7 @@ export default function NewGameScreen({ onBack }: Props) {
         {profiles.map((p) => (
           <button
             key={p.id}
-            className={selected.includes(p.id) ? 'profile-chip selected' : 'profile-chip'}
+            className={seated.includes(p.id) ? 'profile-chip selected' : 'profile-chip'}
             onClick={() => toggle(p.id)}
           >
             {p.name}
@@ -195,9 +203,9 @@ export default function NewGameScreen({ onBack }: Props) {
           Virtual cards — play your saved decks digitally (pick decks below)
         </label>
       )}
-      {format === 'commander' && decks.length > 0 && selected.length > 0 && (
+      {format === 'commander' && decks.length > 0 && seated.length > 0 && (
         <div className="deck-picks">
-          {selected.map((id) => {
+          {seated.map((id) => {
             const p = profiles.find((x) => x.id === id)!;
             return (
               <label key={id} className="deck-pick">
@@ -222,7 +230,7 @@ export default function NewGameScreen({ onBack }: Props) {
       )}
       {hostError && <p className="hint join-error">{hostError}</p>}
       <div className="modal-actions">
-        <button disabled={selected.length < 2 || hostBusy} onClick={() => void start()}>
+        <button disabled={seated.length < 2 || hostBusy} onClick={() => void start()}>
           {hostBusy ? 'Opening table…' : 'Start game'}
         </button>
         <button className="ghost" onClick={onBack}>

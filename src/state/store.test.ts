@@ -2041,7 +2041,12 @@ describe('profiles', () => {
     await store.getState().saveProfile({ id: 'x', name: 'X', avatarUrl: null, commanderName: null });
     await store.getState().deleteProfile('x');
     expect(store.getState().profiles).toHaveLength(0);
-    expect(await getDb().profiles.count()).toBe(0);
+    // The row stays as a tombstone so the other devices hear of it (store.sync.test.ts);
+    // a fresh start does not list it.
+    expect((await getDb().profiles.get('x'))?.deleted).toBe(true);
+    const restarted = createAppStore();
+    await restarted.getState().init();
+    expect(restarted.getState().profiles).toHaveLength(0);
   });
 });
 

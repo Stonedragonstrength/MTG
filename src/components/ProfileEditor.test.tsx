@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, test, vi } from 'vitest';
 import type { PlayerProfile } from '../lib/types';
@@ -53,4 +53,47 @@ test('tapping a recent commander switches to it and keeps the old one in history
   expect(saved?.commanderColors).toEqual(['W', 'U', 'B', 'G']);
   expect(saved?.commanderHistory?.[0].name).toBe('Atraxa, Praetors’ Voice');
   expect(saved?.commanderHistory?.some((h) => h.name.includes('Magda'))).toBe(true);
+});
+
+// ---- deleting a player: it travels to every device now, so it takes a second, deliberate tap ----
+
+/** A tap that happens at a moment of our choosing (ms): the confirm goes by when taps land. */
+function tapAt(button: HTMLElement, at: number) {
+  const tap = new MouseEvent('click', { bubbles: true, cancelable: true });
+  Object.defineProperty(tap, 'timeStamp', { value: at });
+  fireEvent(button, tap);
+}
+
+test('one tap on Delete only asks; a second, deliberate one deletes the player and closes the sheet', async () => {
+  const deleteProfile = vi.fn(async () => {});
+  const onDone = vi.fn();
+  useAppStore.setState({ deleteProfile });
+  render(<ProfileEditor profile={profile} onDone={onDone} />);
+  const button = screen.getByRole('button', { name: 'Delete' });
+  tapAt(button, 5000);
+  expect(deleteProfile).not.toHaveBeenCalled(); // one stray tap costs nothing
+  expect(onDone).not.toHaveBeenCalled();
+  expect(button).toHaveTextContent('Really delete?');
+
+  tapAt(button, 5700); // a beat later, on purpose
+  expect(deleteProfile).toHaveBeenCalledWith('p0');
+  await waitFor(() => expect(onDone).toHaveBeenCalled());
+});
+
+test('a stray double tap on Delete arms it and takes nobody', () => {
+  const deleteProfile = vi.fn(async () => {});
+  const onDone = vi.fn();
+  useAppStore.setState({ deleteProfile });
+  render(<ProfileEditor profile={profile} onDone={onDone} />);
+  const button = screen.getByRole('button', { name: 'Delete' });
+  tapAt(button, 5000);
+  tapAt(button, 5150); // the second half of the same double tap
+  expect(deleteProfile).not.toHaveBeenCalled();
+  expect(onDone).not.toHaveBeenCalled();
+  expect(button).toHaveTextContent('Really delete?'); // armed, and still asking
+});
+
+test('a new player has nothing to delete', () => {
+  render(<ProfileEditor profile={null} onDone={() => {}} />);
+  expect(screen.queryByRole('button', { name: /delete/i })).not.toBeInTheDocument();
 });

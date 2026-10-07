@@ -215,6 +215,35 @@ test('leaving while the table is still being created calls the hosting off', asy
   expect(seedSeatFromDeck).not.toHaveBeenCalled();
 });
 
+test('a device that is not signed in is pointed at Settings → Cloud sync', async () => {
+  const cloud = await import('../data/cloud');
+  vi.mocked(cloud.signedInEmail).mockResolvedValueOnce(null);
+  render(<NewGameScreen onBack={() => {}} />);
+  expect(screen.getByText(/sign in under Settings → Cloud sync first/)).toBeInTheDocument();
+  expect(screen.queryByText(/curation cloud sync/i)).not.toBeInTheDocument();
+});
+
+test('a picked player who goes away while the screen is open (a sync took them) is simply not seated', async () => {
+  useAppStore.setState({
+    saveProfile: vi.fn(async () => {}),
+    decks: [{ id: 'd1', name: 'Stompy', commander: null, colors: [], cards: [], updatedAt: 1 }],
+  });
+  const user = userEvent.setup();
+  render(<NewGameScreen onBack={() => {}} />);
+  await user.click(screen.getByRole('button', { name: 'Nate' }));
+  await user.click(screen.getByRole('button', { name: 'Sam' }));
+  await user.click(screen.getByRole('button', { name: 'Alex' }));
+  expect(screen.getByLabelText(/deck for Sam/i)).toBeInTheDocument();
+
+  // Sam was deleted on another device, or turned out to be a player the cloud already had.
+  act(() => useAppStore.setState({ profiles: profiles.filter((p) => p.id !== 'p1') }));
+  expect(screen.queryByLabelText(/deck for Sam/i)).not.toBeInTheDocument();
+  expect(screen.getByLabelText(/deck for Alex/i)).toBeInTheDocument();
+
+  await user.click(screen.getByRole('button', { name: /start game/i }));
+  expect(startedWith?.profiles.map((p) => p.id)).toEqual(['p0', 'p2']);
+});
+
 test('start is disabled with fewer than 2 players selected', async () => {
   const user = userEvent.setup();
   render(<NewGameScreen onBack={() => {}} />);

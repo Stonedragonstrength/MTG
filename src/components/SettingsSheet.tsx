@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
+  DECKS_PLAYERS_SQL,
   getCloudConfig,
   sendMagicLink,
   setCloudConfig,
+  setupPending,
   signedInEmail,
-  syncGarage,
+  syncAll,
 } from '../data/cloud';
 import { importBulkData } from '../data/scryfall';
 import type { BackgroundMode } from '../data/settings';
@@ -30,7 +32,7 @@ export default function SettingsSheet({ onClose }: Props) {
   const game = useAppStore((s) => s.game);
   const settings = useAppStore((s) => s.settings);
   const updateSettings = useAppStore((s) => s.updateSettings);
-  const refreshGarage = useAppStore((s) => s.refreshGarage);
+  const refreshSynced = useAppStore((s) => s.refreshSynced);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshMsg, setRefreshMsg] = useState('');
   const [cloudUrl, setCloudUrl] = useState('');
@@ -38,6 +40,11 @@ export default function SettingsSheet({ onClose }: Props) {
   const [cloudEmail, setCloudEmail] = useState('');
   const [cloudUser, setCloudUser] = useState<string | null>(null);
   const [cloudMsg, setCloudMsg] = useState('');
+  // The one-time step for decks and players: shown only while a sync has
+  // found their tables missing in the project.
+  const [setupStep, setSetupStep] = useState(false);
+  const [copyMsg, setCopyMsg] = useState('');
+  const sqlBox = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     getCloudConfig().then((cfg) => {
@@ -47,6 +54,7 @@ export default function SettingsSheet({ onClose }: Props) {
       }
     });
     signedInEmail().then(setCloudUser);
+    void setupPending().then(setSetupStep);
   }, []);
 
   async function saveCloud() {
@@ -66,9 +74,23 @@ export default function SettingsSheet({ onClose }: Props) {
 
   async function syncNow() {
     setCloudMsg('Syncing…');
-    const status = await syncGarage();
-    await refreshGarage();
+    const status = await syncAll();
+    await refreshSynced();
+    setSetupStep(await setupPending());
     setCloudMsg(status);
+  }
+
+  async function copySql() {
+    try {
+      await navigator.clipboard.writeText(DECKS_PLAYERS_SQL);
+      setCopyMsg('Copied');
+    } catch {
+      // No clipboard to write to (an older browser, a page it does not
+      // trust): select the text so it can be copied by hand.
+      sqlBox.current?.focus();
+      sqlBox.current?.select();
+      setCopyMsg('Selected — copy it');
+    }
   }
 
   async function refreshCards() {
@@ -218,9 +240,9 @@ export default function SettingsSheet({ onClose }: Props) {
         </button>
       </div>
 
-      <div className="settings-section-label">Curation cloud sync</div>
+      <div className="settings-section-label">Cloud sync</div>
       <p className="hint">
-        Syncs your curation across devices through your own Supabase project.
+        Syncs your Curation, decks and players across devices through your own Supabase project.
         {cloudUser ? ` Signed in as ${cloudUser}.` : ' Not signed in on this device yet.'}
       </p>
       <div className="settings-row">
@@ -254,12 +276,31 @@ export default function SettingsSheet({ onClose }: Props) {
           Send link
         </button>
       </div>
-      <div className="settings-row">
+      <div className="settings-row cloud-status">
         <div className="settings-row-text">
           <small>{cloudMsg || 'Changes sync a few seconds after you make them.'}</small>
         </div>
         <button onClick={() => void syncNow()}>Sync now</button>
       </div>
+      {setupStep && (
+        <div className="cloud-setup">
+          <p className="hint">
+            One more step before decks and players can sync. In Supabase, open the SQL editor,
+            paste this and press Run. Supabase will warn about a destructive query because of the
+            drop-policy lines — that is expected, run it. Then tap Sync now.
+          </p>
+          <textarea
+            ref={sqlBox}
+            className="paste-box paste-box--sql"
+            aria-label="setup SQL for decks and players"
+            readOnly
+            rows={8}
+            spellCheck={false}
+            value={DECKS_PLAYERS_SQL}
+          />
+          <button onClick={() => void copySql()}>{copyMsg || 'Copy'}</button>
+        </div>
+      )}
     </Sheet>
   );
 }

@@ -11,6 +11,9 @@ export interface PlayerProfile {
   commanderColors?: string[] | null; // WUBRG identity, for zone theming
   commanderImage?: string | null; // card image for the home-screen tile
   commanderHistory?: CommanderEntry[]; // recently used commanders, newest first
+  /** ms epoch of the last save; last-write-wins across devices. Absent on
+   * profiles saved before players synced: those count as the oldest. */
+  updatedAt?: number;
 }
 
 export interface CommanderEntry {
@@ -164,7 +167,7 @@ export interface Deck {
   /** The player physically has these cards, so adding to the deck also
    * logs to the Curation. Absent or false: a planned list. */
   owned?: boolean;
-  updatedAt: number;
+  updatedAt: number; // ms epoch of the last save; last-write-wins across devices
 }
 
 export interface GarageCard {

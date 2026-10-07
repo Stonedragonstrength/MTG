@@ -51,6 +51,14 @@ export default function HomeScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view]);
 
+  // A sync can take the player being edited away: deleted on another device,
+  // or found to be the same person as one the cloud already had (who then
+  // keeps the cloud's id). Left open, the sheet's Save would bring them back
+  // under an id no other device knows — so it closes.
+  useEffect(() => {
+    if (editing && !profiles.some((p) => p.id === editing.id)) setEditing(null);
+  }, [editing, profiles]);
+
   // Older profiles picked a commander before we stored its card image.
   useEffect(() => {
     for (const p of profiles) {
