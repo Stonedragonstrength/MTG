@@ -25,11 +25,18 @@ export default function DecksScreen({ onBack, initialOpenId }: Props) {
   const [openId, setOpenId] = useState<string | null>(initialOpenId ?? null);
   const [picking, setPicking] = useState(false);
 
+  // A deck that is open from the very first render must not claim the back
+  // button before the screen that opened Decks has: effects run child
+  // first, which would put "leave Decks" ABOVE "close the deck". So the
+  // deck's claim waits one commit.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   // Back from inside a deck returns to the deck list, not out of the app.
   useEffect(() => {
-    if (!openId) return;
+    if (!openId || !mounted) return;
     return registerBack(() => setOpenId(null));
-  }, [openId]);
+  }, [openId, mounted]);
 
   if (openId) return <DeckEditor deckId={openId} onBack={() => setOpenId(null)} />;
 

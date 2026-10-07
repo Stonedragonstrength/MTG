@@ -27,7 +27,8 @@ interface Entry {
 }
 
 /** One id per page load: labels that outlive a reload read as not ours. */
-const RUN = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+const newRun = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+let run = newRun();
 
 let stack: Entry[] = [];
 let depth = 0;
@@ -49,14 +50,14 @@ function topAt(): number {
  * own entry and for anything this page load did not write. */
 function placeOf(state: unknown): number {
   const s = state as { layer?: unknown; run?: unknown } | null;
-  return s && s.run === RUN && typeof s.layer === 'number' ? s.layer : 0;
+  return s && s.run === run && typeof s.layer === 'number' ? s.layer : 0;
 }
 
 function giveEntry(entry: Entry): void {
   depth += 1;
   entry.at = depth;
   try {
-    history.pushState({ layer: depth, run: RUN }, '');
+    history.pushState({ layer: depth, run }, '');
   } catch {
     // History can be unavailable (odd embeds); back just won't intercept.
   }
@@ -139,8 +140,10 @@ export function registerBack(handler: () => void): () => void {
   };
 }
 
-/** Test hook: forgets all layers and listeners state. */
+/** Test hook: a fresh page load — no layers, and entries written before
+ * it read as not ours. */
 export function _resetBackStack(): void {
+  run = newRun();
   stack = [];
   depth = 0;
   inFlight = null;

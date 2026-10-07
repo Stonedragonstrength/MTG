@@ -38,10 +38,17 @@ export default function HomeScreen() {
     })();
   }, []);
 
+  // However a sub-screen is left, the deck it was asked to open is spent.
+  const goHome = () => {
+    setOpenDeck(null);
+    setView('home');
+  };
+
   // Sub-screens answer the tablet's back button by returning home.
   useEffect(() => {
     if (view === 'home') return;
-    return registerBack(() => setView('home'));
+    return registerBack(goHome);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view]);
 
   // Older profiles picked a commander before we stored its card image.
@@ -63,21 +70,12 @@ export default function HomeScreen() {
     }
   }, [profiles, saveProfile]);
 
-  if (view === 'newgame') return <NewGameScreen onBack={() => setView('home')} />;
-  if (view === 'decks')
-    return (
-      <DecksScreen
-        initialOpenId={openDeck ?? undefined}
-        onBack={() => {
-          setOpenDeck(null);
-          setView('home');
-        }}
-      />
-    );
+  if (view === 'newgame') return <NewGameScreen onBack={goHome} />;
+  if (view === 'decks') return <DecksScreen initialOpenId={openDeck ?? undefined} onBack={goHome} />;
   if (view === 'garage')
     return (
       <GarageScreen
-        onBack={() => setView('home')}
+        onBack={goHome}
         // A deck started from a Curation suggestion opens in its editor.
         onOpenDeck={(deckId) => {
           setOpenDeck(deckId);

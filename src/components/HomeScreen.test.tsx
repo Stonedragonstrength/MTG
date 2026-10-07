@@ -1,6 +1,7 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, test, vi } from 'vitest';
+import { _debugBackStack, _resetBackStack } from '../lib/backstack';
 import { useAppStore } from '../state/store';
 import HomeScreen from './HomeScreen';
 
@@ -106,4 +107,64 @@ test('Curation → What can I build? → a pick lands in the new deck’s editor
   // straight into the editor for the deck that was just started
   expect(await screen.findByLabelText('deck name')).toHaveValue('Ashaya, Soul of the Wild');
   expect(useAppStore.getState().decks[0].commander?.name).toBe('Ashaya, Soul of the Wild');
+});
+
+/** Home → Curation → What can I build? → pick: lands in the new deck's editor. */
+async function startDeckFromCuration(user: ReturnType<typeof userEvent.setup>) {
+  useAppStore.setState({
+    decks: [],
+    garage: [
+      {
+        cardId: 'elves',
+        name: 'Llanowar Elves',
+        typeLine: 'Creature — Elf Druid',
+        imageNormal: null,
+        count: 2,
+        updatedAt: 1,
+        deleted: false,
+        dirty: 0,
+      },
+    ],
+  });
+  render(<HomeScreen />);
+  await user.click(screen.getByRole('button', { name: /curation/i }));
+  await user.click(await screen.findByRole('button', { name: /what can i build/i }));
+  await user.click(await screen.findByRole('button', { name: /start a deck with Ashaya/i }));
+  await screen.findByLabelText('deck name');
+  await backStackSettled();
+}
+
+/** Screens swap in a beat; nobody presses Back inside it. Wait until every
+ * open layer has its history entry before pressing. */
+const backStackSettled = () =>
+  vi.waitFor(() => {
+    const s = _debugBackStack();
+    expect(s.inFlight || s.settlePending || s.ats.some((at) => at === null)).toBe(false);
+  });
+
+async function pressBack() {
+  act(() => history.back());
+  await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+  await backStackSettled();
+}
+
+test('Back from a deck started in the Curation goes to the deck list, like any other deck', async () => {
+  _resetBackStack();
+  const user = userEvent.setup();
+  await startDeckFromCuration(user);
+  await pressBack();
+  expect(await screen.findByRole('heading', { name: 'Decks' })).toBeInTheDocument();
+  expect(screen.queryByLabelText('deck name')).not.toBeInTheDocument();
+});
+
+test('backing all the way out forgets the deck: the Decks tile shows the list again', async () => {
+  _resetBackStack();
+  const user = userEvent.setup();
+  await startDeckFromCuration(user);
+  await pressBack(); // editor → deck list
+  await screen.findByRole('heading', { name: 'Decks' });
+  await pressBack(); // deck list → home
+  await user.click(await screen.findByRole('button', { name: /^decks/i }));
+  expect(await screen.findByRole('heading', { name: 'Decks' })).toBeInTheDocument();
+  expect(screen.queryByLabelText('deck name')).not.toBeInTheDocument();
 });
