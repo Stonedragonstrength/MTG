@@ -221,6 +221,47 @@ describe('online table wiring', () => {
     expect(tableSync.endTableForEveryone).toHaveBeenCalled();
     expect(store.getState().online).toBeNull();
   });
+
+  test('a hosted table the player backed out of is closed, never entered', async () => {
+    vi.mocked(tableSync.endTableForEveryone).mockClear();
+    const store = createAppStore();
+    const err = await store.getState().hostOnlineGame(config, () => false);
+    expect(err).toBeNull();
+    expect(tableSync.endTableForEveryone).toHaveBeenCalled(); // no orphan table left open
+    expect(store.getState().online).toBeNull();
+    expect(store.getState().game).toBeNull();
+    expect(store.getState().inGame).toBe(false);
+  });
+
+  test('joining lands the table on this device but waits at home for the seat question', async () => {
+    const remote = createGame(config);
+    vi.mocked(tableSync.joinTable).mockResolvedValueOnce({ state: remote });
+    const store = createAppStore();
+    const err = await store.getState().joinOnlineGame('kq7m2x');
+    expect(err).toBeNull();
+    expect(store.getState().online?.code).toBe('KQ7M2X');
+    expect(store.getState().game).not.toBeNull();
+    // The join sheet still has questions to ask; entering now would destroy it.
+    expect(store.getState().inGame).toBe(false);
+    store.getState().enterGame();
+    expect(store.getState().inGame).toBe(true);
+  });
+
+  test('a join the player backed out of changes nothing and leaves the table', async () => {
+    vi.mocked(tableSync.joinTable).mockResolvedValueOnce({ state: createGame(config) });
+    vi.mocked(tableSync.leaveTable).mockClear();
+    const store = createAppStore();
+    store.getState().startGame(config); // a local game is saved on this device
+    store.getState().adjustLife(0, -9);
+    store.getState().exitToHome();
+    const mine = store.getState().game;
+    const err = await store.getState().joinOnlineGame('KQ7M2X', () => false);
+    expect(err).toBeNull();
+    expect(tableSync.leaveTable).toHaveBeenCalled();
+    expect(store.getState().game).toBe(mine); // the saved game was not replaced
+    expect(store.getState().online).toBeNull();
+    expect(store.getState().inGame).toBe(false);
+  });
 });
 
 describe('cards mode', () => {

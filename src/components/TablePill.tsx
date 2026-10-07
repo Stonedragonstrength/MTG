@@ -16,6 +16,8 @@ export default function TablePill() {
   const online = useAppStore((s) => s.online);
   const game = useAppStore((s) => s.game);
   const setMySeat = useAppStore((s) => s.setMySeat);
+  const decks = useAppStore((s) => s.decks);
+  const seedSeatFromDeck = useAppStore((s) => s.seedSeatFromDeck);
   const leaveOnlineTable = useAppStore((s) => s.leaveOnlineTable);
   const exitToHome = useAppStore((s) => s.exitToHome);
   const endGame = useAppStore((s) => s.endGame);
@@ -24,6 +26,11 @@ export default function TablePill() {
 
   if (!online) return null;
   const peers = online.status.kind === 'live' ? online.status.peers : null;
+  // A cards table where your own seat was never dealt in: the join sheet
+  // asks once, this is the standing way to answer later.
+  const mySeat = online.mySeat;
+  const deckless =
+    mySeat !== null && game?.config.mode === 'cards' && game.players[mySeat]?.cards === undefined;
 
   if (online.status.kind === 'stale-build') {
     return (
@@ -70,6 +77,26 @@ export default function TablePill() {
                     onClick={() => setMySeat(online.mySeat === i ? null : i)}
                   >
                     {p.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {deckless && decks.length > 0 && (
+            <div className="detail-section">
+              <span className="section-label">Bring a deck</span>
+              <p className="hint">Your seat has no cards yet — pick one of your decks to shuffle up.</p>
+              <div className="chip-row">
+                {decks.map((d) => (
+                  <button
+                    key={d.id}
+                    className="chip"
+                    onClick={() => {
+                      seedSeatFromDeck(mySeat, d);
+                      setOpen(false);
+                    }}
+                  >
+                    {d.name}
                   </button>
                 ))}
               </div>

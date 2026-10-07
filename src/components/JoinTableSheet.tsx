@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAppStore } from '../state/store';
 import Sheet from './Sheet';
 
@@ -9,10 +9,12 @@ interface Props {
 // Stable empty fallback: a fresh [] per selector call would re-render forever.
 const NO_PROFILES: never[] = [];
 
-/** Type the 6-char code from the host, land at the living table, then
- * point at which seat is you so the board faces the right way. */
+/** Type the 6-char code from the host, point at which seat is you so the
+ * board faces the right way (and bring a deck to a cards table), then sit
+ * down at the living table. */
 export default function JoinTableSheet({ onClose }: Props) {
   const joinOnlineGame = useAppStore((s) => s.joinOnlineGame);
+  const enterGame = useAppStore((s) => s.enterGame);
   const setMySeat = useAppStore((s) => s.setMySeat);
   const seedSeatFromDeck = useAppStore((s) => s.seedSeatFromDeck);
   const decks = useAppStore((s) => s.decks);
@@ -25,13 +27,41 @@ export default function JoinTableSheet({ onClose }: Props) {
   const [seat, setSeat] = useState<number | null>(null);
   const profiles = useAppStore((s) => s.game?.config.profiles ?? NO_PROFILES);
 
+  // Closing the sheet while the table is still being looked up calls the
+  // join off (the store asks before it lands anything).
+  const open = useRef(true);
+  useEffect(() => {
+    open.current = true;
+    return () => {
+      open.current = false;
+    };
+  }, []);
+
   async function join() {
     setBusy(true);
     setError('');
-    const err = await joinOnlineGame(code.toUpperCase().trim());
+    const err = await joinOnlineGame(code.toUpperCase().trim(), () => open.current);
+    if (!open.current) return;
     setBusy(false);
     if (err) setError(err);
     else setStep('seat');
+  }
+
+  /** The table has landed on this device but is not on screen yet: this
+   * sheet lives on the home screen and entering the game takes the home
+   * screen away, so it enters only once its questions are done. */
+  function finish() {
+    enterGame();
+    onClose();
+  }
+
+  /** ✕ and the backdrop wave the questions off, like Skip. The back
+   * button only closes (home then offers "Pick up game"): a Back press
+   * must never open a screen, or Chrome will not let that screen catch
+   * the next Back. */
+  function dismiss(why?: 'back') {
+    if (step !== 'code' && why !== 'back') enterGame();
+    onClose();
   }
 
   function seatPicked(i: number) {
@@ -40,7 +70,7 @@ export default function JoinTableSheet({ onClose }: Props) {
     // A cards table without cards in your seat: bring one of your decks.
     const seatHasCards = useAppStore.getState().game?.players[i]?.cards !== undefined;
     if (cardsTable && !seatHasCards && decks.length > 0) setStep('deck');
-    else onClose();
+    else finish();
   }
 
   return (
@@ -48,7 +78,7 @@ export default function JoinTableSheet({ onClose }: Props) {
       title={
         step === 'code' ? 'Join table' : step === 'seat' ? 'Which seat is you?' : 'Bring a deck?'
       }
-      onClose={onClose}
+      onClose={dismiss}
     >
       {step === 'code' ? (
         <>
@@ -86,7 +116,7 @@ export default function JoinTableSheet({ onClose }: Props) {
             ))}
           </div>
           <div className="modal-actions">
-            <button className="ghost" onClick={onClose}>
+            <button className="ghost" onClick={finish}>
               Skip
             </button>
           </div>
@@ -104,7 +134,7 @@ export default function JoinTableSheet({ onClose }: Props) {
                 className="chip"
                 onClick={() => {
                   if (seat !== null) seedSeatFromDeck(seat, d);
-                  onClose();
+                  finish();
                 }}
               >
                 {d.name}
@@ -112,7 +142,7 @@ export default function JoinTableSheet({ onClose }: Props) {
             ))}
           </div>
           <div className="modal-actions">
-            <button className="ghost" onClick={onClose}>
+            <button className="ghost" onClick={finish}>
               Spectate / tracker only
             </button>
           </div>

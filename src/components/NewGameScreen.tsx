@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Format, PlayerProfile } from '../lib/types';
 import { useAppStore } from '../state/store';
 
@@ -29,6 +29,15 @@ export default function NewGameScreen({ onBack }: Props) {
       const cfg = await getCloudConfig();
       setCloudReady(!!cfg?.url && !!(await signedInEmail()));
     })();
+  }, []);
+
+  // Leaving this screen while a table is still being created calls it off.
+  const open = useRef(true);
+  useEffect(() => {
+    open.current = true;
+    return () => {
+      open.current = false;
+    };
   }, []);
 
   // The Virtual-cards box lives under Commander only; leaving the format
@@ -83,7 +92,15 @@ export default function NewGameScreen({ onBack }: Props) {
     if (where === 'online') {
       setHostBusy(true);
       setHostError('');
-      const err = await hostOnlineGame(config);
+      // The store asks once, when the table answers. A hosted table swaps
+      // this screen for the game, so "is it still mounted" afterwards cannot
+      // tell success from walking away — what was answered can.
+      let calledOff = false;
+      const err = await hostOnlineGame(config, () => {
+        calledOff = !open.current;
+        return open.current;
+      });
+      if (calledOff) return;
       setHostBusy(false);
       if (err) setHostError(err);
       else if (seeding) seedChosenDecks();

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, test, vi } from 'vitest';
 import type { GameConfig } from '../lib/types';
@@ -183,6 +183,36 @@ test('online mode hosts a table instead of starting locally', async () => {
   await user.click(screen.getByRole('button', { name: /start game/i }));
   expect(hostOnlineGame).toHaveBeenCalled();
   expect(startedWith).toBeNull(); // local path untouched
+});
+
+test('leaving while the table is still being created calls the hosting off', async () => {
+  let answer: (value: null) => void = () => {};
+  const hostOnlineGame = vi.fn(
+    (_config: unknown, _stillWanted?: () => boolean) =>
+      new Promise<null>((resolve) => (answer = resolve)),
+  );
+  const seedSeatFromDeck = vi.fn();
+  useAppStore.setState({
+    hostOnlineGame,
+    seedSeatFromDeck,
+    decks: [{ id: 'd1', name: 'Stompy', commander: null, colors: [], cards: [], updatedAt: 1 }],
+  });
+  const user = userEvent.setup();
+  const { unmount } = render(<NewGameScreen onBack={() => {}} />);
+  await user.click(await screen.findByRole('radio', { name: /online/i }));
+  await user.click(screen.getByRole('checkbox', { name: /virtual cards/i }));
+  await user.click(screen.getByRole('button', { name: 'Nate' }));
+  await user.click(screen.getByRole('button', { name: 'Sam' }));
+  await user.selectOptions(screen.getByLabelText(/deck for Nate/i), 'd1');
+  await user.click(screen.getByRole('button', { name: /start game/i }));
+  const stillWanted = hostOnlineGame.mock.calls[0][1]!;
+  expect(stillWanted()).toBe(true);
+
+  unmount(); // back to home while "Opening table…" is still up
+  expect(stillWanted()).toBe(false);
+  await act(async () => answer(null));
+  // Nothing was hosted, so no deck may be dealt into whatever game is saved here.
+  expect(seedSeatFromDeck).not.toHaveBeenCalled();
 });
 
 test('start is disabled with fewer than 2 players selected', async () => {

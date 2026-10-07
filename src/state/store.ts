@@ -43,8 +43,11 @@ export interface AppStore {
   exitToHome(): void;
   endGame(): void;
   online: { code: string; status: TableStatus; mySeat: number | null } | null;
-  hostOnlineGame(config: GameConfig): Promise<string | null>; // error line or null
-  joinOnlineGame(code: string): Promise<string | null>;
+  /** Both resolve to an error line or null. `stillWanted` is asked once the
+   * table answers: false (the player backed out meanwhile) undoes it. */
+  hostOnlineGame(config: GameConfig, stillWanted?: () => boolean): Promise<string | null>;
+  /** Lands the table on this device WITHOUT entering it — see enterGame. */
+  joinOnlineGame(code: string, stillWanted?: () => boolean): Promise<string | null>;
   leaveOnlineTable(): void;
   setMySeat(seat: number | null): void;
   // ---- cards mode ----
@@ -358,10 +361,16 @@ export function createAppStore() {
         set({ inGame: false }); // the game stays saved; home offers Pick up
       },
 
-      async hostOnlineGame(config) {
+      async hostOnlineGame(config, stillWanted = () => true) {
         const game = gameLib.createGame(config);
         const r = await tableSync.hostTable(game);
         if ('error' in r) return r.error;
+        if (!stillWanted()) {
+          // They backed out while it was being set up: close the table we
+          // just made rather than dropping them into a game they left.
+          await tableSync.endTableForEveryone();
+          return null;
+        }
         history = [];
         set({
           game,
@@ -373,14 +382,19 @@ export function createAppStore() {
         return null;
       },
 
-      async joinOnlineGame(code) {
+      async joinOnlineGame(code, stillWanted = () => true) {
         const r = await tableSync.joinTable(code);
         if ('error' in r) return r.error;
+        if (!stillWanted()) {
+          await tableSync.leaveTable(); // backed out mid-join: the saved game stays
+          return null;
+        }
         const game = migrateGame(r.state);
         history = [];
+        // Not entered yet: the join sheet still asks for a seat (and a deck),
+        // and it lives on the home screen. It enters the game when it is done.
         set({
           game,
-          inGame: true,
           online: { code: code.toUpperCase().trim(), status: { kind: 'connecting' }, mySeat: null },
           log: [{ t: Date.now(), text: `Joined table ${code.toUpperCase().trim()}` }],
         });
