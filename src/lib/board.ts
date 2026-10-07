@@ -118,10 +118,24 @@ export function splitItem(
 ): GameState {
   return updateBoard(s, playerIdx, (board) => {
     const source = board.find((it) => it.id === itemId);
-    if (!source || moveCount <= 0 || moveCount >= source.count) return board;
-    const split: BoardItem = { ...source, id: newId(), count: moveCount, counters: {} };
+    if (!source || !Number.isInteger(moveCount) || moveCount <= 0 || moveCount >= source.count)
+      return board;
+    // The copies split off are the ones you can still use: untapped first.
+    const tapped = source.tapped ?? 0;
+    const splitTapped = Math.max(0, moveCount - (source.count - tapped));
+    const split: BoardItem = {
+      ...source,
+      id: newId(),
+      count: moveCount,
+      counters: {},
+      ...(tapped > 0 ? { tapped: splitTapped } : {}),
+    };
     return board
-      .map((it) => (it.id === itemId ? { ...it, count: it.count - moveCount } : it))
+      .map((it) =>
+        it.id === itemId
+          ? { ...it, count: it.count - moveCount, ...(tapped > 0 ? { tapped: tapped - splitTapped } : {}) }
+          : it,
+      )
       .concat(split);
   });
 }

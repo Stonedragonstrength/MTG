@@ -126,13 +126,37 @@ describe('splitItem', () => {
     expect(board[1].id).not.toBe(board[0].id);
   });
 
-  test.each([0, -1, 8, 9])('rejects invalid moveCount %i unchanged', (move) => {
+  test.each([0, -1, 8, 9, 2.5, NaN])('rejects invalid moveCount %s unchanged', (move) => {
     let g = freshGame();
     const item = createBoardItem(soldier);
     g = addItem(g, 0, item);
     g = changeCount(g, 0, item.id, 7); // x8
     const after = splitItem(g, 0, item.id, move);
     expect(after).toEqual(g);
+  });
+
+  test('tapped copies are shared out: the split takes untapped ones first, none are invented', () => {
+    let g = freshGame();
+    const item = createBoardItem(soldier);
+    g = addItem(g, 0, item);
+    g = changeCount(g, 0, item.id, 7); // x8
+    g = tapItem(g, 0, item.id, 6); // 6 tapped, 2 untapped
+    g = splitItem(g, 0, item.id, 3);
+    const [rest, split] = g.players[0].board;
+    expect([split.count, split.tapped]).toEqual([3, 1]); // both untapped ones, plus one tapped
+    expect([rest.count, rest.tapped]).toEqual([5, 5]);
+  });
+
+  test('splitting off fewer than the untapped copies leaves every tapped one behind', () => {
+    let g = freshGame();
+    const item = createBoardItem(soldier);
+    g = addItem(g, 0, item);
+    g = changeCount(g, 0, item.id, 7); // x8
+    g = tapItem(g, 0, item.id, 2);
+    g = splitItem(g, 0, item.id, 3);
+    const [rest, split] = g.players[0].board;
+    expect(split.tapped ?? 0).toBe(0);
+    expect([rest.count, rest.tapped]).toEqual([5, 2]);
   });
 });
 

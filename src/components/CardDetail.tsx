@@ -167,11 +167,13 @@ export default function CardDetail({ playerIdx, itemId, onClose }: Props) {
                 type="number"
                 min={1}
                 max={item.count - 1}
+                step={1}
+                inputMode="numeric"
                 value={splitCount}
                 onChange={(e) => setSplitCount(e.target.value)}
               />
             </label>
-            <button onClick={() => splitItemAction(playerIdx, itemId, Number(splitCount) || 0)}>
+            <button onClick={() => splitItemAction(playerIdx, itemId, Math.floor(Number(splitCount)) || 0)}>
               Split
             </button>
           </div>
