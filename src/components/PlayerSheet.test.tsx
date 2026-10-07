@@ -61,3 +61,22 @@ test('monarch and initiative can be claimed from the sheet', async () => {
   await user.click(screen.getByRole('button', { name: /initiative/i }));
   expect(initiative).toHaveBeenCalledWith(1);
 });
+
+test('a partner pair gets a commander-damage row per commander', async () => {
+  const spy = vi.fn();
+  useAppStore.setState({
+    applyCommanderDamage: spy,
+    game: createGame({
+      ...config,
+      profiles: [
+        config.profiles[0],
+        { ...config.profiles[1], commanderName: 'Thrasios', partnerName: 'Tymna' },
+      ],
+    }),
+  });
+  const user = userEvent.setup();
+  render(<PlayerSheet playerIdx={0} onClose={() => {}} />);
+  expect(screen.getByText(/cmdr dmg from Sam — Thrasios/i)).toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: /more commander damage from Sam — Tymna/i }));
+  expect(spy).toHaveBeenCalledWith(0, 'p1#2', 1);
+});

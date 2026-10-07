@@ -1,3 +1,4 @@
+import { seatCommanders } from '../lib/commanders';
 import { useAppStore } from '../state/store';
 import Sheet from './Sheet';
 
@@ -24,7 +25,10 @@ export default function PlayerSheet({ playerIdx, onClose }: Props) {
   if (!game) return null;
   const player = game.players[playerIdx];
   const profile = game.config.profiles[playerIdx];
-  const enemies = game.config.profiles.filter((p) => p.id !== profile.id);
+  // One row per enemy commander — a partner pair is two.
+  const attackers = game.config.profiles.flatMap((_, j) =>
+    j === playerIdx ? [] : seatCommanders(game, j),
+  );
 
   return (
     <Sheet title={profile.name} onClose={onClose}>
@@ -56,25 +60,25 @@ export default function PlayerSheet({ playerIdx, onClose }: Props) {
       })}
 
       {game.config.format === 'commander' &&
-        enemies.map((enemy) => {
-          const dmg = player.commanderDamage[enemy.id] ?? 0;
+        attackers.map((attacker) => {
+          const dmg = player.commanderDamage[attacker.key] ?? 0;
           return (
-            <div className="detail-row" key={enemy.id}>
+            <div className="detail-row" key={attacker.key}>
               <span>
-                ⚔ Cmdr dmg from {enemy.name}
+                ⚔ Cmdr dmg from {attacker.label}
                 <small className="hint-inline"> ({game.config.commanderDamageThreshold} is lethal)</small>
               </span>
               <div className="stepper">
                 <button
-                  aria-label={`less commander damage from ${enemy.name}`}
-                  onClick={() => applyCommanderDamage(playerIdx, enemy.id, -1)}
+                  aria-label={`less commander damage from ${attacker.label}`}
+                  onClick={() => applyCommanderDamage(playerIdx, attacker.key, -1)}
                 >
                   −
                 </button>
                 <span>{dmg}</span>
                 <button
-                  aria-label={`more commander damage from ${enemy.name}`}
-                  onClick={() => applyCommanderDamage(playerIdx, enemy.id, 1)}
+                  aria-label={`more commander damage from ${attacker.label}`}
+                  onClick={() => applyCommanderDamage(playerIdx, attacker.key, 1)}
                 >
                   +
                 </button>

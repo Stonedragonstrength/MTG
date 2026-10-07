@@ -172,6 +172,15 @@ test('an ordinary commander shows no partner slot', async () => {
   expect(screen.queryByRole('button', { name: /add partner/i })).not.toBeInTheDocument();
 });
 
+test('each mana-curve bar says how many cards sit at that cost', () => {
+  render(<DeckEditor deckId="deck-1" onBack={() => {}} />);
+  const curve = screen.getByLabelText('mana curve');
+  // The sample deck has one spell: Llanowar Elves at one mana. Lands are not on the curve.
+  const counts = Array.from(curve.querySelectorAll('.deck-curve-count')).map((el) => el.textContent);
+  expect(counts).toEqual(['1']); // empty buckets stay unlabelled
+  expect(curve.querySelectorAll('.deck-curve-col')).toHaveLength(8); // 0–6 and 7+
+});
+
 test('rows wear their subtype next to the name', () => {
   const { container } = render(<DeckEditor deckId="deck-1" onBack={() => {}} />);
   expect(screen.getByText('Elf Druid')).toBeInTheDocument();

@@ -4,6 +4,7 @@ import { getDb, kvDelete, kvGet, kvSet } from '../data/db';
 import * as tableSync from '../data/onlineTable';
 import type { SyncOpts, TableStatus } from '../data/onlineTable';
 import * as cardsLib from '../lib/cards';
+import { attackerLabel } from '../lib/commanders';
 import { isValidGame, migrateGame } from '../lib/migrate';
 import { DEFAULT_SETTINGS, getSettings, saveSettings, type Settings } from '../data/settings';
 import * as boardLib from '../lib/board';
@@ -678,9 +679,9 @@ export function createAppStore() {
         mutateGame(
           (g) => gameLib.applyCommanderDamage(g, defenderIdx, attackerProfileId, delta),
           (prev, next) => {
-            const attacker = prev.config.profiles.find((p) => p.id === attackerProfileId);
+            // The key is a commander, not always a player: a partner pair has two.
             const dmg = next.players[defenderIdx].commanderDamage[attackerProfileId] ?? 0;
-            return `${playerName(prev, defenderIdx)}: ${dmg} cmdr dmg from ${attacker?.name ?? '?'} (life ${next.players[defenderIdx].life})`;
+            return `${playerName(prev, defenderIdx)}: ${dmg} cmdr dmg from ${attackerLabel(prev, attackerProfileId)} (life ${next.players[defenderIdx].life})`;
           },
         );
       },

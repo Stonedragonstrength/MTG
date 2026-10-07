@@ -5,6 +5,9 @@ export interface PlayerProfile {
   name: string;
   avatarUrl: string | null;
   commanderName: string | null;
+  /** Second commander of a partner pair (set when a partner deck is
+   * chosen for the game): commander damage is tracked per commander. */
+  partnerName?: string | null;
   commanderColors?: string[] | null; // WUBRG identity, for zone theming
   commanderImage?: string | null; // card image for the home-screen tile
   commanderHistory?: CommanderEntry[]; // recently used commanders, newest first

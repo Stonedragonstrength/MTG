@@ -51,6 +51,9 @@ export default function NewGameScreen({ onBack }: Props) {
     const patched = {
       ...profile,
       commanderName: deck.commander.name,
+      // A pair's second commander rides along (commander damage is counted
+      // per commander); a solo deck clears whatever the last deck left.
+      partnerName: deck.partner?.name ?? null,
       commanderColors: deck.colors,
       commanderImage: deck.commander.imageNormal,
     };

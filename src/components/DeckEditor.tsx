@@ -33,17 +33,21 @@ const HEALTH_TARGETS: { key: keyof DeckStats; label: string; target: number }[] 
   { key: 'removal', label: 'Removal', target: 8 },
 ];
 
-/** The bars read relative to the deck's own tallest bucket. */
+/** The bars read relative to the deck's own tallest bucket; each wears
+ * its card count so the curve is numbers, not just a shape. */
 function CurveBar({ curve }: { curve: number[] }) {
   const max = Math.max(1, ...curve);
   return (
     <div className="deck-curve" aria-label="mana curve">
       {curve.map((n, mv) => (
         <div key={mv} className="deck-curve-col" title={`${mv === 7 ? '7+' : mv} mana: ${n}`}>
-          <div
-            className="deck-curve-bar"
-            style={{ height: `${Math.round((n / max) * 100)}%` }}
-          />
+          {n > 0 && <span className="deck-curve-count">{n}</span>}
+          <div className="deck-curve-track">
+            <div
+              className="deck-curve-bar"
+              style={{ height: `${Math.round((n / max) * 100)}%` }}
+            />
+          </div>
           <span className="deck-curve-label">{mv === 7 ? '7+' : mv}</span>
         </div>
       ))}

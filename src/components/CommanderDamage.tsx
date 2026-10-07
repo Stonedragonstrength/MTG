@@ -1,3 +1,4 @@
+import { seatCommanders } from '../lib/commanders';
 import { useAppStore } from '../state/store';
 import { useLongPress } from './useLongPress';
 
@@ -11,12 +12,14 @@ function Gauge({
   playerIdx,
   attackerId,
   attackerName,
+  short,
   damage,
   threshold,
 }: {
   playerIdx: number;
   attackerId: string;
   attackerName: string;
+  short: string;
   damage: number;
   threshold: number;
 }) {
@@ -34,7 +37,7 @@ function Gauge({
       title={`Commander damage from ${attackerName} — ${damage}/${threshold}. Tap +1, hold −1. Also lowers life.`}
       {...press}
     >
-      <span className="cmd-gauge-name">{attackerName.slice(0, 4)}</span>
+      <span className="cmd-gauge-name">{short}</span>
       <span className="cmd-gauge-value">{damage}</span>
       <span className="cmd-gauge-bar">
         <i style={{ width: `${pct}%` }} />
@@ -47,17 +50,22 @@ export default function CommanderDamage({ playerIdx }: Props) {
   const game = useAppStore((s) => s.game);
   if (!game) return null;
   const player = game.players[playerIdx];
-  const enemies = game.config.profiles.filter((_, j) => j !== playerIdx);
+  // One gauge per enemy commander: a partner pair is two, each with its
+  // own road to 21.
+  const attackers = game.config.profiles.flatMap((_, j) =>
+    j === playerIdx ? [] : seatCommanders(game, j),
+  );
 
   return (
     <div className="cmd-gauges" title="Commander damage taken from each enemy commander">
-      {enemies.map((profile) => (
+      {attackers.map((attacker) => (
         <Gauge
-          key={profile.id}
+          key={attacker.key}
           playerIdx={playerIdx}
-          attackerId={profile.id}
-          attackerName={profile.name}
-          damage={player.commanderDamage[profile.id] ?? 0}
+          attackerId={attacker.key}
+          attackerName={attacker.label}
+          short={attacker.short}
+          damage={player.commanderDamage[attacker.key] ?? 0}
           threshold={game.config.commanderDamageThreshold}
         />
       ))}

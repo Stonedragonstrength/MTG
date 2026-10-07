@@ -144,6 +144,34 @@ test('switching to Standard disarms a previously ticked Virtual cards box', asyn
   expect(seedSeatFromDeck).not.toHaveBeenCalled();
 });
 
+test('a partner deck carries both commanders into the game so damage can be tracked per commander', async () => {
+  const card = (cardId: string, name: string) => ({
+    cardId,
+    name,
+    typeLine: 'Legendary Creature',
+    manaCost: '',
+    imageNormal: null,
+    count: 1,
+  });
+  useAppStore.setState({
+    saveProfile: vi.fn(async () => {}),
+    decks: [
+      { id: 'pair', name: 'Pair', commander: card('c1', 'Thrasios'), partner: card('c2', 'Tymna'), colors: ['G', 'U', 'W', 'B'], cards: [], updatedAt: 1 },
+      { id: 'solo', name: 'Solo', commander: card('c3', 'Ashaya'), colors: ['G'], cards: [], updatedAt: 1 },
+    ],
+  });
+  const user = userEvent.setup();
+  render(<NewGameScreen onBack={() => {}} />);
+  await user.click(screen.getByRole('button', { name: 'Nate' }));
+  await user.click(screen.getByRole('button', { name: 'Sam' }));
+  await user.selectOptions(screen.getByLabelText(/deck for Nate/i), 'pair');
+  await user.selectOptions(screen.getByLabelText(/deck for Sam/i), 'solo');
+  await user.click(screen.getByRole('button', { name: /start game/i }));
+  expect(startedWith?.profiles[0]).toMatchObject({ commanderName: 'Thrasios', partnerName: 'Tymna' });
+  expect(startedWith?.profiles[1].commanderName).toBe('Ashaya');
+  expect(startedWith?.profiles[1].partnerName ?? null).toBeNull(); // a solo deck clears any old partner
+});
+
 test('online mode hosts a table instead of starting locally', async () => {
   const hostOnlineGame = vi.fn(async () => null);
   useAppStore.setState({ hostOnlineGame });
