@@ -100,6 +100,12 @@ label {
   z-index: 49;
 }
 
+/* The same shield for a sheet that closes back onto another sheet (the card
+   zoom over a library look): this one covers the sheets as well. */
+.tap-shield--over {
+  z-index: 51;
+}
+
 .modal-actions {
   display: flex;
   gap: 10px;

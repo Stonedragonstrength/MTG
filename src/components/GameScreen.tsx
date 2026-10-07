@@ -4,6 +4,7 @@ import { useAppStore } from '../state/store';
 import HandScreen from './HandScreen';
 import LandBackground from './LandBackground';
 import PlayerZone from './PlayerZone';
+import RevealBanner from './RevealBanner';
 import TablePill from './TablePill';
 import '../styles/zones.css';
 
@@ -62,6 +63,7 @@ export default function GameScreen() {
       <div className={`game-screen players-${n} hand-mode`}>
         <HandScreen seatIdx={phoneSeat} onShowTable={() => setView('table')} />
         {online && <TablePill />}
+        <RevealBanner />
       </div>
     );
   }
@@ -84,6 +86,7 @@ export default function GameScreen() {
           ✋
         </button>
       )}
+      <RevealBanner />
     </div>
   );
 }

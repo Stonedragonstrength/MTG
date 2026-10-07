@@ -45,6 +45,67 @@ const TRACKER_SAVE = {
   turnStartedAt: 123,
 } as unknown as GameState;
 
+describe('reveals', () => {
+  const GOOD = {
+    id: 'r1',
+    seat: 1,
+    from: 'library',
+    cards: [
+      { cardId: 'c1', name: 'Forest' },
+      { cardId: 'c2', name: 'Sol Ring' },
+    ],
+    t: 1_700_000_000_000,
+  };
+  const withReveal = (reveal: unknown) =>
+    ({ ...structuredClone(TRACKER_SAVE), reveal }) as unknown as GameState;
+
+  test('a save from before reveals existed loads untouched: no reveal appears', () => {
+    const save = structuredClone(TRACKER_SAVE);
+    expect(isValidGame(save)).toBe(true);
+    const g = migrateGame(save);
+    expect('reveal' in g).toBe(false); // omitted, never written as undefined or null
+    expect(g.players[0].life).toBe(34);
+    expect(g.turnNumber).toBe(5);
+  });
+
+  test('a well-formed reveal survives validation and migration', () => {
+    const save = withReveal(GOOD);
+    expect(isValidGame(save)).toBe(true);
+    expect(migrateGame(save).reveal).toEqual(GOOD); // every remote state passes here
+  });
+
+  test('a malformed reveal is dropped, and the game around it still loads', () => {
+    const broken: unknown[] = [
+      null,
+      'nope',
+      7,
+      [],
+      {},
+      { ...GOOD, id: 12 },
+      { ...GOOD, seat: '1' },
+      { ...GOOD, seat: -1 },
+      { ...GOOD, seat: 2 }, // nobody sits there
+      { ...GOOD, seat: 0.5 },
+      { ...GOOD, from: 'graveyard' },
+      { ...GOOD, t: 'yesterday' },
+      { ...GOOD, cards: 'Forest' },
+      { ...GOOD, cards: [] }, // a reveal of nothing
+      { ...GOOD, cards: [null] },
+      { ...GOOD, cards: [{ cardId: 'c1' }] },
+      { ...GOOD, cards: [{ cardId: 1, name: 'Forest' }] },
+    ];
+    for (const reveal of broken) {
+      const save = withReveal(reveal);
+      // Nothing checked the field before the feature, so such a save was accepted: it still is.
+      expect(isValidGame(save)).toBe(true);
+      const g = migrateGame(save);
+      expect('reveal' in g).toBe(false);
+      expect(g.players[0].life).toBe(34); // never fatal: only the reveal is lost
+      expect(g.players).toHaveLength(2);
+    }
+  });
+});
+
 describe('cards-mode migration', () => {
   test('an old tracker save loads unchanged: tracker mode, no cards, no feed', () => {
     const g = migrateGame(structuredClone(TRACKER_SAVE));

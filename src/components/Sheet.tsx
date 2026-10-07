@@ -25,10 +25,14 @@ const QUIET_MS = 350;
  *
  * A finger that lands on the shield holds it up for as long as it stays down:
  * useLongPress acts on a bare pointerup, so a shield that lifted mid-press
- * would hand that release to whatever lies beneath. */
-function shieldBoard(): void {
+ * would hand that release to whatever lies beneath.
+ *
+ * Anything else that a tap removes from over the board raises the same shield.
+ * `over` lifts it above the sheets too, for a sheet that closes back onto
+ * another sheet whose buttons have to sit out that moment as well. */
+export function shieldBoard(over = false): void {
   const shield = document.createElement('div');
-  shield.className = 'tap-shield';
+  shield.className = over ? 'tap-shield tap-shield--over' : 'tap-shield';
   const down = new Set<number>();
   let lift: number | undefined;
   const rest = () => {

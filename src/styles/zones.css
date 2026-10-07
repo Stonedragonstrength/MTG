@@ -1104,6 +1104,18 @@ input[type='range'] {
   }
 }
 
+/* A reveal comes up in the middle of the table. */
+.reveal-banner {
+  animation: reveal-in 0.18s ease-out;
+}
+
+@keyframes reveal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .thumb,
   .land-stack,
@@ -1117,6 +1129,7 @@ input[type='range'] {
   .board-item,
   .count-badge,
   .death-slash,
+  .reveal-banner,
   .board-item--dying .thumb--ghost {
     animation: none;
   }
@@ -2949,6 +2962,93 @@ input[type='checkbox'] {
   border: 1px solid #4a4a5e;
 }
 
+/* ---- reveal banner: cards a player shows the whole table ---- */
+.reveal-banner {
+  position: fixed;
+  /* Centred by auto margins, not by left: 50% (that would cap its width at
+     half the screen) and not by a transform (its fade-in animates that). */
+  inset: 0;
+  margin: auto;
+  width: fit-content;
+  height: fit-content;
+  max-width: 94vw;
+  max-height: 88vh;
+  overflow-y: auto;
+  /* Over everything on the board (it tops out at 40), under the tap shield
+     (49) and every sheet's backdrop (50): an open sheet simply covers it. */
+  z-index: 45;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 18px 18px;
+  border-radius: 16px;
+  border: 1px solid var(--accent);
+  background: rgba(23, 23, 28, 0.96);
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.7);
+  text-align: center;
+  cursor: pointer;
+}
+
+.reveal-title { margin: 0; font-size: 1.15rem; }
+.reveal-title strong { color: var(--accent); }
+.reveal-from { margin: 0; font-size: 0.78rem; color: #a8a8b4; }
+
+.reveal-cards {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  /* Up to five across; the counts are set per reveal. A card is as wide as
+     the smaller of what a full row leaves it and what its row's share of the
+     height allows, so any number of cards fits the screen without scrolling
+     (past the 56px floor the banner scrolls instead). */
+  --reveal-w: max(
+    56px,
+    min(
+      var(--reveal-max, 170px),
+      (94vw - 38px - (var(--reveal-cols, 1) - 1) * 10px) / var(--reveal-cols, 1),
+      ((88vh - 100px - (var(--reveal-rows, 1) - 1) * 10px) / var(--reveal-rows, 1)) * 63 / 88
+    )
+  );
+  grid-template-columns: repeat(var(--reveal-cols, 1), var(--reveal-w));
+  justify-content: center;
+  gap: 10px;
+}
+
+.reveal-card {
+  position: relative;
+  aspect-ratio: 63 / 88;
+  border-radius: 4.75% / 3.5%;
+  overflow: hidden;
+  background: #2b2b33;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+}
+
+/* The name sits under the art: it only shows while there is no image. Its
+   size follows the card's, and a name too long for a small card loses its
+   end, not both ends. */
+.reveal-name {
+  max-height: 100%;
+  overflow: hidden;
+  padding: 6%;
+  font-size: clamp(0.5rem, var(--reveal-w) / 9, 0.95rem);
+  line-height: 1.2;
+  opacity: 0.8;
+  overflow-wrap: anywhere;
+}
+
+.reveal-card img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .pile-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 
 .pile-row {
@@ -2967,6 +3067,16 @@ input[type='checkbox'] {
 .library-actions { flex-wrap: wrap; }
 .look-hint { margin: 0; }
 
+/* The look is as tall as its cards need, up to the screen: one row of them
+   fits a tablet lying flat without scrolling, two rows fit one held upright.
+   (Phones keep the full-height sheet they already have.) */
+@media (min-width: 601px) {
+  .sheet--wide:has(.look-list) {
+    height: auto;
+    max-height: 90vh;
+  }
+}
+
 .look-list {
   list-style: none;
   margin: 0;
@@ -2984,9 +3094,13 @@ input[type='checkbox'] {
   gap: 6px;
 }
 
+/* A button (tap to read the card large), wearing none of a button's chrome. */
 .look-face {
   position: relative;
   aspect-ratio: 63 / 88;
+  width: 100%;
+  padding: 0;
+  border: none;
   border-radius: 10px;
   overflow: hidden;
   background: #2b2b33;
@@ -3003,6 +3117,7 @@ input[type='checkbox'] {
   text-align: center;
   font-size: 0.85rem;
   opacity: 0.8;
+  overflow-wrap: anywhere; /* a name can be one very long word */
 }
 
 .look-face img {
@@ -3022,8 +3137,9 @@ input[type='checkbox'] {
   position: absolute;
   top: 6px;
   left: 6px;
+  max-width: calc(100% - 12px);
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: 11px; /* a pill on one line, a rounded label when "Bottom · random" wraps on a phone */
   background: rgba(0, 0, 0, 0.82);
   font-size: 0.72rem;
   font-weight: 700;
@@ -3058,13 +3174,18 @@ input[type='checkbox'] {
   white-space: nowrap;
 }
 
-.look-dests {
+/* The five destinations and the reveal button share one two-column grid.
+   The destinations' own group is there for screen readers only. */
+.look-acts {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 4px;
 }
 
-.look-dest {
+.look-dests { display: contents; }
+
+.look-dest,
+.look-reveal {
   min-height: 36px;
   padding: 4px 2px;
   font-size: 0.7rem;
@@ -3076,6 +3197,65 @@ input[type='checkbox'] {
   border-color: var(--accent);
   color: var(--accent);
   font-weight: 700;
+}
+
+/* The bulk button, switched on. Same weight as off: bold would re-wrap its
+   label in a phone's footer and make the footer jump. */
+.look-rest--on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Headed for the bottom by "Rest to the bottom", not sent there by hand. */
+.look-dest--rest {
+  border-style: dashed;
+  border-color: var(--accent);
+}
+
+/* Not a destination: it shows the card to the table and moves nothing. */
+.look-reveal { color: #a8a8b4; }
+.look-reveal--done { color: var(--accent); }
+
+/* Tap a looked-at card: the whole card, as tall as the screen allows while
+   leaving the first lines of its rules text in view on a tablet lying flat,
+   and never wider than its sheet. The name shows while there is no image. */
+.zoom-card { gap: 10px; }
+.zoom-card p { margin: 0; }
+
+.zoom-face {
+  position: relative;
+  flex: 0 0 auto;
+  width: min(100%, 58vh * 63 / 88);
+  aspect-ratio: 63 / 88;
+  border-radius: 4.75% / 3.5%;
+  overflow: hidden;
+  background: #2b2b33;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+}
+
+.zoom-face::before {
+  content: attr(data-name);
+  padding: 14px;
+  text-align: center;
+  font-size: 1.1rem;
+  opacity: 0.8;
+  overflow-wrap: anywhere; /* a name can be one very long word */
+}
+
+.zoom-face img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.zoom-cost {
+  opacity: 0.7;
+  white-space: nowrap;
 }
 
 /* Phones: one card per line, the card beside its controls. */
@@ -3090,8 +3270,11 @@ input[type='checkbox'] {
   }
 
   .look-face { grid-row: 1 / span 2; }
-  .look-dests { align-self: end; }
-  .look-dest { font-size: 0.76rem; }
+  .look-acts { align-self: end; }
+  .look-dest,
+  .look-reveal { font-size: 0.76rem; }
+  /* Beside Done in a narrow footer: small enough to stay on one line. */
+  .look-rest { padding: 8px 6px; font-size: 0.82rem; }
   .look-move--up::before { content: '\25B2'; }
   .look-move--down::before { content: '\25BC'; }
 }

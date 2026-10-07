@@ -28,6 +28,9 @@
 .sheet-header h2 {
   margin: 0;
   font-size: 1.1rem;
+  /* A card name can be one very long word: it wraps rather than pushing ✕ off the sheet. */
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .sheet-close {
@@ -36,6 +39,7 @@
   font-size: 1rem;
   padding: 8px 12px;
   color: #9a9aa5;
+  flex: 0 0 auto;
 }
 
 .sheet-body {

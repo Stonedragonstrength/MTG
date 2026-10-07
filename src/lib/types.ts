@@ -82,6 +82,16 @@ export interface FeedEntry {
   text: string;
 }
 
+/** Cards a player is showing the whole table. Public by definition, so
+ * unlike a look it names them. The cards themselves do not move. */
+export interface Reveal {
+  id: string; // minted when it is made: each device puts a reveal away by id
+  seat: number;
+  from: 'hand' | 'library';
+  cards: { cardId: string; name: string }[];
+  t: number; // when it was made, by the revealing device's clock
+}
+
 export interface BoardItem {
   id: string;
   cardId: string | null;
@@ -125,6 +135,7 @@ export interface GameState {
   initiativeIdx: number | null;
   turnStartedAt: number;
   feed?: FeedEntry[]; // synced announcement ring, cap 30, deduped by id
+  reveal?: Reveal; // the latest reveal only: the next one replaces it
 }
 
 export interface DeckCard {

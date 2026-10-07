@@ -8,6 +8,7 @@ import {
   commanderTax,
   countLandPlay,
   draw,
+  exileN,
   isCommander,
   keepHand,
   landsPlayed,
@@ -20,6 +21,8 @@ import {
   seedSeat,
   setCardCounter,
   setHandHeld,
+  setReveal,
+  shuffled,
   shuffleLibrary,
   spendMana,
   tapCard,
@@ -27,7 +30,7 @@ import {
 } from './cards';
 import { addCard, changeCardCount, createDeck, setCommander, setPartner } from './deck';
 import { createGame } from './game';
-import type { CardRecord, Deck, GameConfig, GameState } from './types';
+import type { CardRecord, Deck, GameConfig, GameState, Reveal } from './types';
 
 const config: GameConfig = {
   format: 'commander',
@@ -247,6 +250,36 @@ describe('arrangeTop (scry, surveil, look-and-pick)', () => {
       expect('stacked' in act(g).players[0].cards!).toBe(false); // and it never starts one
     }
   });
+
+  test('a looked-at card can be exiled: it leaves the library for the exile pile, in the order given', () => {
+    const g = seeded();
+    const [a, b, c] = top3(g);
+    const untouched = g.players[0].cards!.library.slice(3).map((x) => x.iid);
+    const next = arrangeTop(g, 0, [a, b, c], { top: [b], bottom: [], graveyard: [], hand: [], exile: [c, a] });
+    const seat = next.players[0].cards!;
+    expect(seat.exile.map((x) => x.iid)).toEqual([c, a]);
+    expect(seat.library.map((x) => x.iid)).toEqual([b, ...untouched]);
+    expect(seat.graveyard).toEqual([]);
+    expect(seat.hand).toHaveLength(7); // nothing else moved
+  });
+
+  test('exiled cards count toward the plan: one left out, one never looked at or one sent two ways calls it off', () => {
+    const g = seeded();
+    const [a, b, c] = top3(g);
+    const plan = (top: string[], exile: string[]) => ({ top, bottom: [], graveyard: [], hand: [], exile });
+    expect(arrangeTop(g, 0, [a, b, c], plan([a], [b]))).toBe(g); // c is headed nowhere
+    expect(arrangeTop(g, 0, [a, b], plan([a], [b, c]))).toBe(g); // c was never looked at
+    expect(arrangeTop(g, 0, [a, b], plan([b], [b]))).toBe(g); // b both stays and goes, a is forgotten
+    expect(arrangeTop(g, 0, [a, b], plan([], [a, b]))).not.toBe(g); // both exiled: every card accounted for
+  });
+
+  test('a plan written before exile was a destination still works, and exiles nothing', () => {
+    const g = seeded();
+    const [a, b] = top3(g);
+    const next = arrangeTop(g, 0, [a, b], { top: [b, a], bottom: [], graveyard: [], hand: [] });
+    expect(next.players[0].cards!.library.slice(0, 2).map((x) => x.iid)).toEqual([b, a]);
+    expect(next.players[0].cards!.exile).toEqual([]);
+  });
 });
 
 describe('spendMana', () => {
@@ -373,6 +406,102 @@ describe('draw / mill / bottom', () => {
     expect(lib.at(-2)?.iid).toBe(h1);
     expect(lib.at(-1)?.iid).toBe(h2);
     expect(g2.players[0].cards!.hand).toHaveLength(5);
+  });
+
+  test('exile sends the captured tops to the exile pile and nowhere else', () => {
+    const g = seeded();
+    const [a, b] = g.players[0].cards!.library.slice(0, 2).map((c) => c.iid);
+    const g2 = exileN(g, 0, [a, b]);
+    const seat = g2.players[0].cards!;
+    expect(seat.exile.map((c) => c.iid)).toEqual([a, b]);
+    expect(seat.library).toHaveLength(3);
+    expect(seat.library.some((c) => c.iid === a || c.iid === b)).toBe(false);
+    expect(seat.graveyard).toEqual([]);
+    expect(seat.hand).toHaveLength(7);
+  });
+
+  test('an exile whose card left the library is a no-op, and so is one aimed at a seat with no cards', () => {
+    const g = seeded();
+    const [a, b] = g.players[0].cards!.library.slice(0, 2).map((c) => c.iid);
+    expect(exileN(g, 0, ['nope'])).toBe(g);
+    const drawn = draw(g, 0, [a]);
+    expect(exileN(drawn, 0, [a, b])).toBe(drawn); // one of the two is gone: the whole exile is off
+    expect(exileN(g, 1, [a])).toBe(g); // tracker seat
+  });
+
+  test('exiling from the top leaves the scry mark alone, like a mill', () => {
+    const g = seeded();
+    const [a] = g.players[0].cards!.library.map((c) => c.iid);
+    const marked = arrangeTop(g, 0, [a], { top: [a], bottom: [], graveyard: [], hand: [] }, 'look-1');
+    expect(exileN(marked, 0, [a]).players[0].cards!.stacked).toBe('look-1');
+    expect('stacked' in exileN(g, 0, [a]).players[0].cards!).toBe(false);
+  });
+});
+
+describe('setReveal (cards shown to the whole table)', () => {
+  const reveal = (id: string, over: Partial<Reveal> = {}): Reveal => ({
+    id,
+    seat: 0,
+    from: 'hand',
+    cards: [{ cardId: 'c-sol', name: 'Sol Ring' }],
+    t: 1000,
+    ...over,
+  });
+
+  test('shows the table the cards without moving anything', () => {
+    const g = seeded();
+    const next = setReveal(g, reveal('r1'));
+    expect(next.reveal).toEqual(reveal('r1'));
+    expect(next.players).toBe(g.players); // a reveal only shows: every card stays where it is
+  });
+
+  test('only the latest reveal is kept: the next one replaces it', () => {
+    const once = setReveal(seeded(), reveal('r1'));
+    const twice = setReveal(
+      once,
+      reveal('r2', { from: 'library', cards: [{ cardId: 'c-forest', name: 'Forest' }] }),
+    );
+    expect(twice.reveal).toEqual(
+      reveal('r2', { from: 'library', cards: [{ cardId: 'c-forest', name: 'Forest' }] }),
+    );
+  });
+
+  test('the same reveal landing twice changes nothing', () => {
+    const once = setReveal(seeded(), reveal('r1'));
+    expect(setReveal(once, reveal('r1'))).toBe(once); // a replay is a clean no-op
+  });
+
+  test('a reveal of no cards, or from a seat that holds none, is not a reveal', () => {
+    const g = seeded();
+    expect(setReveal(g, reveal('r1', { cards: [] }))).toBe(g);
+    expect(setReveal(g, reveal('r1', { seat: 1 }))).toBe(g); // tracker seat
+    expect(setReveal(g, reveal('r1', { seat: 7 }))).toBe(g); // nobody sits there
+  });
+});
+
+describe('shuffled', () => {
+  test('keeps every card, follows its seed, and leaves the list it was given alone', () => {
+    const list = ['a', 'b', 'c', 'd', 'e', 'f'];
+    const once = shuffled(list, 11);
+    expect([...once].sort()).toEqual(list);
+    expect(shuffled(list, 11)).toEqual(once); // same seed, same order
+    expect(list).toEqual(['a', 'b', 'c', 'd', 'e', 'f']);
+    const orders = new Set([1, 2, 3, 4, 5, 6, 7, 8].map((seed) => shuffled(list, seed).join('')));
+    expect(orders.size).toBeGreaterThan(1); // different seeds do reorder
+  });
+
+  test('is fair to a few cards: over many seeds every order turns up about as often', () => {
+    // "The rest on the bottom in a random order" is usually two or three cards.
+    const counts: Record<string, number> = {};
+    for (let seed = 1; seed <= 6000; seed++) {
+      const order = shuffled(['a', 'b', 'c'], seed).join('');
+      counts[order] = (counts[order] ?? 0) + 1;
+    }
+    expect(Object.keys(counts)).toHaveLength(6);
+    for (const n of Object.values(counts)) {
+      expect(n).toBeGreaterThan(900); // 1000 each if perfectly even
+      expect(n).toBeLessThan(1100);
+    }
   });
 });
 

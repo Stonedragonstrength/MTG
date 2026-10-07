@@ -164,6 +164,55 @@ test('a narrow viewport opens straight into the hand view', () => {
   useAppStore.setState({ online: null });
 });
 
+/** A two-player cards game in which seat 0 has just revealed a card. */
+function gameWithReveal(id: string) {
+  const game = createGame(config(2));
+  game.players[0] = { ...game.players[0], cards: cardsSeat() };
+  return {
+    ...game,
+    reveal: {
+      id,
+      seat: 0,
+      from: 'hand' as const,
+      cards: [{ cardId: 'c9', name: 'Lightning Bolt' }],
+      t: Date.now(),
+    },
+  };
+}
+
+test('a reveal is shown over the table view, on the revealing device too', async () => {
+  useAppStore.setState({ game: gameWithReveal('gs-table') });
+  const { container } = render(<GameScreen />);
+  const banner = await screen.findByRole('status');
+  expect(banner).toHaveTextContent(/Player 0\s*reveals/);
+  expect(banner).toHaveTextContent('Lightning Bolt');
+  expect(banner.parentElement).toBe(container.querySelector('.game-screen')); // outside every rotated zone
+});
+
+test('a reveal is shown over the phone hand view as well', async () => {
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn(() => ({
+      matches: true,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })),
+  );
+  useAppStore.setState({
+    game: gameWithReveal('gs-hand'),
+    online: { code: 'KQ7M2X', status: { kind: 'live', peers: 2 }, mySeat: 0 },
+    setHandHeld: vi.fn(),
+  });
+  const { container } = render(<GameScreen />);
+  expect(screen.getByRole('button', { name: /see table/i })).toBeInTheDocument(); // the hand view
+  const banner = await screen.findByRole('status');
+  expect(banner).toHaveTextContent(/Player 0\s*reveals/);
+  expect(banner.parentElement).toBe(container.querySelector('.game-screen.hand-mode'));
+  vi.unstubAllGlobals();
+  const { act } = await import('@testing-library/react');
+  act(() => useAppStore.setState({ online: null }));
+});
+
 test('tracker-only tables never offer the hand view', () => {
   useAppStore.setState({
     online: { code: 'KQ7M2X', status: { kind: 'live', peers: 2 }, mySeat: 0 },

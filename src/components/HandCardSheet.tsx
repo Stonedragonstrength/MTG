@@ -18,6 +18,9 @@ interface Props {
 /** Hold on a hand card: everything that isn't playing it. */
 export default function HandCardSheet({ playerIdx, iid, why = null, onClose }: Props) {
   const game = useAppStore((s) => s.game);
+  // A build behind the table cannot write, so its reveal could not announce itself.
+  const stale = useAppStore((s) => s.online?.status.kind === 'stale-build');
+  const revealCards = useAppStore((s) => s.revealCards);
   const moveVirtualCard = useAppStore((s) => s.moveVirtualCard);
   const playCard = useAppStore((s) => s.playCard);
   const [askX, setAskX] = useState(false);
@@ -94,6 +97,16 @@ export default function HandCardSheet({ playerIdx, iid, why = null, onClose }: P
           }}
         >
           Bottom
+        </button>
+        <button
+          className="chip"
+          disabled={stale}
+          onClick={() => {
+            revealCards(playerIdx, [iid], 'hand'); // shown to the table by name; it stays in hand
+            onClose(); // out of the way: the table's banner sits under this sheet
+          }}
+        >
+          Reveal
         </button>
       </div>
     </Sheet>

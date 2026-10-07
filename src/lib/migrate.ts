@@ -1,4 +1,4 @@
-import type { CardInstance, FeedEntry, GameState, SeatCards } from './types';
+import type { CardInstance, FeedEntry, GameState, Reveal, SeatCards } from './types';
 
 function validInstance(c: unknown): c is CardInstance {
   const i = c as CardInstance | null;
@@ -29,6 +29,26 @@ function validFeed(v: unknown): boolean {
       (e: FeedEntry) =>
         !!e && typeof e.id === 'string' && typeof e.t === 'number' && typeof e.text === 'string',
     )
+  );
+}
+
+/** A reveal is a passing notice, so it is not part of what makes a game
+ * valid: a broken one is dropped by migrateGame instead of failing a save
+ * that loaded fine before reveals existed. */
+function validReveal(v: unknown, seats: number): v is Reveal {
+  const r = v as Reveal | null;
+  return (
+    !!r &&
+    typeof r === 'object' &&
+    typeof r.id === 'string' &&
+    Number.isInteger(r.seat) &&
+    r.seat >= 0 &&
+    r.seat < seats &&
+    (r.from === 'hand' || r.from === 'library') &&
+    typeof r.t === 'number' &&
+    Array.isArray(r.cards) &&
+    r.cards.length > 0 &&
+    r.cards.every((c) => !!c && typeof c.cardId === 'string' && typeof c.name === 'string')
   );
 }
 
@@ -66,8 +86,11 @@ export function isValidGame(v: unknown): v is GameState {
 
 /** Fill in fields added after a save was written (or sent by an older build). */
 export function migrateGame(saved: GameState): GameState {
+  const { reveal, ...rest } = saved;
   return {
-    ...saved,
+    ...rest,
+    // Kept only when well-formed; otherwise the key is gone, not nulled.
+    ...(validReveal(reveal, saved.players.length) ? { reveal } : {}),
     monarchIdx: saved.monarchIdx ?? null,
     initiativeIdx: saved.initiativeIdx ?? null,
     turnStartedAt: saved.turnStartedAt ?? Date.now(),

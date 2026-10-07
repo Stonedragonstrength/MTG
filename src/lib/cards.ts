@@ -4,6 +4,7 @@ import type {
   Deck,
   FeedEntry,
   GameState,
+  Reveal,
   SeatCards,
 } from './types';
 
@@ -31,7 +32,8 @@ export function mulberry32(seed: number): () => number {
   };
 }
 
-function shuffled<T>(arr: T[], seed: number): T[] {
+/** A new list in a random order that depends only on the seed. */
+export function shuffled<T>(arr: T[], seed: number): T[] {
   const rand = mulberry32(seed);
   const out = [...arr];
   for (let i = out.length - 1; i > 0; i--) {
@@ -141,6 +143,15 @@ export function millN(g: GameState, seat: number, iids: string[]): GameState {
   });
 }
 
+/** "Exile the top N": a mill that lands in exile. */
+export function exileN(g: GameState, seat: number, iids: string[]): GameState {
+  return updateSeat(g, seat, (cards) => {
+    const t = takeFrom(cards.library, iids);
+    if (!t) return null;
+    return { ...cards, library: t.rest, exile: [...cards.exile, ...t.taken.map(stripped)] };
+  });
+}
+
 export function bottomCards(g: GameState, seat: number, iids: string[]): GameState {
   return updateSeat(g, seat, (cards) => {
     const t = takeFrom(cards.hand, iids);
@@ -156,6 +167,8 @@ export interface TopPlan {
   bottom: string[];
   graveyard: string[];
   hand: string[];
+  /** Left out when nothing is exiled, and by plans older than the option. */
+  exile?: string[];
 }
 
 /** Scry, surveil, "look at the top N and put one in your hand": the cards
@@ -172,7 +185,8 @@ export function arrangeTop(
   mark?: string,
 ): GameState {
   return updateSeat(g, seat, (cards) => {
-    const planned = [...plan.top, ...plan.bottom, ...plan.graveyard, ...plan.hand];
+    const exiled = plan.exile ?? [];
+    const planned = [...plan.top, ...plan.bottom, ...plan.graveyard, ...plan.hand, ...exiled];
     if (
       planned.length !== looked.length ||
       new Set(planned).size !== planned.length ||
@@ -190,6 +204,7 @@ export function arrangeTop(
       library: [...pick(plan.top), ...t.rest, ...pick(plan.bottom)],
       graveyard: [...cards.graveyard, ...pick(plan.graveyard)],
       hand: [...cards.hand, ...pick(plan.hand)],
+      exile: [...cards.exile, ...pick(exiled)],
       ...(mark ? { stacked: mark } : {}),
     };
   });
@@ -409,4 +424,18 @@ export function appendFeed(g: GameState, entry: FeedEntry): GameState {
   const feed = g.feed ?? [];
   if (feed.some((e) => e.id === entry.id)) return g;
   return { ...g, feed: [...feed, entry].slice(-30) };
+}
+
+/** How long a reveal is news. Past it no device shows the reveal (so a
+ * reload or a saved game picked up later never brings an old one back),
+ * and one still waiting to reach the table is dropped, not replayed. */
+export const REVEAL_FRESH_MS = 2 * 60_000;
+
+/** Shows cards to the whole table. Nothing moves; only the latest reveal
+ * is kept, so the next one replaces this. The same reveal landing again
+ * (a replay) changes nothing — each device puts a reveal away by its id. */
+export function setReveal(g: GameState, reveal: Reveal): GameState {
+  if (!g.players[reveal.seat]?.cards || reveal.cards.length === 0) return g;
+  if (g.reveal?.id === reveal.id) return g;
+  return { ...g, reveal };
 }

@@ -1256,6 +1256,229 @@ describe('cards mode', () => {
     expect(drew.guard(table, drew.orig)).toBe(false);
   });
 
+  test('exiling from the top moves exactly those cards and is announced by count', async () => {
+    const store = await cardsStore();
+    const [x, y, z] = libraryOf(store.getState().game!);
+    store.getState().exileCards(0, 2);
+    const seat = store.getState().game!.players[0].cards!;
+    expect(seat.exile.map((c) => c.iid)).toEqual([x, y]);
+    expect(seat.library[0].iid).toBe(z);
+    expect(seat.graveyard).toEqual([]);
+    expect(store.getState().game!.feed!.map((e) => e.text)).toContain('A exiles the top 2');
+  });
+
+  test('asking to exile more than the library holds exiles what is there', async () => {
+    const store = await cardsStore();
+    const held = libraryOf(store.getState().game!); // ten cards, seven in hand: three left
+    expect(held).toHaveLength(3);
+    store.getState().exileCards(0, 9);
+    const seat = store.getState().game!.players[0].cards!;
+    expect(seat.exile.map((c) => c.iid)).toEqual(held);
+    expect(seat.library).toEqual([]);
+    expect(store.getState().game!.feed!.map((e) => e.text)).toContain('A exiles the top 3');
+    const emptied = store.getState().game;
+    store.getState().exileCards(0, 1); // nothing left: nothing happens, nothing is announced
+    expect(store.getState().game).toBe(emptied);
+  });
+
+  test('an exile from the top made before a scry was heard of is skipped, like a mill', async () => {
+    const store = await cardsStore(); // this device still shows x on top
+    const unheard = store.getState().game!;
+    const [x] = libraryOf(unheard);
+    const scryer = deviceAt(unheard);
+    scryer.getState().arrangeTop(0, [x], { top: [], bottom: [x], graveyard: [], hand: [] });
+    const table = scryer.getState().game!;
+
+    store.getState().exileCards(0, 1); // aimed at x
+    const { guard, orig } = lastSynced();
+    expect(guard(orig, orig)).toBe(true); // nothing arranged since: it stands
+    expect(guard(table, orig)).toBe(false); // the scry got there first: x is not dug back out
+  });
+
+  test('an exile that raced a shuffle still takes the card it was aimed at', async () => {
+    const store = await cardsStore();
+    const [x, y, z] = libraryOf(store.getState().game!);
+    store.getState().exileCards(0, 1); // x, off a library nobody has arranged
+    const { guard, orig, op } = lastSynced();
+    const shuffledFirst = withLibrary(orig, [z, y, x]);
+    expect(guard(shuffledFirst, orig)).toBe(true); // "exiled first" stands
+    expect(op(shuffledFirst).players[0].cards!.exile.map((c) => c.iid)).toEqual([x]);
+    expect(guard(withLibrary(orig, [z, y]), orig)).toBe(false); // x itself is gone: off
+  });
+
+  test('a look that exiles says how many were exiled, never which', async () => {
+    const store = await cardsStore();
+    const [a, b, c] = libraryOf(store.getState().game!);
+    store
+      .getState()
+      .arrangeTop(0, [a, b, c], { top: [a], bottom: [], graveyard: [], hand: [], exile: [c, b] });
+    const seat = store.getState().game!.players[0].cards!;
+    expect(seat.exile.map((x) => x.iid)).toEqual([c, b]);
+    expect(seat.library[0].iid).toBe(a);
+    const feed = store.getState().game!.feed!.map((e) => e.text);
+    expect(feed).toContain('A puts 1 back on top, 2 exiled');
+    expect(feed.join(' ')).not.toMatch(/Forest|Ashaya/); // still no card names
+  });
+
+  test('a look that sends its only card to exile is still a move the table hears about', async () => {
+    const store = await cardsStore();
+    const [a] = libraryOf(store.getState().game!);
+    store.getState().arrangeTop(0, [a], { top: [], bottom: [], graveyard: [], hand: [], exile: [a] });
+    expect(store.getState().game!.players[0].cards!.exile.map((x) => x.iid)).toEqual([a]);
+    expect(store.getState().game!.feed!.map((e) => e.text)).toContain('A puts 1 exiled');
+  });
+
+  /** Seat 0 holding a Lightning Bolt, with Sol Ring then Llanowar Elves on top of its library. */
+  async function knownCards() {
+    const store = await cardsStore();
+    const g = store.getState().game!;
+    store.setState({
+      game: {
+        ...g,
+        players: g.players.map((p, i) =>
+          i === 0
+            ? {
+                ...p,
+                cards: {
+                  ...p.cards!,
+                  hand: [{ iid: 'h-bolt', cardId: 'c-bolt', name: 'Lightning Bolt' }, ...p.cards!.hand],
+                  library: [
+                    { iid: 'l-sol', cardId: 'c-sol', name: 'Sol Ring' },
+                    { iid: 'l-elf', cardId: 'c-elf', name: 'Llanowar Elves' },
+                    ...p.cards!.library,
+                  ],
+                },
+              }
+            : p,
+        ),
+      },
+    });
+    return store;
+  }
+
+  test('a reveal names the card to the whole table and leaves it where it is', async () => {
+    const store = await knownCards();
+    const before = store.getState().game!.players[0].cards!;
+    store.getState().revealCards(0, ['h-bolt'], 'hand');
+    const g = store.getState().game!;
+    expect(g.reveal).toMatchObject({
+      seat: 0,
+      from: 'hand',
+      cards: [{ cardId: 'c-bolt', name: 'Lightning Bolt' }],
+    });
+    expect(g.reveal!.id).toMatch(/\S/);
+    expect(Math.abs(Date.now() - g.reveal!.t)).toBeLessThan(5000); // stamped when it was made
+    expect(g.players[0].cards).toBe(before); // nothing moved
+    // Unlike a look, a reveal is public: the line names the card.
+    expect(g.feed!.map((e) => e.text)).toContain('A reveals Lightning Bolt from their hand');
+    expect(store.getState().log.map((l) => l.text)).toContain('A reveals Lightning Bolt from their hand');
+  });
+
+  test('a second reveal replaces the first on the table, and the feed keeps both', async () => {
+    const store = await knownCards();
+    store.getState().revealCards(0, ['h-bolt'], 'hand');
+    const first = store.getState().game!.reveal!;
+    store.getState().revealCards(0, ['l-sol', 'l-elf'], 'library');
+    const g = store.getState().game!;
+    expect(g.reveal!.id).not.toBe(first.id);
+    expect(g.reveal).toMatchObject({
+      seat: 0,
+      from: 'library',
+      cards: [
+        { cardId: 'c-sol', name: 'Sol Ring' },
+        { cardId: 'c-elf', name: 'Llanowar Elves' },
+      ],
+    });
+    const feed = g.feed!.map((e) => e.text);
+    expect(feed).toContain('A reveals Lightning Bolt from their hand');
+    expect(feed).toContain('A reveals Sol Ring, Llanowar Elves from the top of their library');
+    expect(libraryOf(g).slice(0, 2)).toEqual(['l-sol', 'l-elf']); // revealed, not moved
+  });
+
+  test('only cards that are really there can be revealed', async () => {
+    const store = await knownCards();
+    const before = store.getState().game;
+    store.getState().revealCards(0, ['nope'], 'hand');
+    store.getState().revealCards(0, ['h-bolt'], 'library'); // it is in the hand, not the library
+    store.getState().revealCards(0, ['h-bolt', 'nope'], 'hand'); // one of the two is not there
+    store.getState().revealCards(0, [], 'hand');
+    store.getState().revealCards(1, ['h-bolt'], 'hand'); // a seat without cards
+    expect(store.getState().game).toBe(before);
+  });
+
+  test('a build behind the table cannot reveal: the reveal could not announce itself', async () => {
+    const store = await knownCards();
+    store.setState({ online: { code: 'KQ7M2X', status: { kind: 'stale-build' }, mySeat: 0 } });
+    const before = store.getState().game;
+    store.getState().revealCards(0, ['h-bolt'], 'hand');
+    expect(store.getState().game).toBe(before);
+  });
+
+  test('undoing a reveal takes it back off the table', async () => {
+    const store = await knownCards();
+    store.getState().revealCards(0, ['h-bolt'], 'hand');
+    expect(store.getState().game!.reveal).toBeDefined();
+    store.getState().undo();
+    expect(store.getState().game!.reveal).toBeUndefined();
+  });
+
+  test('a reveal from the hand is replayed only while the card is still in that hand', async () => {
+    const { moveCard } = await import('../lib/cards');
+    const store = await knownCards();
+    store.getState().revealCards(0, ['h-bolt'], 'hand');
+    const id = store.getState().game!.reveal!.id;
+    const { guard, orig, op } = lastSynced();
+    expect(guard(orig, orig)).toBe(true);
+    // A life total changed meanwhile: the reveal still makes sense, and it is the SAME reveal.
+    const moved = { ...orig, players: orig.players.map((p, i) => (i === 1 ? { ...p, life: 31 } : p)) };
+    expect(guard(moved, orig)).toBe(true);
+    expect(op(moved).reveal!.id).toBe(id); // minted when it was made: no device shows it twice
+    // The card was discarded from another device first: there is nothing in hand to show.
+    const discarded = moveCard(orig, 0, 'h-bolt', 'hand', 'graveyard');
+    expect(guard(discarded, orig)).toBe(false);
+    expect(op(discarded)).toBe(discarded); // the op itself declines too
+  });
+
+  test('a reveal from the top of the library is replayed only while those cards are still its top', async () => {
+    const store = await knownCards();
+    const rest = libraryOf(store.getState().game!).slice(2);
+    store.getState().revealCards(0, ['l-sol', 'l-elf'], 'library');
+    const { guard, orig, op } = lastSynced();
+    expect(guard(orig, orig)).toBe(true);
+    expect(guard(withLibrary(orig, ['l-elf', 'l-sol', ...rest]), orig)).toBe(true); // the top two, in any order
+    const buried = withLibrary(orig, [rest[0], 'l-sol', 'l-elf', ...rest.slice(1)]);
+    expect(guard(buried, orig)).toBe(false); // a shuffle got there first: "the top" would be a lie
+    expect(op(buried)).toBe(buried);
+    expect(guard(withLibrary(orig, ['l-elf', ...rest]), orig)).toBe(false); // one of them was drawn meanwhile
+  });
+
+  test('a reveal that could not reach the table for two minutes is dropped: by then it is not news', async () => {
+    const { REVEAL_FRESH_MS } = await import('../lib/cards');
+    const lastMaxAge = () =>
+      ((tableSync.onLocalMutation as ReturnType<typeof vi.fn>).mock.lastCall![2] as { maxAgeMs: number })
+        .maxAgeMs;
+    const store = await knownCards();
+    store.getState().revealCards(0, ['h-bolt'], 'hand');
+    // No device would show it after that long, and replayed late it would
+    // only push a newer reveal off the table.
+    expect(lastMaxAge()).toBe(REVEAL_FRESH_MS);
+    expect(REVEAL_FRESH_MS).toBe(2 * 60_000);
+    store.getState().exileCards(0, 1); // cards that MOVED keep the long life of a draw or a mill
+    expect(lastMaxAge()).toBe(24 * 3600_000);
+  });
+
+  test('one card revealed from deeper in a look is held to the block it was seen in', async () => {
+    const store = await knownCards();
+    const rest = libraryOf(store.getState().game!).slice(2);
+    store.getState().revealCards(0, ['l-elf'], 'library'); // the second card down
+    expect(store.getState().game!.reveal!.cards).toEqual([{ cardId: 'c-elf', name: 'Llanowar Elves' }]);
+    const { guard, orig } = lastSynced();
+    expect(guard(orig, orig)).toBe(true);
+    expect(guard(withLibrary(orig, ['l-elf', 'l-sol', ...rest]), orig)).toBe(true); // still within the top two
+    const sunk = withLibrary(orig, ['l-sol', rest[0], 'l-elf', ...rest.slice(1)]);
+    expect(guard(sunk, orig)).toBe(false); // it sits below what was looked at now
+  });
+
   test('remote feed entries merge into the local log exactly once', async () => {
     const store = createAppStore();
     await store.getState().init();

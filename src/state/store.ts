@@ -67,6 +67,7 @@ export interface AppStore {
     opts?: { pos?: 'top' | 'bottom'; row?: 'front' | 'lands' },
   ): void;
   millCards(seat: number, n: number): void;
+  exileCards(seat: number, n: number): void;
   lookNotice(seat: number, n: number): void;
   arrangeTop(seat: number, looked: string[], plan: cardsLib.TopPlan): void;
   shuffleSeat(seat: number): void;
@@ -76,6 +77,8 @@ export interface AppStore {
   commanderDiedAction(seat: number, iid: string): void;
   commanderReturned(seat: number, iid: string, from: 'graveyard' | 'exile'): void;
   peekNotice(seat: number): void;
+  /** Shows cards to the whole table, by name. They stay where they are. */
+  revealCards(seat: number, iids: string[], from: 'hand' | 'library'): void;
   setHandHeld(seat: number, held: boolean): void;
   undo(): void;
   canUndo(): boolean;
@@ -594,6 +597,18 @@ export function createAppStore() {
         );
       },
 
+      exileCards(seat, n) {
+        const g = get().game;
+        const lib = g?.players[seat]?.cards?.library;
+        if (!g || !lib || lib.length === 0) return;
+        const iids = lib.slice(0, Math.min(n, lib.length)).map((c) => c.iid);
+        cardMutate(
+          (base) => cardsLib.exileN(base, seat, iids),
+          `${seatName(g, seat)} exiles the top ${iids.length}`,
+          takeGuard(seat, iids, knownMarks(g.players[seat]?.cards?.stacked)),
+        );
+      },
+
       lookNotice(seat, n) {
         const g = get().game;
         if (!g) return;
@@ -614,6 +629,7 @@ export function createAppStore() {
           plan.bottom.length > 0 && `${plan.bottom.length} on the bottom`,
           plan.graveyard.length > 0 && `${plan.graveyard.length} in the graveyard`,
           plan.hand.length > 0 && `${plan.hand.length} in hand`,
+          !!plan.exile?.length && `${plan.exile.length} exiled`,
         ].filter(Boolean);
         if (parts.length === 0) return;
         const mark = cardsLib.newIid(); // minted at act time: a replay leaves the same mark
@@ -742,6 +758,41 @@ export function createAppStore() {
         cardMutate(
           (base) => ({ ...base }), // feed-only op: the entry is the payload
           `${actor} looked at ${seatName(g, seat)}'s hand`,
+        );
+      },
+
+      revealCards(seat, iids, from) {
+        const g = get().game;
+        const zone = g?.players[seat]?.cards?.[from];
+        if (!g || !zone || iids.length === 0) return;
+        const shown = iids.flatMap((iid) => zone.find((c) => c.iid === iid) ?? []);
+        if (shown.length !== iids.length) return; // only what is really there can be shown
+        // "The top of the library" is a block that starts at its top card:
+        // this many cards down is as deep as the revealed ones sat.
+        const depth = Math.max(...shown.map((c) => zone.indexOf(c))) + 1;
+        const stillThere = (base: GameState) => {
+          const cards = base.players[seat]?.cards;
+          if (!cards) return false;
+          const where = from === 'hand' ? cards.hand : cards.library.slice(0, depth);
+          return iids.every((i) => where.some((c) => c.iid === i));
+        };
+        const reveal = {
+          id: `r${cardsLib.newIid()}`, // minted at act time: a replay is the same reveal
+          seat,
+          from,
+          cards: shown.map((c) => ({ cardId: c.cardId, name: c.name })),
+          t: Date.now(),
+        };
+        // A reveal is public by definition: unlike a look, the line names the cards.
+        // Nothing moved, so one that cannot reach the table while it is still
+        // news is dropped: replayed late it would only push a newer reveal off.
+        cardMutate(
+          (base) => (stillThere(base) ? cardsLib.setReveal(base, reveal) : base),
+          `${seatName(g, seat)} reveals ${shown.map((c) => c.name).join(', ')} from ${
+            from === 'hand' ? 'their hand' : 'the top of their library'
+          }`,
+          stillThere,
+          cardsLib.REVEAL_FRESH_MS,
         );
       },
 
