@@ -8,9 +8,12 @@ import type { CardRecord } from '../lib/types';
 const cache = new Map<string, CardRecord | null>();
 
 /** Batch id→record resolution with the printing-drift chain:
- * getCardById → findCardByName → null. */
+ * getCardById → findCardByName → null. A card whose read failed has no
+ * entry at all; a caller that cannot go on without an answer (a combat
+ * waiting to be applied) asks again by raising `retry`. */
 export function useCardRecords(
   instances: { cardId: string; name: string }[],
+  retry = 0,
 ): Record<string, CardRecord | null> {
   const [, bump] = useState(0);
   const key = instances.map((i) => i.cardId).join(',');
@@ -43,7 +46,7 @@ export function useCardRecords(
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, retry]);
 
   const out: Record<string, CardRecord | null> = {};
   for (const i of instances) {

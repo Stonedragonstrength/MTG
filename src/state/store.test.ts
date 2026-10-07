@@ -1960,6 +1960,42 @@ describe('cards mode', () => {
     await tablet.getState().confirmAttackers();
     expect(cancel.guard(tablet.getState().game!, cancel.orig)).toBe(false);
   });
+
+  test('several picks made by one press ("All attack") are one move: one Undo takes them all back', async () => {
+    const store = await fightStore(3);
+    store.getState().startCombat();
+    store.getState().setAttacker(unitCard('angel'), 2, 1);
+    const picked = store.getState().game;
+    store.getState().setAttackers([
+      { unit: unitCard('bear'), target: 1, n: 1 },
+      { unit: unitCard('elves'), target: 1, n: 1 },
+      { unit: unitStack('soldiers'), target: 1, n: 3 },
+    ]);
+    expect((await liveOf(store))!.attacks).toEqual([
+      { unit: unitCard('angel'), target: 2 },
+      { unit: unitCard('bear'), target: 1 },
+      { unit: unitCard('elves'), target: 1 },
+      { unit: unitStack('soldiers'), n: 3, target: 1 },
+    ]);
+    expect(store.getState().game!.feed ?? []).toEqual([]); // picks are silent
+    const { op, guard, orig } = lastSynced();
+    expect(orig).toBe(picked);
+    expect(guard(orig, orig)).toBe(true);
+    // replayed onto a table where another device took the angel back meanwhile: the picks still land
+    const other = deviceAt(orig);
+    other.getState().setAttacker(unitCard('angel'), 2, 0);
+    expect(guard(other.getState().game!, orig)).toBe(true);
+    expect((await import('../lib/combat')).liveCombat(op(other.getState().game!))!.attacks).toHaveLength(3);
+    // …but not once the attack was confirmed
+    await other.getState().confirmAttackers();
+    expect(guard(other.getState().game!, orig)).toBe(false);
+    store.getState().undo();
+    expect(store.getState().game).toBe(picked);
+    // nothing to do is not a move
+    store.getState().setAttackers([]);
+    store.getState().setAttackers([{ unit: unitCard('angel'), target: 2, n: 1 }]); // already so
+    expect(store.getState().game).toBe(picked);
+  });
 });
 
 describe('garage', () => {

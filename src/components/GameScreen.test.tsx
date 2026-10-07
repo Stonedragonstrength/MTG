@@ -444,3 +444,230 @@ test('player names render in their zones', () => {
   const names = [...container.querySelectorAll('.zone-name')].map((el) => el.textContent);
   expect(names).toEqual(['Player 0', 'Player 1', 'Player 2', 'Player 3']);
 });
+
+describe('combat on the cards', () => {
+  afterEach(() => {
+    cleanup();
+    document.querySelectorAll('.tap-shield').forEach((el) => el.remove());
+  });
+
+  const knight = (seat: number) => ({
+    id: `knight-${seat}`,
+    cardId: null,
+    name: 'Knight',
+    imageNormal: null,
+    imageArtCrop: null,
+    typeLine: 'Token Creature — Knight',
+    oracleText: '',
+    basePower: 2,
+    baseToughness: 2,
+    count: 2,
+    counters: {},
+    color: null,
+    zone: 'board' as const,
+  });
+  const stack = (seat: number) => ({ kind: 'stack' as const, id: `knight-${seat}` });
+  const store = () => useAppStore.getState();
+  const focused = (container: HTMLElement) =>
+    [...container.querySelectorAll('.zone--focused')].map((zone) => /seat-\d/.exec(zone.className)![0]);
+  const shields = () => document.querySelectorAll('.tap-shield').length;
+
+  /** Every seat has two knights on the tablet; `hands` gives the first two seats cards to hold. */
+  function fightTable(seats: number, hands = false) {
+    const game = createGame(config(seats));
+    useAppStore.setState({
+      game: {
+        ...game,
+        players: game.players.map((p, i) => ({
+          ...p,
+          board: [knight(i)],
+          ...(hands && i < 2
+            ? {
+                cards: {
+                  ...cardsSeat(),
+                  hand: [
+                    { iid: `h${i}a`, cardId: 'c1', name: 'Forest' },
+                    { iid: `h${i}b`, cardId: 'c2', name: 'Island' },
+                  ],
+                },
+              }
+            : {}),
+        })),
+      },
+    });
+  }
+  /** Seat 0 attacks seats 1 and 2 with one knight each, and confirms. */
+  async function declare() {
+    await act(async () => {
+      store().startCombat();
+      store().setAttacker(stack(0), 1, 1);
+      store().setAttacker(stack(0), 2, 1);
+      await store().confirmAttackers();
+    });
+  }
+
+  test('while a defender chooses blockers THEIR zone is the big board, each in turn; then it goes back to the attacker', async () => {
+    fightTable(4);
+    const { container } = render(<GameScreen />);
+    expect(focused(container)).toEqual(['seat-0']);
+    act(() => store().startCombat());
+    expect(focused(container)).toEqual(['seat-0']); // picking attackers: still the attacker's board
+    await declare();
+    expect(focused(container)).toEqual(['seat-1']);
+    act(() => store().finishBlocks(1));
+    expect(focused(container)).toEqual(['seat-2']);
+    act(() => store().finishBlocks(2));
+    expect(focused(container)).toEqual(['seat-0']); // the damage is the attacker's
+    act(() => store().cancelCombat());
+    expect(focused(container)).toEqual(['seat-0']);
+  });
+
+  test('the blocking board has a look of its own; the "your turn" pulse stays on the active player’s bar', async () => {
+    fightTable(4);
+    const { container } = render(<GameScreen />);
+    await declare();
+    const defender = container.querySelector('.zone.seat-1')!;
+    const attacker = container.querySelector('.zone.seat-0')!;
+    expect(defender.className).toContain('zone--blocking');
+    expect(defender.className).not.toContain('zone--active');
+    expect(attacker.className).toContain('zone--active');
+    expect(attacker.className).not.toContain('zone--blocking');
+    act(() => store().finishBlocks(1));
+    expect(defender.className).not.toContain('zone--blocking');
+    act(() => store().finishBlocks(2));
+    expect(container.querySelector('.zone--blocking')).toBeNull(); // nobody blocks at damage
+  });
+
+  test('the hub does not follow the big board to a defender: it sits compact in the attacker’s bar', async () => {
+    fightTable(4);
+    const { container } = render(<GameScreen />);
+    await declare();
+    const attacker = container.querySelector('.zone.seat-0')!;
+    expect(attacker.className).toContain('zone--hub');
+    expect(attacker.querySelector('.center-hub')!.className).toContain('center-hub--compact');
+    expect(container.querySelector('.zone.seat-1 .center-hub')).toBeNull();
+    expect(container.querySelectorAll('.center-hub')).toHaveLength(1);
+    act(() => store().finishBlocks(1));
+    act(() => store().finishBlocks(2));
+    expect(attacker.className).not.toContain('zone--hub'); // its own board again: the ordinary hub
+    expect(attacker.querySelector('.center-hub')!.className).not.toContain('center-hub--compact');
+  });
+
+  test('the combat bar rides in the zone of the seat whose move it is, between the header and the cards', async () => {
+    fightTable(4);
+    const { container } = render(<GameScreen />);
+    expect(container.querySelector('.combat-bar')).toBeNull();
+    act(() => store().startCombat());
+    const bars = () => [...container.querySelectorAll('.combat-bar')];
+    expect(bars()).toHaveLength(1);
+    expect(bars()[0].parentElement).toBe(container.querySelector('.zone.seat-0'));
+    expect(bars()[0].previousElementSibling!.className).toContain('zone-header');
+    expect(container.querySelector('.zone.seat-0')!.className).toContain('zone--combat');
+    await act(async () => {
+      store().setAttacker(stack(0), 1, 1);
+      await store().confirmAttackers();
+    });
+    expect(bars()).toHaveLength(1);
+    expect(bars()[0].parentElement).toBe(container.querySelector('.zone.seat-1'));
+    expect(container.querySelector('.zone.seat-0')!.className).not.toContain('zone--combat');
+  });
+
+  test('every attacked seat’s header wears "⚔ n" from the first pick until the fight ends', async () => {
+    fightTable(4);
+    const { container } = render(<GameScreen />);
+    const chip = (seat: number) => container.querySelector(`.zone.seat-${seat} .chip-attack`)?.textContent ?? null;
+    act(() => store().startCombat());
+    expect([0, 1, 2, 3].map(chip)).toEqual([null, null, null, null]);
+    act(() => store().setAttacker(stack(0), 1, 2));
+    expect([0, 1, 2, 3].map(chip)).toEqual([null, '⚔ 2', null, null]);
+    act(() => store().setAttacker(stack(0), 1, 1));
+    act(() => store().setAttacker(stack(0), 3, 1));
+    expect([0, 1, 2, 3].map(chip)).toEqual([null, '⚔ 1', null, '⚔ 1']);
+    await act(async () => {
+      await store().confirmAttackers();
+    });
+    expect([0, 1, 2, 3].map(chip)).toEqual([null, '⚔ 1', null, '⚔ 1']); // still there while they block
+    act(() => store().cancelCombat());
+    expect([0, 1, 2, 3].map(chip)).toEqual([null, null, null, null]);
+  });
+
+  test('hand trays fold whenever the big board changes seat, not only when the turn moves', async () => {
+    fightTable(2, true);
+    const user = userEvent.setup();
+    const { container } = render(<GameScreen />);
+    const fans = () => container.querySelectorAll('.hand-fan').length;
+    for (const pill of screen.getAllByRole('button', { name: 'hand, 2 cards' })) await user.click(pill);
+    expect(fans()).toBe(2); // both hands lie open
+    act(() => store().startCombat());
+    expect(fans()).toBe(2); // the board has not moved
+    await act(async () => {
+      store().setAttacker(stack(0), 1, 1);
+      await store().confirmAttackers();
+    });
+    expect(focused(container)).toEqual(['seat-1']);
+    expect(fans()).toBe(0); // the table turned to the defender: every tray folded
+    await user.click(container.querySelector<HTMLElement>('.zone.seat-1 .hand-pill')!);
+    expect(fans()).toBe(1);
+    act(() => store().finishBlocks(1));
+    expect(focused(container)).toEqual(['seat-0']);
+    expect(fans()).toBe(0); // and again when it turned back
+    expect(store().game!.activePlayerIndex).toBe(0); // all within one turn
+  });
+
+  test('the stray-tap shield goes up whenever the fight’s step or acting seat changes or the fight ends — not on a pick', async () => {
+    fightTable(4);
+    render(<GameScreen />);
+    expect(shields()).toBe(0); // nothing has moved on a first render
+    const raised = async (change: () => void | Promise<void>) => {
+      const before = shields();
+      await act(async () => {
+        await change();
+      });
+      return shields() - before;
+    };
+    expect(await raised(() => store().startCombat())).toBe(1); // the bar appears under the finger that pressed Attack
+    expect(await raised(() => store().setAttacker(stack(0), 1, 1))).toBe(0); // a pick moves nothing
+    expect(await raised(() => store().setAttacker(stack(0), 2, 1))).toBe(0);
+    expect(await raised(() => store().confirmAttackers())).toBe(1); // the board swings to the first defender
+    expect(await raised(() => store().setBlocker(1, stack(0), stack(1), 1))).toBe(0);
+    expect(await raised(() => store().finishBlocks(1))).toBe(1); // …to the next
+    expect(await raised(() => store().finishBlocks(2))).toBe(1); // …and back for the damage
+    expect(await raised(() => store().applyCombat({ players: [{ seat: 1, life: -2 }], deaths: [] }))).toBe(1); // the bar goes
+  });
+
+  test('…also when the change arrives from another device', () => {
+    fightTable(4);
+    render(<GameScreen />);
+    const game = store().game!;
+    const before = shields();
+    // a state another device pushed: its player declared an attack on seat 2
+    act(() =>
+      useAppStore.setState({
+        game: {
+          ...game,
+          combat: {
+            id: 'theirs',
+            turn: game.turnNumber,
+            active: 0,
+            step: 'blockers',
+            defender: 2,
+            attacks: [{ unit: stack(0), target: 2 }],
+          },
+        },
+      }),
+    );
+    expect(shields() - before).toBe(1);
+  });
+
+  test('a fight is not a layer: leaving for home and coming back finds it as it was', async () => {
+    fightTable(4);
+    const first = render(<GameScreen />);
+    await declare();
+    const fight = store().game!.combat;
+    first.unmount(); // Back = leave to home; the game stays saved
+    expect(store().game!.combat).toBe(fight);
+    const { container } = render(<GameScreen />);
+    expect(focused(container)).toEqual(['seat-1']);
+    expect(container.querySelector('.zone.seat-1 .combat-bar')).not.toBeNull();
+  });
+});

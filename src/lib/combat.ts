@@ -72,6 +72,22 @@ export function liveCombat(g: GameState): CombatState | null {
   return c;
 }
 
+/** Whose move it is in the fight, and so whose zone carries the combat
+ * bar: the defender while they choose blockers, otherwise the attacker. */
+export function actingSeat(c: CombatState): number {
+  return c.step === 'blockers' && c.defender !== undefined ? c.defender : c.active;
+}
+
+/** The seat that holds the big board, on every device: the active player
+ * — except while a defender chooses blockers, when the board is theirs
+ * (on the shared tablet it turns to face them). A defender who was
+ * defeated while choosing keeps it until Done is pressed for them. */
+export function boardSeat(g: GameState): number {
+  const c = liveCombat(g);
+  const seat = c ? actingSeat(c) : g.activePlayerIndex;
+  return g.players[seat] ? seat : g.activePlayerIndex;
+}
+
 export function sameUnit(a: CombatUnit, b: CombatUnit): boolean {
   return a.kind === b.kind && a.id === b.id;
 }
@@ -478,9 +494,10 @@ export function attackLine(g: GameState, c: CombatState): string {
   return `${who} attacks ${inWords(targets.map(([seat, n]) => `${seatName(g, seat)} (${n})`))}`;
 }
 
-/** "Sam blocks 2 attackers" / "Sam doesn't block": the attackers coming at
- * that seat that something stands in the way of, a paper blocker included. */
-export function blockLine(g: GameState, c: CombatState, seat: number): string {
+/** How many of the attackers coming at that seat something stands in the
+ * way of, a paper blocker included: what the feed counts and what the
+ * defender's Done button says. */
+export function attackersStopped(c: CombatState, seat: number): number {
   let stopped = 0;
   for (const a of attacksOf(c)) {
     if (a.target !== seat) continue;
@@ -488,6 +505,12 @@ export function blockLine(g: GameState, c: CombatState, seat: number): string {
     if (a.unit.kind === 'card') stopped += inTheWay > 0 || a.blocked ? 1 : 0;
     else stopped += a.blocked ? copiesOf(a) : Math.min(copiesOf(a), inTheWay);
   }
+  return stopped;
+}
+
+/** "Sam blocks 2 attackers" / "Sam doesn't block". */
+export function blockLine(g: GameState, c: CombatState, seat: number): string {
+  const stopped = attackersStopped(c, seat);
   const who = seatName(g, seat);
   return stopped === 0 ? `${who} doesn't block` : `${who} blocks ${plural(stopped, 'attacker')}`;
 }

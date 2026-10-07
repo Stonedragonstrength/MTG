@@ -252,6 +252,79 @@ button.primary {
   align-items: center;
 }
 
+/* ---- combat review (CombatReviewSheet) ----
+   The damage before it lands: a stepper per number, a tick per death. Read
+   and pressed across a table, so the targets are finger-sized. */
+.review-hint {
+  margin: 0;
+  text-align: left;
+}
+
+.review-steppers .stepper button {
+  min-width: 44px;
+  min-height: 40px;
+}
+
+.review-value {
+  min-width: 2.4ch;
+  font-weight: 800;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* One creature: its name, then its ticks. On a phone the ticks wrap under the name. */
+.review-unit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2px 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* What stood in an attacker's way is listed under it, stepped in. */
+.review-unit--blocker {
+  padding-left: 16px;
+}
+
+.review-unit-name {
+  flex: 1 1 11em;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.review-ticks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px 16px;
+  margin-left: auto;
+}
+
+.review-tick {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  white-space: nowrap;
+}
+
+.review-dies .review-value {
+  min-width: 3.6em;
+}
+
+.review-warning {
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--danger);
+  border-radius: 10px;
+  background: #3a1612;
+  font-weight: 700;
+  text-align: center;
+}
+
 /* ---- "how much for X?" (XCostSheet) ----
    The card, one row to set X, one line for what that costs against the
    mana that is ready. The cast button is the sheet's footer. */

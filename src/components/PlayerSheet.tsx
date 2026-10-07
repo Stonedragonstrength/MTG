@@ -18,6 +18,7 @@ export default function PlayerSheet({ playerIdx, onClose }: Props) {
   const game = useAppStore((s) => s.game);
   const setPlayerCounter = useAppStore((s) => s.setPlayerCounter);
   const setCommanderDeaths = useAppStore((s) => s.setCommanderDeaths);
+  const setCommanderReturns = useAppStore((s) => s.setCommanderReturns);
   const applyCommanderDamage = useAppStore((s) => s.applyCommanderDamage);
   const claimMonarch = useAppStore((s) => s.claimMonarch);
   const claimInitiative = useAppStore((s) => s.claimInitiative);
@@ -31,6 +32,19 @@ export default function PlayerSheet({ playerIdx, onClose }: Props) {
   const attackers = game.config.profiles.flatMap((_, j) =>
     j === playerIdx ? [] : seatCommanders(game, j),
   );
+  // This seat's own commanders, when it tracks them per card: wherever each
+  // one is by now, with how often it has gone home.
+  const cards = player.cards;
+  const everywhere = cards
+    ? [cards.command, cards.battlefield, cards.graveyard, cards.exile, cards.hand, cards.library].flat()
+    : [];
+  const tracked = Object.keys(cards?.cmd ?? {})
+    .sort() // the one order the gauges use too (lib/commanders.ts)
+    .map((iid) => ({
+      iid,
+      name: everywhere.find((c) => c.iid === iid)?.name ?? 'Commander',
+      returns: cards!.cmd![iid],
+    }));
 
   return (
     <Sheet title={profile.name} onClose={onClose}>
@@ -89,7 +103,36 @@ export default function PlayerSheet({ playerIdx, onClose }: Props) {
           );
         })}
 
-      {game.config.format === 'commander' && (
+      {/* A seat that tracks its commanders per card: each has its own tax, and
+          the seat-wide count below means nothing to it. A trip home that was
+          counted wrongly (a death Review sent to the command zone by mistake)
+          is put right here. */}
+      {game.config.format === 'commander' &&
+        tracked.map(({ iid, name, returns }) => (
+          <div className="detail-row" key={iid}>
+            <span>
+              {name}: back to the command zone <small className="hint-inline">(tax +{returns * 2})</small>
+            </span>
+            <div className="stepper">
+              <button
+                aria-label={`fewer returns to the command zone for ${name}`}
+                disabled={returns <= 0}
+                onClick={() => setCommanderReturns(playerIdx, iid, returns - 1)}
+              >
+                −
+              </button>
+              <span>{returns}</span>
+              <button
+                aria-label={`more returns to the command zone for ${name}`}
+                onClick={() => setCommanderReturns(playerIdx, iid, returns + 1)}
+              >
+                +
+              </button>
+            </div>
+          </div>
+        ))}
+
+      {game.config.format === 'commander' && !player.cards?.cmd && (
         <div className="detail-row">
           <span>
             Commander deaths <small className="hint-inline">(tax +{player.commanderDeaths * 2})</small>

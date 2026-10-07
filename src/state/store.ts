@@ -97,6 +97,8 @@ export interface AppStore {
   startCombat(): void;
   /** Attackers step: `n` copies of `unit` attack `target` (a card: 1 or 0; 0 takes it back). */
   setAttacker(unit: CombatUnit, target: number, n: number): void;
+  /** Several of those picks made by one press ("All attack"): one move, one Undo. */
+  setAttackers(picks: { unit: CombatUnit; target: number; n: number }[]): void;
   /** Declares the attack: taps the attackers without vigilance, then the first defender is up. */
   confirmAttackers(): Promise<void>;
   /** Blockers step: `n` copies of the defender's `blocker` stand in `attacker`'s way (0 takes it back). */
@@ -965,6 +967,20 @@ export function createAppStore() {
         if (!fight) return;
         cardMutate(
           (base) => combatLib.setAttack(base, fight.id, unit, target, n),
+          null,
+          combatLib.sameStep,
+        );
+      },
+
+      setAttackers(picks) {
+        const g = get().game;
+        const fight = g && combatLib.liveCombat(g);
+        if (!fight || picks.length === 0) return;
+        // One op for the whole press, so one Undo takes "All attack" back.
+        // Each pick is judged by the reducer on the table it lands on.
+        cardMutate(
+          (base) =>
+            picks.reduce((s, p) => combatLib.setAttack(s, fight.id, p.unit, p.target, p.n), base),
           null,
           combatLib.sameStep,
         );

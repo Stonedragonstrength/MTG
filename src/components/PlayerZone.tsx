@@ -1,9 +1,12 @@
 import { useState } from 'react';
+import { actingSeat, liveCombat } from '../lib/combat';
+import { attackersAt } from '../lib/combatView';
 import type { ManaColor } from '../lib/mana';
 import { useAppStore } from '../state/store';
 import BattlefieldRow from './BattlefieldRow';
 import BoardStrip from './BoardStrip';
 import CenterHub from './CenterHub';
+import CombatBar from './CombatBar';
 import CommanderDamage from './CommanderDamage';
 import HandTray from './HandTray';
 import LandsRow from './LandsRow';
@@ -42,6 +45,11 @@ export default function PlayerZone({
   const isActive = game.activePlayerIndex === playerIdx;
   const identity = profile.commanderColors ?? [];
   const accent = identity.length === 1 ? ACCENTS[identity[0]] : undefined;
+  // The fight on the table: the seat whose move it is carries the combat
+  // bar, and a defender choosing blockers has the big board for it.
+  const fight = liveCombat(game);
+  const acting = fight !== null && actingSeat(fight) === playerIdx;
+  const incoming = fight ? attackersAt(fight, playerIdx) : 0;
 
   const classes = [
     'zone',
@@ -53,11 +61,16 @@ export default function PlayerZone({
     player.cards ? 'zone--cards' : '', // compact chrome: the cards need the room
     flipped ? 'zone--flipped' : '', // drawn turned around on this device ("Flip this side")
     showHub && !focused ? 'zone--hub' : '', // a slim bar carrying the pinned turn bar
+    acting ? 'zone--combat' : '', // one more line, for the combat bar
+    acting && fight.step === 'blockers' ? 'zone--blocking' : '', // its own look: the gold pulse stays with the active player
   ]
     .filter(Boolean)
     .join(' ');
 
   const chips: { key: string; label: string; className?: string }[] = [];
+  // Coming at this player, from the first pick until the fight ends. First
+  // in line: where a bar runs short the last chips give way first.
+  if (incoming > 0) chips.push({ key: 'attack', label: `⚔ ${incoming}`, className: 'chip-attack' });
   // Virtual seats wear their card counts up top — table-glance info.
   if (player.cards) {
     // chip-cards: collapsed side bars drop these two for room.
@@ -132,6 +145,8 @@ export default function PlayerZone({
           {game.config.format === 'commander' && <CommanderDamage playerIdx={playerIdx} />}
         </span>
       </header>
+      {/* Keyed by the fight: a bar that failed on one fight is tried afresh on the next. */}
+      {acting && <CombatBar key={fight.id} playerIdx={playerIdx} />}
       {player.cards && <BattlefieldRow playerIdx={playerIdx} />}
       <BoardStrip playerIdx={playerIdx} />
       <LandsRow playerIdx={playerIdx} />

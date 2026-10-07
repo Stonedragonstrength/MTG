@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { liveCombat } from '../lib/combat';
 import { useAppStore } from '../state/store';
 import CombatSheet from './CombatSheet';
 import DiceRoller from './DiceRoller';
@@ -7,6 +8,7 @@ import RulesViewer from './RulesViewer';
 import SettingsSheet from './SettingsSheet';
 import Sheet from './Sheet';
 import StackSheet from './StackSheet';
+import { useConfirmTap } from './useConfirmTap';
 
 type SheetName =
   | 'dice'
@@ -24,6 +26,8 @@ type SheetName =
  * turn does not move away after a pass ("Turn bar stays put"), and "End" picked
  * in the options sheet opens its question right where that sheet was. */
 const STRAY_TAP_MS = 600;
+/** How long "End combat and pass?" waits for its answer before it is Pass turn again. */
+const PASS_ASK_MS = 5000;
 
 function TurnClock({ since }: { since: number }) {
   const [, force] = useState(0);
@@ -66,6 +70,21 @@ export default function CenterHub({ variant = 'overlay', seat, compact = false }
   // A pinned hub stays mounted while its zone collapses and grows back with the
   // turn: a tray left unfolded must not sit there waiting to reappear.
   useEffect(() => setTrayOpen(false), [compact]);
+  // Passing the turn ends whatever fight is on the table, with other players'
+  // picks in it: while one is live, Pass turn asks in place first.
+  const fightId = (game && liveCombat(game)?.id) ?? null;
+  const endsFight = useConfirmTap();
+  const asking = endsFight.armed;
+  useEffect(() => {
+    if (!asking) return;
+    // A question nobody answers stands down; so does one whose fight is over.
+    const t = window.setTimeout(endsFight.disarm, PASS_ASK_MS);
+    return () => {
+      window.clearTimeout(t);
+      endsFight.disarm();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [asking, fightId]);
 
   if (!game) return null;
 
@@ -77,6 +96,7 @@ export default function CenterHub({ variant = 'overlay', seat, compact = false }
   // A double tap passes once: the second half would skip the next player.
   function pass(tap: { timeStamp: number }) {
     if (passedAt.current !== null && tap.timeStamp - passedAt.current < STRAY_TAP_MS) return;
+    if (fightId !== null && !endsFight.confirms(tap)) return; // armed: the next tap answers
     passedAt.current = tap.timeStamp;
     passTurn();
   }
@@ -101,9 +121,10 @@ export default function CenterHub({ variant = 'overlay', seat, compact = false }
   // The same options either way: unfolded under the hub, or in a sheet of their own.
   const options = (
     <>
+      {/* The arithmetic sheet. The fight on the cards starts from the lands line ("⚔ Attack"). */}
       <button aria-label="combat math" onClick={() => openSheet('combat')}>
         <span className="hub-icon">⚔️</span>
-        <span className="hub-label">Combat</span>
+        <span className="hub-label">Combat math</span>
       </button>
       <button aria-label="the stack" onClick={() => openSheet('stack')}>
         <span className="hub-icon">🌀</span>
@@ -154,8 +175,8 @@ export default function CenterHub({ variant = 'overlay', seat, compact = false }
             )}
           </span>
         </div>
-        <button className="hub-pass" onClick={pass}>
-          Pass turn
+        <button className={`hub-pass${asking && fightId !== null ? ' hub-pass--asking' : ''}`} onClick={pass}>
+          {asking && fightId !== null ? 'End combat and pass?' : 'Pass turn'}
         </button>
         <div className="hub-actions">
           <button aria-label="undo" disabled={!canUndo()} onClick={undo}>

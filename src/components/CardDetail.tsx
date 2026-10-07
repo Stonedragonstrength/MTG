@@ -13,6 +13,7 @@ import { findGlossaryTerms, type GlossaryEntry } from '../lib/rulesParser';
 import { useAppStore } from '../state/store';
 import Sheet from './Sheet';
 import SynergySheet from './SynergySheet';
+import { useSeatCombat } from './useCombat';
 
 interface Props {
   playerIdx: number;
@@ -42,6 +43,8 @@ export default function CardDetail({ playerIdx, itemId, onClose }: Props) {
   const setManaMode = useAppStore((s) => s.setManaMode);
   const splitItemAction = useAppStore((s) => s.splitItem);
   const removeItemAction = useAppStore((s) => s.removeItem);
+  const tapItem = useAppStore((s) => s.tapItem);
+  const combat = useSeatCombat(playerIdx);
 
   const [glossary, setGlossary] = useState<GlossaryEntry[]>([]);
   const [activeTerm, setActiveTerm] = useState<GlossaryEntry | null>(null);
@@ -65,6 +68,11 @@ export default function CardDetail({ playerIdx, itemId, onClose }: Props) {
   const pt = computedPT(item);
   const p1p1 = item.counters['p1p1'] ?? 0;
   const namedCounters = Object.entries(item.counters).filter(([name]) => name !== 'p1p1');
+  // While this seat picks attackers or blockers a tap on a creature stack
+  // sends a copy in, and stops at the copies that may fight. The way round
+  // both is here, behind the hold.
+  const look = item.zone !== 'lands' && combat?.mode ? combat.look({ kind: 'stack', id: itemId }) : null;
+  const tapped = item.tapped ?? 0;
 
   function showTerm(term: string) {
     const entry = glossary.find((g) => g.term.toLowerCase() === term.toLowerCase());
@@ -143,6 +151,30 @@ export default function CardDetail({ playerIdx, itemId, onClose }: Props) {
           isCommander={/Legendary.*Creature/.test(item.typeLine)}
           onClose={() => setSynergiesOpen(false)}
         />
+      )}
+
+      {look && (
+        <div className="detail-section">
+          <span className="section-label">Combat</span>
+          <div className="chip-row">
+            {look.mode === 'attack' && look.anyway && (
+              <button className="chip" onClick={look.anyway}>
+                {look.picks && look.free > 0 ? 'One more attacks' : 'One more attacks anyway'}
+              </button>
+            )}
+            {look.picked > 0 && (
+              <button className="chip" onClick={look.less}>
+                One fewer {look.mode === 'attack' ? 'attacks' : 'blocks'}
+              </button>
+            )}
+            <button className="chip" disabled={tapped >= item.count} onClick={() => tapItem(playerIdx, itemId, 1)}>
+              Tap one
+            </button>
+            <button className="chip" disabled={tapped <= 0} onClick={() => tapItem(playerIdx, itemId, -1)}>
+              Untap one
+            </button>
+          </div>
+        </div>
       )}
 
       <div className="detail-section">

@@ -56,3 +56,21 @@ test('a transient DB failure is not cached — the next mount retries and heals'
   const second = renderHook(() => useCardRecords(flaky));
   await waitFor(() => expect(second.result.current['c-flaky']?.id).toBe('c-bolt')); // retried, healed
 });
+
+test('a caller that cannot go on without an answer may ask again without remounting', async () => {
+  const { getCardById } = await import('../data/scryfall');
+  vi.mocked(getCardById).mockClear();
+  vi.mocked(getCardById).mockRejectedValueOnce(new Error('DatabaseClosedError'));
+  vi.mocked(getCardById).mockResolvedValueOnce(bolt);
+  const stuck = [{ cardId: 'c-stuck', name: 'No Such Name' }];
+
+  const { result, rerender } = renderHook(({ retry }) => useCardRecords(stuck, retry), {
+    initialProps: { retry: 0 },
+  });
+  await waitFor(() => expect(vi.mocked(getCardById)).toHaveBeenCalledWith('c-stuck'));
+  expect('c-stuck' in result.current).toBe(false); // not answered: neither a record nor a miss
+  rerender({ retry: 0 }); // the same question is not asked twice
+  expect(vi.mocked(getCardById)).toHaveBeenCalledTimes(1);
+  rerender({ retry: 1 });
+  await waitFor(() => expect(result.current['c-stuck']?.id).toBe('c-bolt'));
+});

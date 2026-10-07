@@ -20,5 +20,8 @@ export function useConfirmTap() {
       }
       return tap.timeStamp - armedAt >= CONFIRM_MS;
     },
+    /** Stands it down again, for a question that was left unanswered or
+     * no longer applies. */
+    disarm: () => setArmedAt(null),
   };
 }

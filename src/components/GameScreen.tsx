@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { registerBack } from '../lib/backstack';
+import { boardSeat, liveCombat } from '../lib/combat';
 import { useAppStore } from '../state/store';
 import HandScreen from './HandScreen';
 import LandBackground from './LandBackground';
 import PlayerZone from './PlayerZone';
 import RevealBanner from './RevealBanner';
+import { shieldBoard } from './Sheet';
 import TablePill from './TablePill';
 import '../styles/zones.css';
 
@@ -32,7 +34,9 @@ function useNarrow(): boolean {
   return narrow;
 }
 
-/** The active player always holds the big board; passing the turn moves it. */
+/** The active player holds the big board and passing the turn moves it —
+ * except while a defender chooses blockers: then it is theirs, on every
+ * device (on the shared tablet it turns to face them). */
 export default function GameScreen() {
   const game = useAppStore((s) => s.game);
   const online = useAppStore((s) => s.online);
@@ -42,10 +46,28 @@ export default function GameScreen() {
   const [view, setView] = useState<'auto' | 'table' | 'hand'>('auto');
   const narrow = useNarrow();
   // Tablet back = leave to home (game stays saved), not close the app.
+  // (A fight is shared table state, not a layer: it never touches the back
+  // button, and it is still there when the game is picked up again.)
   useEffect(() => registerBack(exitToHome), [exitToHome]);
+  // Stray taps: whenever the fight's step or the seat acting in it changes,
+  // or the fight ends — by a press here or by a state from another device —
+  // the screen rearranges itself under whatever finger is on its way down.
+  // The second half of a double tap on [Done] used to land in the zone
+  // that had just swung under it and play a card. So every such change
+  // raises the shield a closing sheet raises. (A layout effect: it is up
+  // before the browser can deliver the next tap.)
+  const fight = game ? liveCombat(game) : null;
+  const moment = fight ? `${fight.id}:${fight.step}:${fight.defender ?? ''}` : '';
+  const lastMoment = useRef(moment);
+  useLayoutEffect(() => {
+    if (lastMoment.current === moment) return; // also the first render: nothing has moved
+    lastMoment.current = moment;
+    shieldBoard();
+  }, [moment]);
   if (!game) return null;
 
   const activeIdx = game.activePlayerIndex;
+  const boardIdx = boardSeat(game);
   const n = game.players.length;
   const edges = EDGE_LAYOUTS[n] ?? EDGE_LAYOUTS[4];
   const table360 = n > 2;
@@ -81,7 +103,7 @@ export default function GameScreen() {
           key={p.profileId}
           playerIdx={i}
           edge={edges[(i - shift + n) % n]}
-          focused={i === activeIdx}
+          focused={i === boardIdx}
           showHub={i === hubSeat}
         />
       ))}

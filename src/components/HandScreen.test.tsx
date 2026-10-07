@@ -112,3 +112,117 @@ test('the See table button hands control back', async () => {
   await user.click(screen.getByRole('button', { name: /see table/i }));
   expect(onShowTable).toHaveBeenCalled();
 });
+
+// ---- combat on the cards: no picking on the phone in this version, one line instead ----
+
+/** The seeded game with a creature of mine in the front row and three knights on Sam's side. */
+function gameWithCreatures() {
+  const g = seededGame();
+  g.players[0] = {
+    ...g.players[0],
+    cards: {
+      ...g.players[0].cards!,
+      battlefield: [{ iid: 'cmd1', cardId: 'c-cmd', name: 'Ashaya', row: 'front' }],
+    },
+  };
+  g.players[1] = {
+    ...g.players[1],
+    board: [
+      {
+        id: 'knights',
+        cardId: null,
+        name: 'Knight',
+        imageNormal: null,
+        imageArtCrop: null,
+        typeLine: 'Token Creature — Knight',
+        oracleText: '',
+        basePower: 2,
+        baseToughness: 2,
+        count: 3,
+        counters: {},
+        color: null,
+        zone: 'board',
+      },
+    ],
+  };
+  return g;
+}
+
+test('no fight, no line', () => {
+  useAppStore.setState({ game: gameWithCreatures() });
+  const { container } = render(<HandScreen seatIdx={0} onShowTable={() => {}} />);
+  expect(container.querySelector('.hs-combat')).toBeNull();
+});
+
+test('attacked: one line says by whom and with how many, and tapping it is "See table"', async () => {
+  const g = gameWithCreatures();
+  useAppStore.setState({
+    game: {
+      ...g,
+      activePlayerIndex: 1,
+      combat: {
+        id: 'c1',
+        turn: g.turnNumber,
+        active: 1,
+        step: 'blockers',
+        defender: 0,
+        attacks: [{ unit: { kind: 'stack', id: 'knights' }, n: 3, target: 0 }],
+      },
+    },
+  });
+  const onShowTable = vi.fn();
+  const user = userEvent.setup();
+  const { container } = render(<HandScreen seatIdx={0} onShowTable={onShowTable} />);
+  const line = container.querySelector<HTMLElement>('.hs-combat')!;
+  expect(line).toHaveTextContent('Sam attacks you with 3 — block on the table');
+  await user.click(line);
+  expect(onShowTable).toHaveBeenCalledTimes(1);
+});
+
+test('attacking: the line says the attack is open on the table, and there is no Attack button here', async () => {
+  const g = gameWithCreatures();
+  useAppStore.setState({ game: g });
+  const { container } = render(<HandScreen seatIdx={0} onShowTable={() => {}} />);
+  await screen.findByRole('button', { name: 'tap Ashaya' });
+  expect(screen.queryByRole('button', { name: 'attack' })).not.toBeInTheDocument(); // my turn, a creature: still none
+  const { act } = await import('@testing-library/react');
+  act(() =>
+    useAppStore.setState({ game: { ...g, combat: { id: 'c2', turn: g.turnNumber, active: 0, step: 'attackers' } } }),
+  );
+  expect(container.querySelector('.hs-combat')).toHaveTextContent('Your attack is open on the table');
+  expect(screen.queryByRole('button', { name: /in combat/ })).not.toBeInTheDocument();
+});
+
+test('no picking on this screen: during my own attack a tap on my creature still just taps it', async () => {
+  const g = gameWithCreatures();
+  const tapVirtualCard = vi.fn();
+  useAppStore.setState({
+    game: { ...g, combat: { id: 'c3', turn: g.turnNumber, active: 0, step: 'attackers' } },
+    tapVirtualCard,
+  });
+  const user = userEvent.setup();
+  const { container } = render(<HandScreen seatIdx={0} onShowTable={() => {}} />);
+  await user.click(await screen.findByRole('button', { name: 'tap Ashaya' }));
+  expect(tapVirtualCard).toHaveBeenCalledWith(0, 'cmd1');
+  expect(useAppStore.getState().game!.combat!.attacks).toBeUndefined();
+  expect(container.querySelector('.combat-bar')).toBeNull(); // the bar is on the table, not here
+});
+
+test('…and the hold sheet offers no way to pick from here either', async () => {
+  const g = gameWithCreatures();
+  useAppStore.setState({ game: { ...g, combat: { id: 'c4', turn: g.turnNumber, active: 0, step: 'attackers' } } });
+  const { act, fireEvent } = await import('@testing-library/react');
+  render(<HandScreen seatIdx={0} onShowTable={() => {}} />);
+  const card = await screen.findByRole('button', { name: 'tap Ashaya' });
+  fireEvent.pointerDown(card);
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 650));
+  });
+  fireEvent.pointerUp(card);
+  expect(await screen.findByRole('heading', { name: 'Ashaya' })).toBeInTheDocument(); // the card sheet
+  const { within } = await import('@testing-library/react');
+  const sheet = within(document.querySelector<HTMLElement>('.sheet')!);
+  expect(sheet.getByText('Move')).toBeInTheDocument();
+  expect(sheet.queryByText('Combat')).not.toBeInTheDocument();
+  expect(sheet.queryByRole('button', { name: /attack|^tap$|^untap$/i })).not.toBeInTheDocument();
+});

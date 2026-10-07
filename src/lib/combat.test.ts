@@ -2,9 +2,11 @@ import { describe, expect, test } from 'vitest';
 import { tapItem } from './board';
 import { tapCard } from './cards';
 import {
+  actingSeat,
   applyCombat,
   attackLine,
   blockLine,
+  boardSeat,
   cancelCombat,
   confirmAttackers,
   dropCombat,
@@ -162,6 +164,27 @@ describe('liveCombat', () => {
 
   test('a fight whose attacker has been defeated is over', () => {
     expect(liveCombat(adjustLife(declared(), 0, -40))).toBeNull();
+  });
+
+  test('boardSeat: the big board is the active player’s, except while a defender chooses blockers', () => {
+    expect(boardSeat(pod())).toBe(0);
+    expect(boardSeat(declared())).toBe(0); // picking attackers
+    const blocking = confirmed();
+    expect(liveCombat(blocking)?.defender).toBe(1);
+    expect(boardSeat(blocking)).toBe(1); // Sam's turn to block
+    const next = finishBlocks(blocking, 'c1', 1);
+    expect(boardSeat(next)).toBe(2); // then Alex's
+    expect(boardSeat(atDamage())).toBe(0); // back to the attacker for the damage
+    expect(boardSeat(cancelCombat(blocking, 'c1'))).toBe(0); // called off
+    expect(boardSeat({ ...blocking, turnNumber: 2 })).toBe(0); // a stale fight moves nothing
+    // a defender who was defeated while choosing keeps the board until Done is pressed for them
+    expect(boardSeat(adjustLife(blocking, 1, -40))).toBe(1);
+  });
+
+  test('actingSeat: whose bar it is — the attacker’s, or the defender’s while they block', () => {
+    expect(actingSeat(liveCombat(declared())!)).toBe(0);
+    expect(actingSeat(liveCombat(confirmed())!)).toBe(1);
+    expect(actingSeat(liveCombat(atDamage())!)).toBe(0);
   });
 });
 

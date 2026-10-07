@@ -5,37 +5,60 @@ import { affordable, castCosts, hasX, sourcesFrom } from '../lib/pay';
 import type { CardInstance } from '../lib/types';
 import { useAppStore } from '../state/store';
 import BattlefieldCardSheet from './BattlefieldCardSheet';
+import CombatMarks, { combatClasses } from './CombatMarks';
 import LibrarySheet from './LibrarySheet';
 import PileSheet from './PileSheet';
 import Sheet from './Sheet';
 import { useCardRecords } from './useCardRecords';
+import { useSeatCombat, type UnitLook } from './useCombat';
 import { useFitCards } from './useFitCards';
 import { useLongPress } from './useLongPress';
 import XCostSheet from './XCostSheet';
 
 /** One real card on the shared battlefield: tap = tap it, hold = sheet.
  * A summoning-sick creature only wears a badge: tapping it stays allowed
- * (crewing and convoke are legal). */
+ * (crewing and convoke are legal).
+ *
+ * While its seat picks attackers or blockers a creature changes meaning:
+ * a tap picks it (or is ignored, dimmed, when it cannot fight — the hold
+ * still opens the sheet, where "Attack anyway" and a plain Tap live).
+ * Anything that is no creature keeps its ordinary tap. */
 function VCard({
   card,
   art,
   sick,
+  look,
+  names,
   onTap,
   onDetail,
 }: {
   card: CardInstance;
   art: string | null;
   sick: boolean;
+  /** How it stands in the fight on the table, if there is one. */
+  look: UnitLook | null;
+  /** The players' names by seat, for the marks. */
+  names: string[];
   onTap: () => void;
   onDetail: () => void;
 }) {
-  const press = useLongPress(onTap, onDetail);
+  const picks = look?.picks === true;
+  const press = useLongPress(picks ? look.tap : onTap, onDetail);
   const p1p1 = card.counters?.p1p1 ?? 0;
+  const job = look?.mode === 'attack' ? 'attack' : 'block';
+  const label = !picks
+    ? `tap ${card.name}${sick ? ', summoning sick' : ''}`
+    : look.picked > 0
+      ? `${card.name} ${job}s — tap to take it back`
+      : look.dim
+        ? `${card.name} cannot ${job}`
+        : `${job} with ${card.name}`;
   return (
     <button
-      className={`vcard${card.tapped ? ' vcard--tapped' : ''}`}
-      aria-label={`tap ${card.name}${sick ? ', summoning sick' : ''}`}
-      title="Tap to tap · hold for options"
+      className={`vcard${card.tapped ? ' vcard--tapped' : ''}${combatClasses('vcard', look)}`}
+      aria-label={label}
+      aria-pressed={picks ? look.picked > 0 : undefined}
+      title={picks ? `Tap to ${job} · hold for options` : 'Tap to tap · hold for options'}
       {...press}
     >
       {art ? (
@@ -53,20 +76,24 @@ function VCard({
           {p1p1 > 0 ? `+${p1p1}/+${p1p1}` : `${p1p1}/${p1p1}`}
         </span>
       )}
+      <CombatMarks look={look} names={names} />
     </button>
   );
 }
 
 interface Props {
   playerIdx: number;
+  /** false on the phone's hand view: no picking there, a tap is always a tap. */
+  picks?: boolean;
 }
 
 /** The card area from Nathan's sketch: real cards up front, and the
  * zone dock (library, graveyard, exile, command, hand pill) at its end.
  * Tokens keep their own strip (BoardStrip) — different physics. */
-export default function BattlefieldRow({ playerIdx }: Props) {
+export default function BattlefieldRow({ playerIdx, picks = true }: Props) {
   const game = useAppStore((s) => s.game);
   const online = useAppStore((s) => s.online);
+  const combat = useSeatCombat(playerIdx, picks);
   const tapVirtualCard = useAppStore((s) => s.tapVirtualCard);
   const drawCards = useAppStore((s) => s.drawCards);
   const castCommander = useAppStore((s) => s.castCommander);
@@ -151,6 +178,8 @@ export default function BattlefieldRow({ playerIdx }: Props) {
             card={c}
             art={records[c.cardId]?.imageNormal ?? null}
             sick={isSummoningSick(c, records[c.cardId], texts)}
+            look={combat?.look({ kind: 'card', id: c.iid }) ?? null}
+            names={(profiles ?? []).map((p) => p.name)}
             onTap={() => tapVirtualCard(playerIdx, c.iid)}
             onDetail={() => setCardSheet(c.iid)}
           />
@@ -248,7 +277,12 @@ export default function BattlefieldRow({ playerIdx }: Props) {
         />
       )}
       {cardSheet && (
-        <BattlefieldCardSheet playerIdx={playerIdx} iid={cardSheet} onClose={() => setCardSheet(null)} />
+        <BattlefieldCardSheet
+          playerIdx={playerIdx}
+          iid={cardSheet}
+          picks={picks}
+          onClose={() => setCardSheet(null)}
+        />
       )}
       {xFor && (
         <XCostSheet playerIdx={playerIdx} iid={xFor} from="command" onClose={() => setXFor(null)} />

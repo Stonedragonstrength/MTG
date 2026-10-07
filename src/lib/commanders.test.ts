@@ -207,6 +207,18 @@ describe('seatCommanders', () => {
     const withTile = { ...g, players: g.players.map((p, i) => (i === 1 ? { ...p, board: [tile] } : p)) };
     expect(commanderKey(withTile, 1, { kind: 'stack', id: 'tile' })).toBe('p1');
   });
+
+  test('commanderKey: only a commander game has commander damage — in Standard the same tile and the same card are plain creatures', () => {
+    const tiles = trackerGame(null, [{ id: 't-cmd', name: 'Thrasios, Triton Hero' }]);
+    expect(commanderKey(tiles, 1, { kind: 'stack', id: 't-cmd' })).toBe('p1');
+    const standard = { ...tiles, config: { ...tiles.config, format: 'standard' as const } };
+    expect(commanderKey(standard, 1, { kind: 'stack', id: 't-cmd' })).toBeNull();
+    // a dealt seat as well: a deck with a commander in it, played in a Standard game
+    const dealt = pairSeat('dealt');
+    const dealtStandard = { ...dealt, config: { ...dealt.config, format: 'standard' as const } };
+    expect(commanderKey(dealt, 1, { kind: 'card', id: 'aa-tymna' })).toBe('p1');
+    expect(commanderKey(dealtStandard, 1, { kind: 'card', id: 'aa-tymna' })).toBeNull();
+  });
 });
 
 describe('commander damage from a pair', () => {

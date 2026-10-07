@@ -3,6 +3,8 @@ import { randomBasicArt } from '../data/images';
 import { findBasicLand } from '../data/scryfall';
 import { createBoardItem } from '../lib/board';
 import { landsPlayed } from '../lib/cards';
+import { liveCombat } from '../lib/combat';
+import { readUnits } from '../lib/combatEngine';
 import { COLOR_NAMES, isOneShotSource, landSummary, MANA_COLORS, type ManaColor } from '../lib/mana';
 import { availableMana, sourcesFrom } from '../lib/pay';
 import { landAllowance } from '../lib/turnRules';
@@ -134,10 +136,13 @@ function VirtualLandStack({
 
 interface Props {
   playerIdx: number;
+  /** false on the phone's hand view: a fight is declared on the table. */
+  attackButton?: boolean;
 }
 
-export default function LandsRow({ playerIdx }: Props) {
+export default function LandsRow({ playerIdx, attackButton = true }: Props) {
   const game = useAppStore((s) => s.game);
+  const startCombat = useAppStore((s) => s.startCombat);
   const addItem = useAppStore((s) => s.addItem);
   const changeCount = useAppStore((s) => s.changeCount);
   const tapItem = useAppStore((s) => s.tapItem);
@@ -185,6 +190,21 @@ export default function LandsRow({ playerIdx }: Props) {
       {ready} ready
     </span>
   );
+  // Combat starts here, on the line every layout draws at the player's own
+  // edge: the active seat may attack once it has a creature on the tablet
+  // (one whose card is not read yet counts: what the app cannot read never
+  // blocks a play). While its fight is on, the button keeps its place and
+  // only says so — nothing moves under the finger that pressed it.
+  const myTurn = game.activePlayerIndex === playerIdx && !game.players[playerIdx].eliminated;
+  const inCombat = myTurn && liveCombat(game) !== null;
+  const hasCreature = () => {
+    try {
+      return readUnits(game, playerIdx, records).some((unit) => unit.creature);
+    } catch {
+      return false; // a board the engine cannot read offers no fight; nothing else changes
+    }
+  };
+  const attack = attackButton && myTurn && (inCombat || hasCreature());
 
   async function quickAdd(name: string) {
     const existing = lands.find((it) => it.name === name);
@@ -240,6 +260,20 @@ export default function LandsRow({ playerIdx }: Props) {
               land {landDrop.used}/{Number.isFinite(landDrop.allowed) ? landDrop.allowed : '∞'}
             </span>
           </span>
+        )}
+        {/* In flow like the dice, never positioned: the board turns to face each
+            seat. Ahead of the untap button, which comes and goes as things tap
+            (the declaration taps the attackers): this one must not be pushed
+            along the line while its fight is on. */}
+        {attack && (
+          <button
+            className="attack-btn"
+            aria-label={inCombat ? 'in combat' : 'attack'}
+            disabled={inCombat}
+            onClick={() => startCombat()}
+          >
+            ⚔ {inCombat ? 'In combat' : 'Attack'}
+          </button>
         )}
         {anyTapped && (
           <button className="untap-btn" aria-label="untap all" onClick={() => untapAll(playerIdx)}>

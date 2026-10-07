@@ -9,6 +9,7 @@ import {
   isCreature,
   readSeat,
   readUnit,
+  readUnits,
   resolveCombat,
   type CardRecords,
 } from './combatEngine';
@@ -409,6 +410,28 @@ describe('picking: who may attack and who may block', () => {
     const seat = readSeat(t.g, 0, t.records);
     expect(readUnit(t.g, 0, card('bear'), t.records, seat)).toEqual(readUnit(t.g, 0, card('bear'), t.records));
     expect(seat.texts).toEqual([WHIP.oracleText]);
+  });
+
+  test('readUnits: everything a seat could send into a fight — its front row, then its stacks, never the lands shelf', () => {
+    const t = table(
+      {
+        cards: { bear: BEAR, ring: SOL_RING, forest: FOREST, late: 'pending' },
+        wear: { forest: { row: 'lands' } },
+        stacks: [tokens('soldiers', 3, 1, 1), tokens('treasure', 2, null, null), tokens('arbor', 1, 1, 1, { zone: 'lands' })],
+      },
+      { tracker: true, stacks: [tokens('saprolings', 2, 1, 1)] },
+    );
+    const units = readUnits(t.g, 0, t.records);
+    expect(units.map((u) => `${u.unit.kind}:${u.unit.id}${u.creature ? ' creature' : ''}`)).toEqual([
+      'card:bear creature',
+      'card:ring',
+      'card:late creature', // not read yet: taken on trust
+      'stack:soldiers creature',
+      'stack:treasure',
+    ]);
+    expect(units[0]).toEqual(readUnit(t.g, 0, card('bear'), t.records));
+    expect(readUnits(t.g, 1, t.records).map((u) => u.unit.id)).toEqual(['saprolings']); // a tracker seat: stacks only
+    expect(readUnits(t.g, 7, t.records)).toEqual([]); // no such seat
   });
 });
 

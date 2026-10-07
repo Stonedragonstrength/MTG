@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { createGame } from '../lib/game';
@@ -61,11 +61,11 @@ test('the options tray is collapsed by default; undo stays visible', async () =>
   const user = userEvent.setup();
   render(<CenterHub />);
   expect(screen.getByText('Undo')).toBeInTheDocument();
-  for (const label of ['Dice', 'Rules', 'Settings', 'End', 'Log', 'Combat', 'Stack']) {
+  for (const label of ['Dice', 'Rules', 'Settings', 'End', 'Log', 'Combat math', 'Stack']) {
     expect(screen.queryByText(label)).not.toBeInTheDocument();
   }
   await user.click(screen.getByRole('button', { name: /more options/i }));
-  for (const label of ['Dice', 'Rules', 'Settings', 'End', 'Log', 'Combat', 'Stack']) {
+  for (const label of ['Dice', 'Rules', 'Settings', 'End', 'Log', 'Combat math', 'Stack']) {
     expect(screen.getByText(label)).toBeInTheDocument();
   }
 });
@@ -164,7 +164,7 @@ test('in a collapsed bar "More" opens the options in a sheet instead of unfoldin
   expect(container.querySelector('.hub-tray')).toBeNull(); // the bar cannot grow: nothing unfolds in it
   expect(sheetTitles()).toEqual(['More']);
   const sheet = within(document.querySelector<HTMLElement>('.sheet')!);
-  for (const label of ['Combat', 'Stack', 'Dice', 'Rules', 'Log', 'Settings', 'End']) {
+  for (const label of ['Combat math', 'Stack', 'Dice', 'Rules', 'Log', 'Settings', 'End']) {
     expect(sheet.getByText(label)).toBeInTheDocument();
   }
 });
@@ -247,4 +247,88 @@ test('a tray left unfolded folds away when the pinned hub’s zone collapses, an
 
   rerender(<CenterHub variant="row" seat={0} />); // their turn again
   expect(container.querySelector('.hub-tray')).toBeNull();
+});
+
+// ---- combat on the cards: passing the turn ends the fight, so it asks first ----
+
+/** Seat 0's turn with a fight open on the table. */
+function fightOn(id = 'c1') {
+  const game = { ...createGame(config), turnNumber: 5 };
+  useAppStore.setState({ game: { ...game, combat: { id, turn: 5, active: 0, step: 'attackers' } } });
+}
+const combatOf = () => useAppStore.getState().game!.combat;
+
+test('while a fight is on, Pass turn asks in place — "End combat and pass?" — and only a deliberate second tap passes', () => {
+  fightOn();
+  render(<CenterHub variant="row" seat={0} />);
+  const active = () => useAppStore.getState().game?.activePlayerIndex;
+  tapAt(screen.getByRole('button', { name: 'Pass turn' }), 5000);
+  expect(active()).toBe(0);
+  const asking = screen.getByRole('button', { name: 'End combat and pass?' });
+  expect(asking.className).toContain('hub-pass');
+  tapAt(asking, 5150); // the other half of a double tap is not an answer
+  expect(active()).toBe(0);
+  expect(combatOf()).toMatchObject({ id: 'c1', step: 'attackers' });
+  tapAt(asking, 5900);
+  expect(active()).toBe(1);
+  expect(combatOf()).toBeUndefined(); // the store dropped the fight with the turn
+  expect(screen.getByRole('button', { name: 'Pass turn' })).toBeInTheDocument(); // and the question with it
+});
+
+test('…and the double-tap guard still holds once it has passed', () => {
+  fightOn();
+  render(<CenterHub variant="row" seat={3} compact />); // pinned: it stays under the finger
+  const active = () => useAppStore.getState().game?.activePlayerIndex;
+  tapAt(screen.getByRole('button', { name: 'Pass turn' }), 1000);
+  tapAt(screen.getByRole('button', { name: 'End combat and pass?' }), 1700);
+  expect(active()).toBe(1);
+  tapAt(screen.getByRole('button', { name: 'Pass turn' }), 1850); // the same double tap: nobody is skipped
+  expect(active()).toBe(1);
+  tapAt(screen.getByRole('button', { name: 'Pass turn' }), 2500);
+  expect(active()).toBe(2); // no fight now: one tap
+});
+
+test('a question nobody answers goes back to Pass turn; so does one whose fight ended some other way', () => {
+  vi.useFakeTimers();
+  try {
+    fightOn();
+    render(<CenterHub variant="row" seat={0} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Pass turn' }));
+    expect(screen.getByRole('button', { name: 'End combat and pass?' })).toBeInTheDocument();
+    act(() => {
+      vi.advanceTimersByTime(5100);
+    });
+    expect(screen.getByRole('button', { name: 'Pass turn' })).toBeInTheDocument();
+    expect(useAppStore.getState().game?.activePlayerIndex).toBe(0);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pass turn' }));
+    expect(screen.getByRole('button', { name: 'End combat and pass?' })).toBeInTheDocument();
+    act(() => useAppStore.getState().cancelCombat()); // applied or called off from the bar
+    expect(screen.getByRole('button', { name: 'Pass turn' })).toBeInTheDocument();
+    // a new fight starts with a fresh question, not an armed one
+    act(() => useAppStore.getState().startCombat());
+    tapAt(screen.getByRole('button', { name: 'Pass turn' }), 90_000);
+    expect(useAppStore.getState().game?.activePlayerIndex).toBe(0);
+    expect(screen.getByRole('button', { name: 'End combat and pass?' })).toBeInTheDocument();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('without a fight Pass turn is one tap, as ever — also after a fight that is finished', () => {
+  const game = { ...createGame(config), turnNumber: 5 };
+  useAppStore.setState({ game: { ...game, combat: { id: 'done1', turn: 5, active: 0, step: 'done' } } });
+  render(<CenterHub variant="row" seat={0} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Pass turn' }));
+  expect(useAppStore.getState().game?.activePlayerIndex).toBe(1);
+});
+
+test('the arithmetic sheet under More is called "Combat math", so nobody takes it for the fight on the cards', async () => {
+  const user = userEvent.setup();
+  render(<CenterHub />);
+  await user.click(screen.getByRole('button', { name: /more options/i }));
+  expect(screen.getByText('Combat math')).toBeInTheDocument();
+  expect(screen.queryByText('Combat')).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'combat math' }));
+  expect(sheetTitles()).toEqual(['Combat math']);
 });

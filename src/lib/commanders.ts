@@ -52,8 +52,11 @@ const frontFace = (name: string) => name.split(' // ')[0].trim().toLowerCase();
  * - A seat that tracks its commanders (`cards.cmd`): by instance id.
  * - A tracker seat, or a seat dealt before `cmd` existed: by front-face
  *   name against the profile's commanderName / partnerName — a tile added
- *   by hand is the commander when it carries the commander's name. */
+ *   by hand is the commander when it carries the commander's name.
+ * Only in a commander game: a Standard game has no commander damage and
+ * no command zone to go home to, whatever the deck or the profile says. */
 export function commanderKey(game: GameState, seatIdx: number, unit: CombatUnit): string | null {
+  if (game.config.format !== 'commander') return null;
   const profile = game.config.profiles[seatIdx];
   const player = game.players[seatIdx];
   if (!profile || !player) return null;

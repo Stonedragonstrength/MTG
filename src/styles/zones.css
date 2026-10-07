@@ -82,7 +82,29 @@
   50% { box-shadow: 0 0 18px 2px rgba(200, 168, 75, 0.55); }
 }
 
+/* A defender choosing blockers holds the big board for that moment. It has a
+   look of its own — a still, steel-blue rim — because the gold "your turn"
+   pulse is the active player's and stays on their bar. (A shadow, not the
+   border colour: a one-colour commander sets that inline.) */
+.zone--blocking {
+  box-shadow:
+    inset 0 0 0 3px rgba(111, 177, 224, 0.9),
+    inset 0 0 28px rgba(111, 177, 224, 0.22);
+}
+
 .zone--dead {
+  filter: grayscale(0.9) brightness(0.55);
+}
+
+/* A defender defeated while choosing blockers is still the seat the fight
+   waits for: somebody has to press Done for them. So the combat bar stays
+   readable, and the grey-out moves from the whole zone to everything else
+   in it (the DEFEATED veil ignores touches, and the bar sits above it). */
+.zone--dead.zone--combat {
+  filter: none;
+}
+
+.zone--dead.zone--combat > :not(.combat-bar):not(.dead-overlay) {
   filter: grayscale(0.9) brightness(0.55);
 }
 
@@ -817,6 +839,18 @@ input[type='range'] {
   color: #8fd4a0;
 }
 
+/* "⚔ 3": attackers coming at this player, from the first pick to the end of
+   the fight. One width whatever the number: a header that wraps (portrait)
+   must not re-wrap, and push the cards down, because nine became ten. */
+.chip-attack {
+  min-width: 4em;
+  border-color: #d4705a;
+  background: #3a1612;
+  color: #f4c7bd;
+  font-weight: 700;
+  text-align: center;
+}
+
 .player-more {
   padding: 4px 10px;
   border-radius: 999px;
@@ -1178,6 +1212,36 @@ input[type='range'] {
   font-size: 0.72rem;
 }
 
+/* "⚔ Attack" rides the same line, in flow like the dice (never positioned:
+   the board turns to face each seat). While the fight is on it stays where
+   it is and reads "⚔ In combat": the width fits the longer words, so the
+   box does not change under the finger that pressed it. */
+.attack-btn {
+  flex: 0 0 auto;
+  min-width: 9em;
+  min-height: 34px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border-color: #d4705a;
+  background: #3a1612;
+  color: #f4c7bd;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.attack-btn:disabled {
+  opacity: 0.8;
+  background: transparent;
+}
+
+/* A tracker seat's line has the quick-add row under it, not beside it: with
+   the button on it, it wraps rather than squeeze the readouts. */
+.zone--focused:not(.zone--cards) .mana-summary {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
 /* ---- hub extras ---- */
 .turn-clock {
   color: var(--accent);
@@ -1256,6 +1320,410 @@ input[type='checkbox'] {
   width: 22px;
   height: 22px;
   accent-color: var(--accent);
+}
+
+/* ---- combat on the cards: the bar, the strip, the picks ----
+   The bar sits in the zone of the seat whose move it is, in flow between
+   the header and the cards (a grid row of its own in a cards zone — see
+   "cards-mode gameplay sizing" — a flex child in a tracker zone).
+   One rule shapes everything in it: within a step NOTHING in the bar may
+   change its height, because the cards right under it are sized to the room
+   that is left and a finger is on its way to one of them. So every line is
+   one line (it cuts off or scrolls sideways, it never wraps), the buttons
+   whose words change keep a width that fits them all, and the strip of
+   attackers has one fixed height. */
+.combat-bar {
+  position: relative; /* over the DEFEATED veil of a defender who fell while choosing */
+  z-index: 1;
+  container-type: inline-size; /* its lines arrange themselves by the bar's own width: see below */
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(212, 112, 90, 0.6);
+  background: rgba(44, 16, 13, 0.88);
+}
+
+.combat-bar--blockers {
+  border-color: rgba(111, 177, 224, 0.65);
+  background: rgba(14, 27, 42, 0.9);
+}
+
+.combat-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.combat-say {
+  flex: 1 1 0;
+  min-width: 0;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Cancel leads the group and the group hugs the far end: when Cancel grows
+   into its question it grows towards the sentence, and the buttons beside it
+   stay exactly where they were. */
+.combat-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.combat-actions button {
+  min-height: 40px;
+  padding: 6px 12px;
+  white-space: nowrap;
+}
+
+/* "Attack (0)" … "Attack (100)", "No blocks" / "Done (3)": one width for all
+   of them (measured in this font: the widest is 8.1em). */
+.combat-go {
+  min-width: 8.2em;
+}
+
+.combat-paper--on {
+  border-color: var(--accent);
+  background: #332b14;
+  color: var(--accent);
+}
+
+/* A narrow bar — a side seat's board, a portrait tablet — gives the sentence
+   a line of its own and the buttons the next. That is decided by the bar's
+   width alone, never by what the buttons happen to say, so it cannot change
+   while a finger is on its way. */
+@container (max-width: 760px) {
+  .combat-line {
+    flex-wrap: wrap;
+    row-gap: 5px;
+  }
+
+  .combat-say {
+    flex: 1 1 100%;
+  }
+}
+
+/* A phone-width table: the three buttons and Cancel's question still have to
+   share one line. */
+@container (max-width: 430px) {
+  .combat-actions {
+    gap: 4px;
+  }
+
+  .combat-actions button {
+    height: 40px; /* the question below takes two lines: the line must not grow for it */
+    padding: 6px 8px;
+    font-size: 0.84rem;
+  }
+
+  .combat-go {
+    min-width: 6.2em;
+  }
+
+  .combat-actions .combat-cancel.danger {
+    max-width: 6.6em;
+    padding: 0 6px;
+    font-size: 0.7rem;
+    line-height: 1.1;
+    white-space: normal;
+  }
+}
+
+/* One chip per living opponent (a pod only): the lit one is where a tapped
+   creature is pointed. One line; it scrolls rather than wrap. */
+.combat-chips {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.combat-chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 4px 14px;
+  border: 2px solid var(--tint, var(--accent));
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--tint, var(--accent));
+  font-weight: 700;
+}
+
+.combat-chip--lit {
+  background: var(--tint, var(--accent));
+  color: #141410;
+}
+
+.combat-chip-name {
+  max-width: 9em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.combat-chip-n {
+  flex: 0 0 auto;
+  width: 3.2em; /* "⚔ 88" fits: a chip keeps its width as attackers are added */
+  overflow: hidden;
+  text-align: left;
+  white-space: nowrap;
+}
+
+/* The attackers coming at a defender: ONE line of FIXED height that scrolls
+   sideways. Twelve attackers or a stack of thirty, it is the same line. */
+.combat-strip {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  height: 64px;
+  flex: 0 0 64px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+}
+
+.strip-tile {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: auto 40px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  width: 196px;
+  height: 100%;
+  padding: 3px 8px 3px 5px;
+  border: 2px solid #3a3a44;
+  border-radius: 8px;
+  background: #1d1d24;
+  text-align: left;
+}
+
+.strip-tile--lit {
+  border-color: var(--accent);
+  background: #332b14;
+}
+
+.strip-no {
+  min-width: 1.3em;
+  font-size: 1.05rem;
+  font-weight: 800;
+  text-align: center;
+  color: var(--accent);
+}
+
+.strip-art {
+  width: 40px;
+  height: 54px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #2b2b33;
+}
+
+.strip-art img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.strip-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  font-family: var(--font-body);
+}
+
+.strip-name,
+.strip-way {
+  font-size: 0.72rem;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.strip-name {
+  font-weight: 700;
+}
+
+.strip-way {
+  color: #a8a8b4;
+}
+
+.strip-size {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.8rem;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.strip-mark {
+  flex: 0 0 auto;
+  padding: 0 4px;
+  border: 1px solid #4a4a5e;
+  border-radius: 999px;
+  background: #2c2c35;
+  font-size: 0.62rem;
+  font-style: normal;
+}
+
+/* The result: a line per defender, then what the app could not do alone.
+   It may scroll; it never pushes the cards further than a few lines. */
+.combat-result {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  max-height: 7em;
+  overflow-y: auto;
+  list-style: none;
+  font-family: var(--font-body);
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+.combat-flag {
+  color: #f0c36a;
+}
+
+.combat-flag--defeat {
+  color: #ff8a80;
+  font-weight: 700;
+}
+
+.combat-reading {
+  opacity: 0.75;
+  font-style: italic;
+}
+
+/* What a creature wears in a fight. Outlines and dimming sit on the card;
+   the marks are a child of it. Nothing here puts a transform on .vcard or
+   .thumb — a tapped card is already turned with one. */
+.vcard--attacking,
+.thumb--attacking {
+  outline: 3px solid #e0714f;
+  outline-offset: -3px;
+}
+
+.vcard--blocking,
+.thumb--blocking {
+  outline: 3px solid #6fb1e0;
+  outline-offset: -3px;
+}
+
+.vcard--dying,
+.thumb--dying {
+  outline: 3px solid #ff3b30;
+  outline-offset: -3px;
+}
+
+/* Cannot be picked by a tap (tapped, or summoning sick): dimmed. The hold
+   still opens its sheet, where "Attack anyway" lives. Two class names, so it
+   also outweighs the tapped card's own dimming further down this file. */
+.vcard.vcard--cant img,
+.vcard.vcard--cant .vcard-placeholder,
+.thumb.thumb--cant img,
+.thumb.thumb--cant .thumb-placeholder {
+  opacity: 0.3;
+  filter: grayscale(0.85);
+}
+
+.combat-marks {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%); /* the marks' own: never the card's */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  pointer-events: none;
+}
+
+.combat-mark {
+  padding: 1px 7px;
+  border: 1px solid var(--tint, #e0714f);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.84);
+  color: var(--tint, #f4c7bd);
+  font-size: 0.82rem;
+  font-weight: 800;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.combat-mark--block {
+  --tint: #9ccdf2;
+}
+
+.combat-mark--dies {
+  --tint: #ff6b5e;
+  background: rgba(64, 4, 4, 0.92);
+}
+
+/* A deck seat's own cards are drawn large: the marks keep up. */
+.zone--cards.zone--focused .vcard .combat-mark {
+  padding: 2px 10px;
+  font-size: 1.1rem;
+}
+
+/* A collapsed player's minis are 30px wide: a small mark, a thin outline. */
+.focus-mode .zone:not(.zone--focused) .combat-mark {
+  padding: 0 3px;
+  font-size: 0.55rem;
+  line-height: 1.25;
+}
+
+.focus-mode .zone:not(.zone--focused) .vcard--attacking,
+.focus-mode .zone:not(.zone--focused) .vcard--blocking,
+.focus-mode .zone:not(.zone--focused) .vcard--dying,
+.focus-mode .zone:not(.zone--focused) .thumb--attacking,
+.focus-mode .zone:not(.zone--focused) .thumb--blocking,
+.focus-mode .zone:not(.zone--focused) .thumb--dying {
+  outline-width: 2px;
+  outline-offset: -2px;
+}
+
+/* While a seat picks, the row under a creature stack counts the copies
+   going in (− "2 attacking" +) instead of the copies there are. The words
+   have ONE width (this font's digits are not all as wide as each other, and
+   "88 attacking" measures 7.05em): the tiles beside it must not shuffle by a
+   pixel as the number moves. */
+.pick-stepper {
+  gap: 3px;
+}
+
+.pick-stepper button {
+  min-width: 30px;
+}
+
+.pick-count {
+  flex: 0 0 auto;
+  width: 7.2em;
+  overflow: hidden;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-align: center;
+  white-space: nowrap;
 }
 
 /* ---- the stack ---- */
@@ -1684,6 +2152,12 @@ input[type='checkbox'] {
 
 .focus-mode .zone:not(.zone--focused) .zone-dice {
   display: none; /* the big board's dice is always a turn away */
+}
+
+/* The attacker's zone is a slim bar while a defender chooses blockers: the
+   "⚔ In combat" note has no room there, and the header chips say it. */
+.focus-mode .zone:not(.zone--focused) .attack-btn {
+  display: none;
 }
 
 /* Landscape: the collapsed line stays one row and the token strip gets
@@ -2669,6 +3143,21 @@ input[type='checkbox'] {
 .zone--cards.zone--focused > .board-strip { grid-area: tokens; }
 .zone--cards.zone--focused > .hand-tray { grid-area: hand; }
 
+/* A fight adds one line under the header, for the combat bar. Only while
+   this seat acts in it (PlayerZone marks the zone): an empty row would cost
+   every other turn a gap. The front row gives the room, as the flexible one. */
+.zone--cards.zone--focused.zone--combat {
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+  grid-template-areas:
+    'header header'
+    'combat combat'
+    'field field'
+    'lands tokens'
+    'hand hand';
+}
+
+.zone--cards.zone--focused > .combat-bar { grid-area: combat; }
+
 .zone--cards.zone--focused .bf-row {
   min-height: 0;
   align-items: stretch;
@@ -2727,7 +3216,8 @@ input[type='checkbox'] {
 .zone--cards.zone--focused .lands-total,
 .zone--cards.zone--focused .mana-ready,
 .zone--cards.zone--focused .turn-readouts,
-.zone--cards.zone--focused .untap-btn {
+.zone--cards.zone--focused .untap-btn,
+.zone--cards.zone--focused .attack-btn {
   flex: 0 0 auto;
   white-space: nowrap;
 }
@@ -2990,6 +3480,35 @@ input[type='checkbox'] {
   min-height: 36px;
   padding: 6px 12px;
   white-space: nowrap;
+}
+
+/* While a fight is on, Pass turn asks first, in place: "End combat and
+   pass?". The question takes two short lines inside a button EXACTLY as wide
+   as the one it replaces (the widths "Pass turn" has always had — 116px and
+   108px — now said outright, in rem because the question's own type is
+   smaller): Undo, More and — in a slim bar — the life buttons beside it must
+   not shift by a pixel under the next tap. */
+.center-hub .hub-pass {
+  width: 7.25rem;
+  min-height: 34px;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.center-hub--compact .hub-pass {
+  width: 6.75rem;
+  min-height: 36px;
+}
+
+.center-hub .hub-pass--asking {
+  padding-top: 2px;
+  padding-bottom: 2px;
+  border: 1px solid var(--danger);
+  background: #3a1612;
+  color: var(--fg);
+  font-size: 0.74rem;
+  line-height: 1.15;
+  white-space: normal;
 }
 
 .zone--hub .center-hub--compact .hub-actions button {
@@ -3299,6 +3818,22 @@ input[type='checkbox'] {
   flex: 0 0 auto;
   width: 92px;
   height: 128px;
+}
+
+/* A fight that involves this seat: one line, and a tap on it shows the table
+   (there is no picking on the phone's hand view). */
+.hs-combat {
+  width: 100%;
+  padding: 10px 12px;
+  border-color: #d4705a;
+  border-radius: 10px;
+  background: #3a1612;
+  color: #f4c7bd;
+  font-family: var(--font-body);
+  font-size: 0.92rem;
+  font-weight: 700;
+  line-height: 1.3;
+  text-align: left;
 }
 
 .hs-life-row {

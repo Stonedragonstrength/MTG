@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { boardSeat } from '../lib/combat';
 import { affordable, castCosts, hasX, parseCosts, sourcesFrom } from '../lib/pay';
 import { canPlayLand, isLandCard } from '../lib/turnRules';
 import type { CardInstance } from '../lib/types';
@@ -61,11 +62,16 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
   const [xFor, setXFor] = useState<string | null>(null); // the card the X sheet is asking about
 
   const activeIdx = game?.activePlayerIndex;
+  // The seat holding the big board: it also changes hands mid-turn, when a
+  // defender takes it to choose blockers and when it goes back.
+  const boardIdx = game ? boardSeat(game) : undefined;
   useEffect(() => {
-    if (!forceFanned) setFanned(false); // trays fold when the turn moves (table manners)
+    // Trays fold whenever the big board changes seat (table manners): a hand
+    // left fanned would lie open in front of whoever the table turns to next.
+    if (!forceFanned) setFanned(false);
     setBottoming(false);
     setSelected([]);
-  }, [activeIdx, forceFanned]);
+  }, [activeIdx, boardIdx, forceFanned]);
 
   const seat = game?.players[playerIdx]?.cards;
   const records = useCardRecords(seat?.hand ?? []);

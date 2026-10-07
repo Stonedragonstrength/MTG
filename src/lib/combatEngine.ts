@@ -218,6 +218,25 @@ export function readUnit(
   return null;
 }
 
+/** Everything a seat could send into a fight, read once: its front-row
+ * cards in play order, then its stacks — never the lands shelf. Each says
+ * for itself whether it is a creature (see UnitRead.creature). */
+export function readUnits(
+  game: GameState,
+  seat: number,
+  records: CardRecords,
+  read: SeatRead = readSeat(game, seat, records),
+): UnitRead[] {
+  const player = game.players[seat];
+  if (!player) return [];
+  return [
+    ...(player.cards?.battlefield ?? [])
+      .filter((c) => c.row !== 'lands')
+      .map((c) => readCard(game, read, c, records)),
+    ...player.board.filter((it) => it.zone !== 'lands').map((it) => readStack(game, read, it)),
+  ];
+}
+
 /** Has it this keyword, printed or handed to it? */
 export function hasKeyword(
   read: Pick<UnitRead, 'printed' | 'granted'> | null,

@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { handLine } from '../lib/combatView';
 import { useAppStore } from '../state/store';
 import BattlefieldRow from './BattlefieldRow';
 import HandTray from './HandTray';
@@ -33,6 +34,10 @@ export default function HandScreen({ seatIdx, onShowTable }: Props) {
   if (!game) return null;
   const me = game.players[seatIdx];
   if (!me?.cards) return null;
+  // No picking here in this version (this screen draws no tokens and has no
+  // Undo): a fight that involves this seat is one line, and the line is the
+  // way to the table.
+  const fightLine = handLine(game, seatIdx);
 
   return (
     <div className="hand-screen">
@@ -70,9 +75,15 @@ export default function HandScreen({ seatIdx, onShowTable }: Props) {
           );
         })}
       </header>
+      {fightLine && (
+        <button className="hs-combat" aria-label={`${fightLine} — see table`} onClick={onShowTable}>
+          <span aria-hidden="true">⚔ </span>
+          {fightLine}
+        </button>
+      )}
       <section className="hs-board">
-        <BattlefieldRow playerIdx={seatIdx} />
-        <LandsRow playerIdx={seatIdx} />
+        <BattlefieldRow playerIdx={seatIdx} picks={false} />
+        <LandsRow playerIdx={seatIdx} attackButton={false} />
       </section>
       <section className="hs-life-row" aria-label="my life">
         <LifeCounter life={me.life} onAdjust={(delta) => adjustLife(seatIdx, delta)} />
