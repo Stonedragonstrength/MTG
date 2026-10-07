@@ -85,37 +85,54 @@ function copiesOf(deck: Deck, card: CardRecord): number {
   );
 }
 
-/** Applies a resolved decklist. Lines flagged as commanders fill the
- * command zone: the first leads (a deck it already leads keeps its
- * partner), and a second joins it when the rules allow the pair — in
- * either order, so a Background listed first still ends up second. Any
- * other flagged card is kept as an ordinary one rather than replacing
- * the leader. `added` is what the deck actually gained. */
+/** Applies a resolved decklist: first the command zone, from the lines
+ * flagged as commanders, then every other line as an ordinary card.
+ *
+ * - Two flagged cards the rules let share a deck are the pair, whatever
+ *   the deck held before and in whichever order they are listed (a
+ *   Background listed first still ends up second). A card already in the
+ *   first slot keeps it.
+ * - A lone flagged card leads; if it is already one of the deck's
+ *   commanders nothing changes, so pasting the rest of a list never costs
+ *   a saved partner.
+ * - Any further flagged card is an ordinary card, not a replacement.
+ * - A card sitting in the command zone gets no second copy in the 99.
+ *
+ * `added` counts the copies from the list that the deck did not have. */
 export function importLines(
   deck: Deck,
   lines: { card: CardRecord; count: number; commander: boolean }[],
 ): { deck: Deck; added: number } {
   let next = deck;
+  const inZone = (card: CardRecord) => isCard(next.commander, card) || isCard(next.partner, card);
+
+  const flagged: CardRecord[] = [];
+  for (const l of lines) {
+    if (l.commander && !flagged.some((c) => c.id === l.card.id)) flagged.push(l.card);
+  }
+  const [a, b] = flagged;
+  if (a && b && (canPartner(a, b) || canPartner(b, a))) {
+    const either = canPartner(a, b) && canPartner(b, a);
+    const lead = either ? (isCard(next.commander, b) ? b : a) : canPartner(a, b) ? a : b;
+    const second = lead === a ? b : a;
+    if (!isCard(next.commander, lead)) next = setCommander(next, lead);
+    if (!isCard(next.partner, second)) next = setPartner(next, second);
+  } else if (a && !inZone(a)) {
+    next = setCommander(next, a);
+  }
+
+  for (const { card, count } of lines) {
+    if (inZone(card)) continue;
+    next = addCard(next, card);
+    if (count > 1) next = changeCardCount(next, card.id, count - 1);
+  }
+
   let added = 0;
-  let flagged = 0;
-  let lead: CardRecord | null = null; // this list's first commander, when it leads the deck
-  for (const { card, count, commander } of lines) {
-    const before = copiesOf(next, card);
-    if (commander && (isCard(next.commander, card) || isCard(next.partner, card))) {
-      if (flagged === 0 && isCard(next.commander, card)) lead = card;
-    } else if (commander && flagged === 0) {
-      next = setCommander(next, card);
-      lead = card;
-    } else if (commander && flagged === 1 && lead && canPartner(lead, card)) {
-      next = setPartner(next, card);
-    } else if (commander && flagged === 1 && lead && canPartner(card, lead)) {
-      next = setPartner(setCommander(next, card), lead);
-    } else {
-      next = addCard(next, card);
-      if (count > 1) next = changeCardCount(next, card.id, count - 1);
-    }
-    if (commander) flagged += 1;
-    added += copiesOf(next, card) - before;
+  const counted = new Set<string>();
+  for (const { card } of lines) {
+    if (counted.has(card.id)) continue;
+    counted.add(card.id);
+    added += Math.max(0, copiesOf(next, card) - copiesOf(deck, card));
   }
   return { deck: next, added };
 }

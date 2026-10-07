@@ -158,6 +158,19 @@ describe('importLines (a pasted decklist)', () => {
     'Legendary Enchantment — Background',
   );
   const lathril = legend('Lathril, Blade of the Elves', ['B', 'G'], 'Menace');
+  const kraum = legend("Kraum, Ludevic's Opus", ['U', 'R'], PARTNER);
+  const abdel = legend(
+    "Abdel Adrian, Gorion's Ward",
+    ['W'],
+    'Choose a Background (You can have a Background as a second commander.)',
+  );
+  const amy = legend(
+    'Amy Pond',
+    ['R'],
+    "Partner with Rory Williams (When this creature enters, target player may put Rory into their hand from their library, then shuffle.)\nDoctor's companion (You can have two commanders if the other is the Doctor.)",
+  );
+  const rory = legend('Rory Williams', ['W'], 'Partner with Amy Pond (When this creature enters, target player may put Amy into their hand from their library, then shuffle.)');
+  const eleventh = legend('The Eleventh Doctor', ['U'], '', 'Legendary Creature — Time Lord Doctor');
   const ring: CardRecord = { ...card('Sol Ring', 'Artifact'), colorIdentity: [] };
   const swords: CardRecord = { ...card('Swords to Plowshares', 'Instant'), colorIdentity: ['W'] };
   const cmdr = (c: CardRecord) => ({ card: c, count: 1, commander: true });
@@ -210,6 +223,59 @@ describe('importLines (a pasted decklist)', () => {
     expect(deck.partner ?? null).toBeNull();
     expect(deck.colors).toEqual(['B', 'G']);
     expect(added).toBe(1);
+  });
+
+  test('a listed pair wins even when its first card is the deck\'s current second commander', () => {
+    const before = setPartner(setCommander(createDeck('Pair'), rory), amy);
+    const { deck } = importLines(before, [cmdr(amy), cmdr(eleventh), line(ring)]);
+    expect(deck.commander?.name).toBe('Amy Pond');
+    expect(deck.partner?.name).toBe('The Eleventh Doctor');
+    expect(deck.cards.map((c) => c.name)).toEqual(['Sol Ring']); // the Doctor is not filed in the 99
+  });
+
+  test('a new partner for the saved second commander replaces the old first one', () => {
+    const before = setPartner(setCommander(createDeck('Pair'), thrasios), tymna);
+    const { deck } = importLines(before, [cmdr(tymna), cmdr(kraum)]);
+    expect([deck.commander?.name, deck.partner?.name]).toEqual(['Tymna the Weaver', "Kraum, Ludevic's Opus"]);
+    expect(deck.cards).toEqual([]);
+  });
+
+  test('a saved Background keeps its slot when the list brings it a new commander', () => {
+    const before = setPartner(setCommander(createDeck('Bg'), wilson), raised);
+    const { deck } = importLines(before, [cmdr(raised), cmdr(abdel)]);
+    expect([deck.commander?.name, deck.partner?.name]).toEqual(["Abdel Adrian, Gorion's Ward", 'Raised by Giants']);
+  });
+
+  test('the commander already in the first slot keeps it when the list names the pair the other way round', () => {
+    const before = setCommander(createDeck('Half'), tymna);
+    const { deck, added } = importLines(before, [cmdr(thrasios), cmdr(tymna), line(ring)]);
+    expect([deck.commander?.name, deck.partner?.name]).toEqual(['Tymna the Weaver', 'Thrasios, Triton Hero']);
+    expect(deckSize(deck)).toBe(3);
+    expect(added).toBe(2); // Tymna was already there
+  });
+
+  test('a commander the list displaces and then lists again is not counted as gained', () => {
+    const before = setPartner(setCommander(createDeck('Pair'), thrasios), tymna);
+    const { deck, added } = importLines(before, [cmdr(kraum), line(thrasios), line(tymna)]);
+    expect(deck.commander?.name).toBe("Kraum, Ludevic's Opus");
+    expect(deck.partner ?? null).toBeNull();
+    expect(deck.cards.map((c) => c.name)).toEqual(['Thrasios, Triton Hero', 'Tymna the Weaver']);
+    expect(added).toBe(1); // only Kraum is new to the deck
+  });
+
+  test('the commander written as an ordinary line does not get a second copy in the 99', () => {
+    const before = setPartner(setCommander(createDeck('Pair'), thrasios), tymna);
+    const { deck, added } = importLines(before, [line(thrasios), line(tymna), line(ring)]);
+    expect(deck.cards.map((c) => c.name)).toEqual(['Sol Ring']);
+    expect(deckSize(deck)).toBe(3);
+    expect(added).toBe(1);
+  });
+
+  test('the same commander flagged twice is seated once', () => {
+    const { deck, added } = importLines(createDeck('Twice'), [cmdr(lathril), cmdr(lathril), line(ring)]);
+    expect(deck.commander?.name).toBe('Lathril, Blade of the Elves');
+    expect(deck.cards.map((c) => c.name)).toEqual(['Sol Ring']);
+    expect(added).toBe(2);
   });
 
   test('counts what the deck actually gained: a repeated line adds once, basics stack', () => {
