@@ -120,30 +120,53 @@ export function flushPersistence(): Promise<unknown> {
 const HISTORY_CAP = 100;
 const LOG_CAP = 200;
 
-/** Every ready mana activation a seat could tap right now, with records
- * resolved through the same id→name chain the UI uses. */
-async function seatSources(g: GameState, seat: number): Promise<payLib.ManaSource[]> {
-  const battlefield = g.players[seat]?.cards?.battlefield ?? [];
+type SeatRecords = Record<string, CardRecord | undefined>;
+
+/** Card records for everything on a seat's battlefield, resolved through
+ * the same id→name chain the UI uses. Card text is static, so this is the
+ * one part of a payment that can safely be read before the op runs. */
+async function seatRecords(g: GameState, seat: number): Promise<SeatRecords> {
   const m = await import('../data/scryfall');
-  const records: Record<string, CardRecord | undefined> = {};
-  for (const c of battlefield) {
-    if (c.cardId in records) continue; // tapped cards still float mana and grant abilities
+  const records: SeatRecords = {};
+  for (const c of g.players[seat]?.cards?.battlefield ?? []) {
+    if (c.cardId in records) continue;
     const byId = await m.getCardById(c.cardId).catch(() => undefined);
     records[c.cardId] = byId ?? (await m.findCardByName(c.name).catch(() => undefined));
   }
-  return payLib.sourcesFrom(battlefield, records, g.players[seat]?.board ?? []);
+  return records;
 }
 
-/** Runs a payment inside the cast's own op, so undo and rebase treat the
- * card and its mana as one move. Every step no-ops on a missing target. */
-function applyPayment(g: GameState, seat: number, plan: payLib.PaymentPlan | null): GameState {
-  if (!plan) return g; // nothing can pay it (or it was forced): tap nothing
-  let next = g;
-  for (const [iid, units] of Object.entries(plan.spend))
-    next = cardsLib.spendMana(next, seat, iid, units);
-  for (const [itemId, copies] of Object.entries(plan.boardTaps))
-    next = boardLib.tapItem(next, seat, itemId, copies);
-  return next;
+/** Pays for a cast against the state the op actually lands on — never a
+ * tap list frozen earlier — so two casts fired together cannot spend the
+ * same lands, and undo and rebase treat the card and its mana as one
+ * move. A cast that arrives in a different turn from the one it was made
+ * in (a rebase past a Pass turn) only moves the card: tapping that later
+ * turn's lands for it would leave the player short for no reason. `base`
+ * is the state BEFORE the card moves, so it cannot pay for itself. */
+function payFrom(
+  base: GameState,
+  seat: number,
+  costs: payLib.PayCost[],
+  records: SeatRecords,
+  castIn: { turn: number; active: number },
+): (moved: GameState) => GameState {
+  const sameTurn = base.turnNumber === castIn.turn && base.activePlayerIndex === castIn.active;
+  const player = base.players[seat];
+  const plan = sameTurn
+    ? payLib.planAnyFace(
+        costs,
+        payLib.sourcesFrom(player?.cards?.battlefield ?? [], records, player?.board ?? []),
+      )
+    : null;
+  return (moved) => {
+    if (!plan) return moved; // nothing can pay it (or it was forced): tap nothing
+    let next = moved;
+    for (const [iid, units] of Object.entries(plan.spend))
+      next = cardsLib.spendMana(next, seat, iid, units);
+    for (const [itemId, copies] of Object.entries(plan.boardTaps))
+      next = boardLib.tapItem(next, seat, itemId, copies);
+    return next;
+  };
 }
 
 export function createAppStore() {
@@ -422,17 +445,18 @@ export function createAppStore() {
         const row: 'front' | 'lands' = isLand ? 'lands' : 'front';
         const isSpell = /Instant|Sorcery/.test(typeLine) && !/Land|Creature/.test(typeLine);
         const verb = isSpell ? 'casts' : 'plays';
-        // Auto-payment: the untapped table pays the cost as the card lands.
-        // No plan (cost-reducers, treasures, bare trust) = play, tap nothing.
-        const plan = isLand
-          ? null
-          : payLib.planPayment(payLib.parseCost(record?.manaCost ?? ''), await seatSources(g, seat));
+        // Auto-payment: the table pays the cost as the card lands. No plan
+        // (cost-reducers, treasures, bare trust) = play, tap nothing.
+        const costs = isLand ? [] : payLib.parseCosts(record?.manaCost ?? '');
+        const records = await seatRecords(g, seat);
+        const castIn = { turn: g.turnNumber, active: g.activePlayerIndex };
         cardMutate(
           (base) => {
+            const pay = payFrom(base, seat, costs, records, castIn);
             const moved = isSpell
               ? cardsLib.moveCard(base, seat, iid, 'hand', 'graveyard')
               : cardsLib.moveCard(base, seat, iid, 'hand', 'battlefield', { row });
-            return moved === base ? base : applyPayment(moved, seat, plan);
+            return moved === base ? base : pay(moved);
           },
           `${seatName(g, seat)} ${verb} ${card.name}`,
           (base) => !!base.players[seat]?.cards?.hand.some((c) => c.iid === iid),
@@ -559,15 +583,18 @@ export function createAppStore() {
             if (byId) return byId;
             return m.findCardByName(cmd.name).catch(() => undefined);
           });
+          // From the command zone it is the front face that is cast.
           const cost = payLib.parseCost(record?.manaCost ?? '');
           cost.generic += tax;
-          const plan = payLib.planPayment(cost, await seatSources(g, seat));
+          const records = await seatRecords(g, seat);
+          const castIn = { turn: g.turnNumber, active: g.activePlayerIndex };
           cardMutate(
             (base) => {
+              const pay = payFrom(base, seat, [cost], records, castIn);
               const moved = cardsLib.moveCard(base, seat, cmd.iid, 'command', 'battlefield', {
                 row: 'front',
               });
-              return moved === base ? base : applyPayment(moved, seat, plan);
+              return moved === base ? base : pay(moved);
             },
             `${seatName(g, seat)} casts ${cmd.name}${tax > 0 ? ` (tax +${tax})` : ''}`,
             (base) => !!base.players[seat]?.cards?.command.some((c) => c.iid === cmd.iid),

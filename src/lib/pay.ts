@@ -1,10 +1,4 @@
-import {
-  effectiveManaColors,
-  isOneShotSource,
-  isOneShotText,
-  tapManaFromText,
-  type ManaColor,
-} from './mana';
+import { tapManaFromText, type ManaColor } from './mana';
 import type { BoardItem, CardInstance, CardRecord } from './types';
 
 /** A cost split for payment: generic count plus one entry per colored
@@ -37,10 +31,23 @@ export interface PaymentPlan {
 
 const COLOR_SET = new Set(['W', 'U', 'B', 'R', 'G', 'C']);
 
+/** One cost per castable face. Adventure, split, omen and Room cards
+ * carry "front // back" in a single mana-cost string; a cast pays ONE of
+ * them, never both added together. */
+export function parseCosts(manaCost: string): PayCost[] {
+  return manaCost.split(' // ').map(parseFace);
+}
+
+/** The front face's cost: what the card costs as a permanent, and what
+ * a commander costs from the command zone. */
+export function parseCost(manaCost: string): PayCost {
+  return parseFace(manaCost.split(' // ')[0]);
+}
+
 /** {3}{G}{G} → 3 generic + two G pips. X pays zero; hybrid {G/W} accepts
  * either side; {2/W} and phyrexian {G/P} approximate to their color;
  * {C} stays strict (an any-color source cannot make colorless). */
-export function parseCost(manaCost: string): PayCost {
+function parseFace(manaCost: string): PayCost {
   let generic = 0;
   const pips: ManaColor[][] = [];
   for (const [, symbol] of manaCost.matchAll(/\{([^}]+)\}/g)) {
@@ -137,6 +144,17 @@ export function affordable(cost: PayCost, sources: ManaSource[]): boolean {
   return planPayment(cost, sources) !== null;
 }
 
+/** Pays the first face the seat can afford, front face first — so a
+ * creature with an adventure costs its own cost when that is payable,
+ * and a split card needs only one half's colors. Null when no face is. */
+export function planAnyFace(costs: PayCost[], sources: ManaSource[]): PaymentPlan | null {
+  for (const cost of costs) {
+    const plan = planPayment(cost, sources);
+    if (plan) return plan;
+  }
+  return null;
+}
+
 /** Every unit the seat could spend right now — the number the table reads. */
 export function availableMana(sources: ManaSource[]): number {
   return sources.reduce((sum, s) => sum + s.amount, 0);
@@ -150,29 +168,50 @@ const BASIC_COLOR: Record<string, ManaColor> = {
   forest: 'G',
 };
 
-/** Mana abilities other permanents hand to your creatures: Cryptolith
- * Rite's quoted `{T}: Add …`, and Ashaya making them basic lands. */
-function grantsFrom(texts: string[]): { all: (ManaColor | 'any')[]; nontoken: (ManaColor | 'any')[] } {
-  const all: (ManaColor | 'any')[] = [];
-  const nontoken: (ManaColor | 'any')[] = [];
-  const add = (into: (ManaColor | 'any')[], colors: (ManaColor | 'any')[]) => {
+type Colors = (ManaColor | 'any')[];
+
+interface Grants {
+  /** every creature you control, tokens included */
+  creatures: Colors;
+  /** nontoken creatures only (plus everything in `creatures`) */
+  nontoken: Colors;
+  lands: Colors;
+}
+
+/** Mana abilities other permanents hand out. To creatures: Cryptolith
+ * Rite's quoted `{T}: Add …`, Ashaya making them Forests. To lands:
+ * Urborg and Yavimaya making every land a Swamp or Forest, Chromatic
+ * Lantern's quoted ability, Prismatic Omen's every basic land type. */
+function grantsFrom(texts: string[]): Grants {
+  const creatures: Colors = [];
+  const nontoken: Colors = [];
+  const lands: Colors = [];
+  const add = (into: Colors, colors: Colors) => {
     for (const c of colors) if (!into.includes(c)) into.push(c);
   };
   for (const text of texts) {
     const quoted = text.match(/creatures you control have "([^"]*)"/i);
-    if (quoted) add(all, tapManaFromText(quoted[1]).produces);
+    if (quoted) add(creatures, tapManaFromText(quoted[1]).produces);
     const landed = text.match(
       /(nontoken )?creatures you control are (plains|island|swamp|mountain|forest) lands/i,
     );
-    if (landed) add(landed[1] ? nontoken : all, [BASIC_COLOR[landed[2].toLowerCase()]]);
+    if (landed) add(landed[1] ? nontoken : creatures, [BASIC_COLOR[landed[2].toLowerCase()]]);
+
+    const eachLand = text.match(/each land is an? (plains|island|swamp|mountain|forest)\b/i);
+    if (eachLand) add(lands, [BASIC_COLOR[eachLand[1].toLowerCase()]]);
+    const landsHave = text.match(/lands you control have "([^"]*)"/i);
+    if (landsHave) add(lands, tapManaFromText(landsHave[1]).produces);
+    if (/lands you control are every basic land type/i.test(text)) add(lands, ['any']);
   }
-  return { all, nontoken: [...nontoken, ...all.filter((c) => !nontoken.includes(c))] };
+  add(nontoken, creatures);
+  return { creatures, nontoken, lands };
 }
 
 /** Everything a seat can draw mana from right now. Untapped mana cards
  * are fresh sources; a card you tapped by hand floats whatever nothing has
- * spent yet. Board stacks offer their untapped copies. Sacrifice-for-mana
- * permanents stay manual — a payment never eats a permanent. */
+ * spent yet. Board stacks offer their untapped copies. An ability that
+ * sacrifices something is never counted (tapManaFromText skips it) — a
+ * payment does not eat a permanent — so Treasures stay manual. */
 export function sourcesFrom(
   battlefield: CardInstance[],
   records: Record<string, CardRecord | null | undefined>,
@@ -182,15 +221,18 @@ export function sourcesFrom(
     battlefield.map((c) => records[c.cardId]?.oracleText ?? '').filter((t) => t !== ''),
   );
   const out: ManaSource[] = [];
+  const widen = (produces: Colors, extra: Colors) => {
+    for (const g of extra) if (!produces.includes(g)) produces.push(g);
+  };
 
   for (const c of battlefield) {
     const record = records[c.cardId];
     if (!record) continue; // unresolved: its text is not readable yet
-    if (isOneShotText(record.oracleText)) continue;
     const creature = /Creature/.test(record.typeLine);
     const own = tapManaFromText(record.oracleText);
     const produces = [...own.produces];
-    if (creature) for (const g of granted.nontoken) if (!produces.includes(g)) produces.push(g);
+    if (creature) widen(produces, granted.nontoken);
+    if (/\bLand\b/.test(record.typeLine)) widen(produces, granted.lands);
     if (produces.length === 0) continue;
     const total = Math.max(own.amount, 1);
     const amount = c.tapped ? total - (c.spent ?? 0) : total;
@@ -206,11 +248,15 @@ export function sourcesFrom(
   }
 
   for (const item of board) {
-    if (isOneShotSource(item)) continue;
+    if (item.manaMode === 'none') continue; // the player silenced it
     const creature = /Creature/.test(item.typeLine);
-    const produces = [...effectiveManaColors(item)];
-    if (creature && item.manaMode !== 'none')
-      for (const g of granted.all) if (!produces.includes(g)) produces.push(g);
+    // A manual "Taps for" override wins; otherwise the same strict reading
+    // as real cards, so a stack's sacrifice ability is never auto-spent.
+    const produces: Colors = item.manaMode
+      ? [item.manaMode]
+      : [...tapManaFromText(item.oracleText).produces];
+    if (creature) widen(produces, granted.creatures);
+    if (item.zone === 'lands' || /\bLand\b/.test(item.typeLine)) widen(produces, granted.lands);
     if (produces.length === 0) continue;
     const ready = item.count - (item.tapped ?? 0);
     for (let i = 0; i < ready; i++) {

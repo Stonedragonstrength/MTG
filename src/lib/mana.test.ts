@@ -44,6 +44,58 @@ describe('tapManaFromText', () => {
     expect(tapManaFromText(grotto)).toEqual({ produces: ['C', 'any'], amount: 1 });
   });
 
+  test('mana named by a color the text does not print still counts, as any color', () => {
+    // Coldsteel Heart, Uncharted Haven
+    expect(tapManaFromText('{T}: Add one mana of the chosen color.')).toEqual({
+      produces: ['any'],
+      amount: 1,
+    });
+    // Throne of Eldraine
+    expect(tapManaFromText('{T}: Add four mana of the chosen color.')).toEqual({
+      produces: ['any'],
+      amount: 4,
+    });
+    // Bloom Tender
+    expect(
+      tapManaFromText('{T}: For each color among permanents you control, add one mana of that color.'),
+    ).toEqual({ produces: ['any'], amount: 1 });
+    // Chrome Mox, Firemind Vessel
+    expect(tapManaFromText("{T}: Add one mana of any of the exiled card's colors.").produces).toEqual(['any']);
+    expect(tapManaFromText('{T}: Add two mana of different colors.')).toEqual({
+      produces: ['any'],
+      amount: 2,
+    });
+  });
+
+  test('a printed color OR a chosen one offers both', () => {
+    // Thriving Grove
+    expect(tapManaFromText('{T}: Add {G} or one mana of the chosen color.')).toEqual({
+      produces: ['any', 'G'],
+      amount: 1,
+    });
+  });
+
+  test('an ability that sacrifices something is skipped; the card’s plain tap ability is kept', () => {
+    // Phyrexian Tower
+    expect(tapManaFromText('{T}: Add {C}.\n{T}, Sacrifice a creature: Add {B}{B}.')).toEqual({
+      produces: ['C'],
+      amount: 1,
+    });
+    // Treasure, Lotus Petal: nothing reusable at all
+    expect(tapManaFromText('{T}, Sacrifice this artifact: Add one mana of any color.')).toEqual({
+      produces: [],
+      amount: 0,
+    });
+  });
+
+  test('words that merely contain "add" or quoted token text never disqualify a land', () => {
+    const roads = '{T}: Add {C}.\nWhenever a creature you control saddles a Mount, put a +1/+1 counter on it.';
+    expect(tapManaFromText(roads)).toEqual({ produces: ['C'], amount: 1 });
+    const bed =
+      '{T}: Add {C}.\n{6}, {T}: Create two 1/1 colorless Eldrazi Scion creature tokens. They have "Sacrifice this creature: Add {C}."';
+    expect(tapManaFromText(bed)).toEqual({ produces: ['C'], amount: 1 });
+  });
+
   test('"add" without a tap cost is not a mana ability', () => {
     expect(
       tapManaFromText('Whenever a Forest is tapped for mana, its controller adds an additional {G}.'),

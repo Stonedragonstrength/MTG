@@ -41,13 +41,28 @@ export function manaColors(item: BoardItem): (ManaColor | 'any')[] {
   return manaColorsFromText(item.oracleText);
 }
 
-const NUMBER_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 };
+const NUMBER_WORDS: Record<string, number> = {
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+};
 
 /** What one tap actually yields, for paying costs: only real `{T}: Add …`
  * abilities count (a triggered "adds an additional {G}" is not a source),
  * abilities a card merely grants in quotes are ignored here, and mana the
- * ability costs comes off the top (a Signet nets one). Several abilities
- * report the best net amount and every color any of them offers. */
+ * ability costs comes off the top (a Signet nets one). An ability that
+ * sacrifices something is skipped — a payment never spends a permanent —
+ * but the card's other abilities still count (Phyrexian Tower keeps its
+ * plain {C}). Several abilities report the best net amount and every
+ * color any of them offers. Reads generously: blocking a legal play is
+ * the failure that matters. */
 export function tapManaFromText(text: string): {
   produces: (ManaColor | 'any')[];
   amount: number;
@@ -59,21 +74,26 @@ export function tapManaFromText(text: string): {
     const m = line.match(/([^.(]*\{T\}[^:]*):\s*[^.]*?\badd\s+([^.]*)/i);
     if (!m) continue;
     const [, cost, phrase] = m;
+    if (/\bsacrifice\b/i.test(cost)) continue;
     const paid =
       [...cost.matchAll(/\{(\d+)\}/g)].reduce((sum, [, n]) => sum + Number(n), 0) +
       [...cost.matchAll(/\{[WUBRGC]\}/g)].length;
 
-    let yielded: number;
-    if (/any (one )?color|any combination of colors|any type/i.test(phrase)) {
-      const word = phrase.match(/\b(one|two|three|four|five)\b/i)?.[1].toLowerCase();
-      yielded = word ? NUMBER_WORDS[word] : 1;
-      if (!produces.includes('any')) produces.push('any');
-    } else {
-      const symbols = [...phrase.matchAll(/\{([WUBRGC])\}/g)].map(([, s]) => s as ManaColor);
-      if (symbols.length === 0) continue;
-      for (const s of symbols) if (!produces.includes(s)) produces.push(s);
-      // "{G} or {W}" is a choice of one; "{C}{C}" is that many.
-      yielded = /\bor\b/i.test(phrase) ? 1 : symbols.length;
+    const symbols = [...phrase.matchAll(/\{([WUBRGC])\}/g)].map(([, s]) => s as ManaColor);
+    // Mana named by a color the text doesn't print — "of any color", "of
+    // the chosen color", "of that color", "of different colors", "any
+    // type" — is taken as any color.
+    const unnamed = /\bmana\b[^.]*\b(colou?rs?|types?)\b|any combination/i.test(phrase);
+    if (!unnamed && symbols.length === 0) continue;
+    if (unnamed && !produces.includes('any')) produces.push('any');
+    for (const s of symbols) if (!produces.includes(s)) produces.push(s);
+
+    let yielded = 1; // a choice between options is one mana
+    if (unnamed && symbols.length === 0) {
+      const word = phrase.match(/\b(one|two|three|four|five|six|seven|eight|nine|ten)\b/i)?.[1];
+      yielded = word ? NUMBER_WORDS[word.toLowerCase()] : 1;
+    } else if (!unnamed && !/\bor\b/i.test(phrase)) {
+      yielded = symbols.length; // "{C}{C}" is that many
     }
     amount = Math.max(amount, yielded - paid);
   }

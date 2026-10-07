@@ -433,6 +433,90 @@ describe('cards mode', () => {
     expect(bf.find((c) => c.iid === 'f2')?.spent).toBe(1);
   });
 
+  /** Seat 0 with the given hand and battlefield; records for a Forest and two bears. */
+  async function tableWith(
+    hand: { iid: string; cardId: string; name: string }[],
+    lands: number,
+  ) {
+    const store = await cardsStore();
+    await getDb().cards.bulkPut([
+      { ...deckRecord('c-forest', 'Forest', 'Basic Land — Forest'), oracleText: '({T}: Add {G}.)' },
+      { ...deckRecord('c-bear', 'Grizzly Bears', 'Creature — Bear'), manaCost: '{1}{G}' },
+      { ...deckRecord('c-cub', 'Bear Cub', 'Creature — Bear'), manaCost: '{1}{G}' },
+      {
+        ...deckRecord('c-giant', 'Bonecrusher Giant // Stomp', 'Creature — Giant // Instant — Adventure'),
+        manaCost: '{2}{G} // {1}{G}',
+      },
+    ]);
+    const g = store.getState().game!;
+    store.setState({
+      game: {
+        ...g,
+        players: g.players.map((p, i) =>
+          i === 0
+            ? {
+                ...p,
+                cards: {
+                  ...p.cards!,
+                  hand,
+                  battlefield: Array.from({ length: lands }, (_, k) => ({
+                    iid: `f${k + 1}`,
+                    cardId: 'c-forest',
+                    name: 'Forest',
+                    row: 'lands' as const,
+                  })),
+                },
+              }
+            : p,
+        ),
+      },
+    });
+    return store;
+  }
+  const lands = (store: ReturnType<typeof createAppStore>) =>
+    store.getState().game!.players[0].cards!.battlefield.filter((c) => c.row === 'lands');
+
+  test('a creature with an adventure pays its own cost, not both halves', async () => {
+    const store = await tableWith([{ iid: 'h1', cardId: 'c-giant', name: 'Bonecrusher Giant' }], 6);
+    await store.getState().playCard(0, 'h1');
+    expect(lands(store).filter((c) => c.tapped)).toHaveLength(3); // {2}{G}, not five
+  });
+
+  test('when only the cheaper half of a two-part card is payable, that half is paid', async () => {
+    const store = await tableWith([{ iid: 'h1', cardId: 'c-giant', name: 'Bonecrusher Giant' }], 2);
+    await store.getState().playCard(0, 'h1');
+    expect(lands(store).filter((c) => c.tapped)).toHaveLength(2); // the {1}{G} half
+  });
+
+  test('two casts fired together never pay with the same lands', async () => {
+    const store = await tableWith(
+      [
+        { iid: 'h-bear', cardId: 'c-bear', name: 'Grizzly Bears' },
+        { iid: 'h-cub', cardId: 'c-cub', name: 'Bear Cub' },
+      ],
+      4,
+    );
+    await Promise.all([store.getState().playCard(0, 'h-bear'), store.getState().playCard(0, 'h-cub')]);
+    const after = lands(store);
+    expect(after.every((c) => c.tapped)).toBe(true); // four mana of spells on four lands
+    expect(after.every((c) => c.spent === 1)).toBe(true); // none charged twice
+  });
+
+  test('a cast replayed into a later turn moves the card but leaves that turn’s lands alone', async () => {
+    const store = await tableWith([{ iid: 'h-bear', cardId: 'c-bear', name: 'Grizzly Bears' }], 2);
+    const before = store.getState().game!;
+    (tableSync.onLocalMutation as ReturnType<typeof vi.fn>).mockClear();
+    await store.getState().playCard(0, 'h-bear');
+    const op = (tableSync.onLocalMutation as ReturnType<typeof vi.fn>).mock.lastCall![0] as (
+      g: GameState,
+    ) => GameState;
+    // The table moved on before this cast arrived: a full round later, lands readied.
+    const rebased = op({ ...before, turnNumber: before.turnNumber + 2 });
+    const seat = rebased.players[0].cards!;
+    expect(seat.battlefield.some((c) => c.iid === 'h-bear')).toBe(true); // the card still arrives
+    expect(seat.battlefield.some((c) => c.tapped)).toBe(false); // but this turn's mana is untouched
+  });
+
   test('a cast nothing can pay still resolves, tapping nothing (trust model)', async () => {
     const store = await cardsStore();
     const bolt = {

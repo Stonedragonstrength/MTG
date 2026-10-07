@@ -1,6 +1,15 @@
 import { describe, expect, test } from 'vitest';
 import type { BoardItem, CardInstance, CardRecord } from './types';
-import { affordable, availableMana, parseCost, planPayment, sourcesFrom, type ManaSource } from './pay';
+import {
+  affordable,
+  availableMana,
+  parseCost,
+  parseCosts,
+  planAnyFace,
+  planPayment,
+  sourcesFrom,
+  type ManaSource,
+} from './pay';
 
 function src(
   key: string,
@@ -22,6 +31,39 @@ describe('parseCost', () => {
     expect(parseCost('{G/W}{1}')).toEqual({ generic: 1, pips: [['G', 'W']] });
     expect(parseCost('{C}{C}')).toEqual({ generic: 0, pips: [['C'], ['C']] });
     expect(parseCost('{G/P}')).toEqual({ generic: 0, pips: [['G']] }); // phyrexian ≈ its color
+  });
+});
+
+describe('two-faced costs', () => {
+  test('each face is its own cost — never the two added together', () => {
+    // Bonecrusher Giant // Stomp
+    expect(parseCosts('{2}{R} // {1}{R}')).toEqual([
+      { generic: 2, pips: [['R']] },
+      { generic: 1, pips: [['R']] },
+    ]);
+    expect(parseCosts('{1}{G}')).toEqual([{ generic: 1, pips: [['G']] }]);
+    expect(parseCosts('')).toEqual([{ generic: 0, pips: [] }]);
+  });
+
+  test('parseCost reads the front face (what a commander or permanent costs)', () => {
+    expect(parseCost('{2}{R} // {1}{W}')).toEqual({ generic: 2, pips: [['R']] });
+  });
+
+  test('a creature with an adventure is castable at its own cost', () => {
+    const mountains = [src('m1', ['R']), src('m2', ['R']), src('m3', ['R'])];
+    const plan = planAnyFace(parseCosts('{2}{R} // {1}{R}'), mountains);
+    expect(plan).toEqual({ spend: { m1: 1, m2: 1, m3: 1 }, boardTaps: {} }); // three lands, not five
+  });
+
+  test('when only the cheaper half is payable, that half is what gets paid', () => {
+    const plan = planAnyFace(parseCosts('{2}{R} // {1}{R}'), [src('m1', ['R']), src('m2', ['R'])]);
+    expect(plan).toEqual({ spend: { m1: 1, m2: 1 }, boardTaps: {} });
+  });
+
+  test('a split card needs only one half’s colors', () => {
+    // Fire // Ice on two Mountains: Fire is payable though Ice is not
+    expect(planAnyFace(parseCosts('{1}{R} // {1}{U}'), [src('m1', ['R']), src('m2', ['R'])])).not.toBeNull();
+    expect(planAnyFace(parseCosts('{1}{R} // {1}{U}'), [src('f1', ['G']), src('f2', ['G'])])).toBeNull();
   });
 });
 
@@ -201,6 +243,61 @@ describe('sourcesFrom', () => {
       { key: 'tok-sap', kind: 'board', produces: ['any'], amount: 1, creature: true },
       { key: 'tok-sap', kind: 'board', produces: ['any'], amount: 1, creature: true },
     ]);
+  });
+
+  const LANDS = {
+    ...RECORDS,
+    'c-swamp': rec('c-swamp', 'Basic Land — Swamp', '({T}: Add {B}.)'),
+    'c-plains': rec('c-plains', 'Basic Land — Plains', '({T}: Add {W}.)'),
+    'c-tower': rec(
+      'c-tower',
+      'Legendary Land',
+      '{T}: Add {C}.\n{T}, Sacrifice a creature: Add {B}{B}.',
+    ),
+    'c-urborg': rec(
+      'c-urborg',
+      'Legendary Land',
+      'Each land is a Swamp in addition to its other land types.',
+    ),
+    'c-lantern': rec(
+      'c-lantern',
+      'Artifact',
+      'Lands you control have "{T}: Add one mana of any color."',
+    ),
+  };
+
+  test('a land with a sacrifice ability keeps its plain tap for mana', () => {
+    const sources = sourcesFrom([{ iid: 't1', cardId: 'c-tower', name: 'Phyrexian Tower' }], LANDS, []);
+    expect(sources).toEqual([{ key: 't1', kind: 'virtual', produces: ['C'], amount: 1 }]);
+  });
+
+  test('Urborg taps for black itself and teaches every land to', () => {
+    const sources = sourcesFrom(
+      [
+        { iid: 'u1', cardId: 'c-urborg', name: 'Urborg, Tomb of Yawgmoth' },
+        { iid: 'p1', cardId: 'c-plains', name: 'Plains' },
+        { iid: 'b1', cardId: 'c-bear', name: 'Grizzly Bears' }, // not a land: untouched
+      ],
+      LANDS,
+      [],
+    );
+    expect(sources).toEqual([
+      { key: 'u1', kind: 'virtual', produces: ['B'], amount: 1 },
+      { key: 'p1', kind: 'virtual', produces: ['W', 'B'], amount: 1 },
+    ]);
+  });
+
+  test('Chromatic Lantern lets every land tap for any color', () => {
+    const sources = sourcesFrom(
+      [
+        { iid: 'l1', cardId: 'c-lantern', name: 'Chromatic Lantern' },
+        { iid: 'f1', cardId: 'c-forest', name: 'Forest' },
+        { iid: 'f2', cardId: 'c-forest', name: 'Forest' },
+      ],
+      LANDS,
+      [],
+    );
+    expect(affordable(parseCost('{U}{U}'), sources)).toBe(true);
   });
 
   test('board dorks contribute untapped copies; treasures stay manual', () => {

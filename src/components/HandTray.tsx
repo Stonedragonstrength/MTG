@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { affordable, parseCost, sourcesFrom } from '../lib/pay';
+import { affordable, parseCosts, sourcesFrom } from '../lib/pay';
 import type { CardInstance } from '../lib/types';
 import { useAppStore } from '../state/store';
 import HandCardSheet from './HandCardSheet';
@@ -75,7 +75,9 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
     const r = records[c.cardId];
     if (!r) return true;
     if (/Land/.test(r.typeLine)) return true;
-    return affordable(parseCost(r.manaCost), sources);
+    // Either face will do: a split card needs one half, an adventure
+    // creature its own cost — never the two added together.
+    return parseCosts(r.manaCost).some((cost) => affordable(cost, sources));
   };
   const claimed = !online || online.mySeat === playerIdx || online.mySeat === null;
   if (!claimed) return null; // unclaimed hands live behind the dock's peek gate

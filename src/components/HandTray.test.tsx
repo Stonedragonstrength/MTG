@@ -42,6 +42,10 @@ const RECORDS: Record<string, CardRecord> = {
   'c-cmd': rec('c-cmd', 'Ashaya', 'Legendary Creature — Elemental'),
   'c-forest': { ...rec('c-forest', 'Forest', 'Basic Land — Forest'), oracleText: '({T}: Add {G}.)' },
   'c-bolt': { ...rec('c-bolt', 'Lightning Bolt', 'Instant'), manaCost: '{R}' },
+  'c-giant': {
+    ...rec('c-giant', 'Bonecrusher Giant', 'Creature — Giant // Instant — Adventure'),
+    manaCost: '{2}{R} // {1}{R}',
+  },
   'c-mountain': {
     ...rec('c-mountain', 'Mountain', 'Basic Land — Mountain'),
     oracleText: '({T}: Add {R}.)',
@@ -237,6 +241,33 @@ test('mana a payment already spent does not pay twice', async () => {
   await vi.waitFor(() => expect(card.className).toContain('hand-card--poor'));
   await user.click(card);
   expect(playCard).not.toHaveBeenCalled();
+});
+
+test('a two-part card lights up at one face’s cost, not the sum of both', async () => {
+  const playCard = vi.fn(async () => {});
+  const g = seededGame();
+  g.players[0] = {
+    ...g.players[0],
+    cards: {
+      ...g.players[0].cards!,
+      hand: [{ iid: 'h1', cardId: 'c-giant', name: 'Bonecrusher Giant' }],
+      battlefield: ['m1', 'm2', 'm3'].map((iid) => ({
+        iid,
+        cardId: 'c-mountain',
+        name: 'Mountain',
+        row: 'lands' as const,
+      })),
+    },
+  };
+  useAppStore.setState({ game: g, playCard });
+  const user = userEvent.setup();
+  render(<HandTray playerIdx={0} />);
+  await user.click(screen.getByRole('button', { name: /hand, 1 card/i }));
+  const card = await screen.findByRole('button', { name: /play bonecrusher giant/i });
+  await new Promise((r) => setTimeout(r, 50)); // records in
+  expect(card.className).not.toContain('hand-card--poor'); // {2}{R} on three Mountains
+  await user.click(card);
+  expect(playCard).toHaveBeenCalledWith(0, 'h1');
 });
 
 test('Play anyway waits behind the hold for the cards the gate cannot read', async () => {
