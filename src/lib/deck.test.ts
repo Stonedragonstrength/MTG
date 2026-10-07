@@ -9,6 +9,7 @@ import {
   deckSize,
   deckStats,
   groupCards,
+  importLines,
   manaCurve,
   manaValue,
   offColorCards,
@@ -132,6 +133,91 @@ describe('partner commander', () => {
   test('a partner needs a commander to stand beside', () => {
     const deck = createDeck('Empty');
     expect(setPartner(deck, tymna)).toBe(deck);
+  });
+});
+
+describe('importLines (a pasted decklist)', () => {
+  const PARTNER = 'Partner (You can have two commanders if both have partner.)';
+  const legend = (
+    name: string,
+    identity: string[],
+    oracleText: string,
+    typeLine = 'Legendary Creature — Human',
+  ): CardRecord => ({ ...card(name, typeLine), oracleText, colorIdentity: identity });
+  const thrasios = legend('Thrasios, Triton Hero', ['G', 'U'], PARTNER);
+  const tymna = legend('Tymna the Weaver', ['W', 'B'], PARTNER);
+  const wilson = legend(
+    'Wilson, Refined Grizzly',
+    ['G'],
+    'Choose a Background (You can have a Background as a second commander.)',
+  );
+  const raised = legend(
+    'Raised by Giants',
+    ['G'],
+    'Commander creatures you own have base power and toughness 10/10.',
+    'Legendary Enchantment — Background',
+  );
+  const lathril = legend('Lathril, Blade of the Elves', ['B', 'G'], 'Menace');
+  const ring: CardRecord = { ...card('Sol Ring', 'Artifact'), colorIdentity: [] };
+  const swords: CardRecord = { ...card('Swords to Plowshares', 'Instant'), colorIdentity: ['W'] };
+  const cmdr = (c: CardRecord) => ({ card: c, count: 1, commander: true });
+  const line = (c: CardRecord, count = 1) => ({ card: c, count, commander: false });
+
+  test('two flagged commanders that may pair become the pair', () => {
+    const { deck, added } = importLines(createDeck('Pair'), [cmdr(thrasios), cmdr(tymna), line(ring), line(swords)]);
+    expect(deck.commander?.name).toBe('Thrasios, Triton Hero');
+    expect(deck.partner?.name).toBe('Tymna the Weaver');
+    expect([...deck.colors].sort()).toEqual(['B', 'G', 'U', 'W']);
+    expect(offColorCards(deck)).toEqual([]); // Swords is in the pair's colors
+    expect(deckSize(deck)).toBe(4);
+    expect(added).toBe(4);
+  });
+
+  test('a Background listed before its commander still ends up second', () => {
+    const { deck } = importLines(createDeck('Bg'), [cmdr(raised), cmdr(wilson)]);
+    expect(deck.commander?.name).toBe('Wilson, Refined Grizzly');
+    expect(deck.partner?.name).toBe('Raised by Giants');
+  });
+
+  test('a second flagged card that cannot pair is kept in the deck, not swapped in', () => {
+    const { deck, added } = importLines(createDeck('Odd'), [cmdr(lathril), cmdr(thrasios)]);
+    expect(deck.commander?.name).toBe('Lathril, Blade of the Elves');
+    expect(deck.partner ?? null).toBeNull();
+    expect(deck.cards.map((c) => c.name)).toEqual(['Thrasios, Triton Hero']);
+    expect(added).toBe(2);
+  });
+
+  test('pasting the rest of a list keeps the pair the deck already has', () => {
+    const pair = setPartner(setCommander(createDeck('Pair'), thrasios), tymna);
+    const { deck, added } = importLines(pair, [cmdr(thrasios), line(ring), line(swords)]);
+    expect(deck.commander?.name).toBe('Thrasios, Triton Hero');
+    expect(deck.partner?.name).toBe('Tymna the Weaver');
+    expect([...deck.colors].sort()).toEqual(['B', 'G', 'U', 'W']);
+    expect(added).toBe(2); // the commander was already there
+  });
+
+  test('pasting the same pair again changes nothing', () => {
+    const pair = setPartner(setCommander(createDeck('Pair'), thrasios), tymna);
+    const { deck, added } = importLines(pair, [cmdr(tymna), cmdr(thrasios)]);
+    expect(deck).toBe(pair);
+    expect(added).toBe(0);
+  });
+
+  test('a different flagged commander takes over and starts alone', () => {
+    const pair = setPartner(setCommander(createDeck('Pair'), thrasios), tymna);
+    const { deck, added } = importLines(pair, [cmdr(lathril)]);
+    expect(deck.commander?.name).toBe('Lathril, Blade of the Elves');
+    expect(deck.partner ?? null).toBeNull();
+    expect(deck.colors).toEqual(['B', 'G']);
+    expect(added).toBe(1);
+  });
+
+  test('counts what the deck actually gained: a repeated line adds once, basics stack', () => {
+    const forest = card('Forest', 'Basic Land — Forest');
+    const { deck, added } = importLines(createDeck('Dupes'), [line(ring), line(ring), line(forest, 3)]);
+    expect(deck.cards.find((c) => c.name === 'Sol Ring')?.count).toBe(1);
+    expect(deck.cards.find((c) => c.name === 'Forest')?.count).toBe(3);
+    expect(added).toBe(4);
   });
 });
 

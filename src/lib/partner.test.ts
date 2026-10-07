@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { canPartner, partnerKind, partnerOffer } from './partner';
+import { canPartner, partnerKinds, partnerOffer } from './partner';
 
 function card(name: string, typeLine: string, oracleText: string) {
   return { name, typeLine, oracleText };
@@ -61,25 +61,40 @@ const survivorB = card(
   'Legendary Creature — Human',
   'Menace\nPartner—Survivors (You can have two commanders if both have this ability.)',
 );
+// The one card (so far) with two pairing abilities: its owner picks one.
+const amy = card(
+  'Amy Pond',
+  'Legendary Creature — Human',
+  "Partner with Rory Williams (When this creature enters, target player may put Rory into their hand from their library, then shuffle.)\nWhenever Amy Pond deals combat damage to a player, choose a suspended card you own and remove that many time counters from it.\nDoctor's companion (You can have two commanders if the other is the Doctor.)",
+);
+const rory = card(
+  'Rory Williams',
+  'Legendary Creature — Human Soldier',
+  'Partner with Amy Pond (When this creature enters, target player may put Amy into their hand from their library, then shuffle.)\nFirst strike, lifelink',
+);
 const ashaya = card(
   'Ashaya, Soul of the Wild',
   'Legendary Creature — Elemental',
   'Nontoken creatures you control are Forest lands in addition to their other types.',
 );
 
-describe('partnerKind', () => {
+describe('partnerKinds', () => {
   test('reads each way two commanders can share a deck', () => {
-    expect(partnerKind(thrasios)).toEqual({ type: 'partner' });
-    expect(partnerKind(toothy)).toEqual({ type: 'with', name: 'Pir, Imaginative Rascal' });
-    expect(partnerKind(will)).toEqual({ type: 'friends' });
-    expect(partnerKind(wilson)).toEqual({ type: 'background' });
-    expect(partnerKind(rose)).toEqual({ type: 'companion' });
-    expect(partnerKind(tenth)).toEqual({ type: 'doctor' });
-    expect(partnerKind(survivorA)).toEqual({ type: 'group', group: 'Survivors' });
+    expect(partnerKinds(thrasios)).toEqual([{ type: 'partner' }]);
+    expect(partnerKinds(toothy)).toEqual([{ type: 'with', name: 'Pir, Imaginative Rascal' }]);
+    expect(partnerKinds(will)).toEqual([{ type: 'friends' }]);
+    expect(partnerKinds(wilson)).toEqual([{ type: 'background' }]);
+    expect(partnerKinds(rose)).toEqual([{ type: 'companion' }]);
+    expect(partnerKinds(tenth)).toEqual([{ type: 'doctor' }]);
+    expect(partnerKinds(survivorA)).toEqual([{ type: 'group', group: 'Survivors' }]);
   });
 
   test('an ordinary commander has no partner ability', () => {
-    expect(partnerKind(ashaya)).toBeNull();
+    expect(partnerKinds(ashaya)).toEqual([]);
+  });
+
+  test('a card with two pairing abilities keeps both', () => {
+    expect(partnerKinds(amy)).toEqual([{ type: 'with', name: 'Rory Williams' }, { type: 'companion' }]);
   });
 });
 
@@ -111,6 +126,15 @@ describe('canPartner', () => {
     expect(canPartner(survivorA, thrasios)).toBe(false);
   });
 
+  test('a card with two pairing abilities may use either one', () => {
+    expect(canPartner(amy, rory)).toBe(true); // "Partner with Rory Williams"
+    expect(canPartner(rory, amy)).toBe(true);
+    expect(canPartner(amy, tenth)).toBe(true); // "Doctor's companion"
+    expect(canPartner(tenth, amy)).toBe(true);
+    expect(canPartner(amy, rose)).toBe(false); // two companions, no Doctor
+    expect(canPartner(amy, thrasios)).toBe(false);
+  });
+
   test('a commander with no partner ability pairs with nothing', () => {
     expect(canPartner(ashaya, thrasios)).toBe(false);
   });
@@ -122,11 +146,15 @@ describe('canPartner', () => {
 
 describe('partnerOffer', () => {
   test('names what the second slot is for', () => {
-    expect(partnerOffer(partnerKind(thrasios))).toBe('Add partner');
-    expect(partnerOffer(partnerKind(toothy))).toBe('Add Pir, Imaginative Rascal');
-    expect(partnerOffer(partnerKind(wilson))).toBe('Add Background');
-    expect(partnerOffer(partnerKind(rose))).toBe('Add the Doctor');
-    expect(partnerOffer(partnerKind(tenth))).toBe('Add companion');
-    expect(partnerOffer(null)).toBeNull();
+    expect(partnerOffer(partnerKinds(thrasios))).toBe('Add partner');
+    expect(partnerOffer(partnerKinds(toothy))).toBe('Add Pir, Imaginative Rascal');
+    expect(partnerOffer(partnerKinds(wilson))).toBe('Add Background');
+    expect(partnerOffer(partnerKinds(rose))).toBe('Add the Doctor');
+    expect(partnerOffer(partnerKinds(tenth))).toBe('Add companion');
+    expect(partnerOffer(partnerKinds(ashaya))).toBeNull();
+  });
+
+  test('with a choice of abilities the slot does not presume one', () => {
+    expect(partnerOffer(partnerKinds(amy))).toBe('Add partner');
   });
 });

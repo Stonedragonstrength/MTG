@@ -16,7 +16,7 @@ import {
   type DeckStats,
 } from '../lib/deck';
 import { COLOR_NAMES, MANA_COLORS } from '../lib/mana';
-import { canPartner, partnerKind, partnerOffer } from '../lib/partner';
+import { canPartner, partnerKinds, partnerOffer } from '../lib/partner';
 import type { CardRecord, DeckCard } from '../lib/types';
 import { useAppStore } from '../state/store';
 import AvatarPicker from './AvatarPicker';
@@ -162,13 +162,15 @@ export default function DeckEditor({ deckId, onBack }: Props) {
   if (!deck) return null;
   // The second command-zone slot only exists when the commander's own
   // text allows one (Partner, a Background, the Doctor's companion…).
-  const partnerSlot = cmdRecord ? partnerOffer(partnerKind(cmdRecord)) : null;
+  const pairings = cmdRecord ? partnerKinds(cmdRecord) : [];
+  const partnerSlot = partnerOffer(pairings);
 
   async function openPartnerPicker() {
     if (!deck || !cmdRecord) return;
     const options = await findPartnersFor(cmdRecord);
-    // "Partner with X" names its one legal partner — no need to ask.
-    if (partnerKind(cmdRecord)?.type === 'with' && options.length === 1) {
+    // "Partner with X" names its one legal partner — no need to ask,
+    // unless the card has another pairing ability it could use instead.
+    if (pairings.length === 1 && pairings[0].type === 'with' && options.length === 1) {
       void saveDeck(setPartner(deck, options[0]));
       return;
     }

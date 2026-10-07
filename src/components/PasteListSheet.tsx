@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { resolveDeckList } from '../data/import';
-import { addCard, changeCardCount, setCommander } from '../lib/deck';
+import { importLines } from '../lib/deck';
 import { useAppStore } from '../state/store';
 import Sheet from './Sheet';
 
@@ -23,18 +23,7 @@ export default function PasteListSheet({ deckId, onClose }: Props) {
     const { hits, misses } = await resolveDeckList(text);
     const deck = useAppStore.getState().decks.find((d) => d.id === deckId);
     if (!deck) return;
-    let next = deck;
-    let added = 0;
-    for (const hit of hits) {
-      if (hit.commander) {
-        next = setCommander(next, hit.card);
-        added += 1;
-        continue;
-      }
-      next = addCard(next, hit.card);
-      if (hit.count > 1) next = changeCardCount(next, hit.card.id, hit.count - 1);
-      added += hit.count;
-    }
+    const { deck: next, added } = importLines(deck, hits);
     await saveDeck(next);
     // Pasted lists are cards you physically have — they join the garage.
     for (const hit of hits) await addToGarage(hit.card, hit.count);

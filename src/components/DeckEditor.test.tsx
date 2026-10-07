@@ -78,6 +78,27 @@ const tymna: CardRecord = {
   colorIdentity: ['W', 'B'],
 };
 
+const toothy: CardRecord = {
+  ...ashaya,
+  id: 'c-toothy',
+  name: 'Toothy, Imaginary Friend',
+  nameLower: 'toothy, imaginary friend',
+  typeLine: 'Legendary Creature — Illusion',
+  oracleText: 'Partner with Pir, Imaginative Rascal (When this creature enters, target player may put Pir into their hand from their library, then shuffle.)',
+  colorIdentity: ['U'],
+};
+
+// Two pairing abilities on one card: the owner chooses which to use.
+const amy: CardRecord = {
+  ...ashaya,
+  id: 'c-amy',
+  name: 'Amy Pond',
+  nameLower: 'amy pond',
+  typeLine: 'Legendary Creature — Human',
+  oracleText: "Partner with Rory Williams (When this creature enters, target player may put Rory into their hand from their library, then shuffle.)\nDoctor's companion (You can have two commanders if the other is the Doctor.)",
+  colorIdentity: ['R'],
+};
+
 vi.mock('../data/synergy', () => ({
   findCommandersFor: vi.fn(async () => []),
   findSynergiesFor: vi.fn(async () => []),
@@ -95,6 +116,8 @@ vi.mock('../data/scryfall', () => ({
           'c-forest': forest,
           'c-thrasios': thrasios,
           'c-tymna': tymna,
+          'c-toothy': toothy,
+          'c-amy': amy,
         }
       ) as Record<string, CardRecord>)[id],
   ),
@@ -142,6 +165,26 @@ test('a partner commander offers the second slot, and picking fills it', async (
   expect([...saved.colors].sort()).toEqual(['B', 'G', 'U', 'W']);
   expect(await screen.findByText('2 / 100')).toBeInTheDocument(); // both commanders count
   expect(screen.getByText('Tymna the Weaver')).toBeInTheDocument();
+});
+
+test('"partner with" names its one partner, so one tap fills the slot', async () => {
+  useAppStore.setState({ decks: [setCommander({ ...createDeck('Pair'), id: 'deck-2' }, toothy)] });
+  const user = userEvent.setup();
+  render(<DeckEditor deckId="deck-2" onBack={() => {}} />);
+  await user.click(await screen.findByRole('button', { name: /add pir, imaginative rascal/i }));
+  await vi.waitFor(() =>
+    expect(useAppStore.getState().decks.find((d) => d.id === 'deck-2')!.partner?.name).toBe('Tymna the Weaver'),
+  ); // the lone option the finder returned, taken without a picker
+});
+
+test('a commander with a choice of pairing abilities always gets the picker', async () => {
+  useAppStore.setState({ decks: [setCommander({ ...createDeck('Pair'), id: 'deck-2' }, amy)] });
+  const user = userEvent.setup();
+  render(<DeckEditor deckId="deck-2" onBack={() => {}} />);
+  // Not "Add Rory Williams": she may take the Doctor instead.
+  await user.click(await screen.findByRole('button', { name: /^add partner$/i }));
+  expect(await screen.findByRole('button', { name: /tymna the weaver/i })).toBeInTheDocument();
+  expect(useAppStore.getState().decks.find((d) => d.id === 'deck-2')!.partner ?? null).toBeNull();
 });
 
 test('the partner can be removed again', async () => {

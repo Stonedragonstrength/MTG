@@ -1,3 +1,4 @@
+import { canPartner } from './partner';
 import { cardThemes, synergyScore } from './themes';
 import type { CardRecord, Deck, DeckCard } from './types';
 
@@ -70,6 +71,53 @@ export function setPartner(deck: Deck, card: CardRecord | null): Deck {
   const theirs = partner?.colorIdentity ?? (card ? card.colors : []);
   const colors = [...own, ...theirs.filter((c) => !own.includes(c))];
   return touched({ ...deck, commander, partner, colors });
+}
+
+/** A data refresh can hand the same card a new id, so the name counts too. */
+const isCard = (held: DeckCard | null | undefined, card: CardRecord) =>
+  !!held && (held.cardId === card.id || held.name === card.name);
+
+function copiesOf(deck: Deck, card: CardRecord): number {
+  return (
+    (deck.cards.find((c) => c.cardId === card.id)?.count ?? 0) +
+    (isCard(deck.commander, card) ? 1 : 0) +
+    (isCard(deck.partner, card) ? 1 : 0)
+  );
+}
+
+/** Applies a resolved decklist. Lines flagged as commanders fill the
+ * command zone: the first leads (a deck it already leads keeps its
+ * partner), and a second joins it when the rules allow the pair — in
+ * either order, so a Background listed first still ends up second. Any
+ * other flagged card is kept as an ordinary one rather than replacing
+ * the leader. `added` is what the deck actually gained. */
+export function importLines(
+  deck: Deck,
+  lines: { card: CardRecord; count: number; commander: boolean }[],
+): { deck: Deck; added: number } {
+  let next = deck;
+  let added = 0;
+  let flagged = 0;
+  let lead: CardRecord | null = null; // this list's first commander, when it leads the deck
+  for (const { card, count, commander } of lines) {
+    const before = copiesOf(next, card);
+    if (commander && (isCard(next.commander, card) || isCard(next.partner, card))) {
+      if (flagged === 0 && isCard(next.commander, card)) lead = card;
+    } else if (commander && flagged === 0) {
+      next = setCommander(next, card);
+      lead = card;
+    } else if (commander && flagged === 1 && lead && canPartner(lead, card)) {
+      next = setPartner(next, card);
+    } else if (commander && flagged === 1 && lead && canPartner(card, lead)) {
+      next = setPartner(setCommander(next, card), lead);
+    } else {
+      next = addCard(next, card);
+      if (count > 1) next = changeCardCount(next, card.id, count - 1);
+    }
+    if (commander) flagged += 1;
+    added += copiesOf(next, card) - before;
+  }
+  return { deck: next, added };
 }
 
 export function deckSize(deck: Deck): number {
