@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { commanderTax } from '../lib/cards';
-import { affordable, parseCost, sourcesFrom } from '../lib/pay';
+import { isSummoningSick, permanentTexts } from '../lib/keywords';
+import { affordable, castCosts, hasX, sourcesFrom } from '../lib/pay';
 import type { CardInstance } from '../lib/types';
 import { useAppStore } from '../state/store';
 import BattlefieldCardSheet from './BattlefieldCardSheet';
@@ -10,16 +11,21 @@ import Sheet from './Sheet';
 import { useCardRecords } from './useCardRecords';
 import { useFitCards } from './useFitCards';
 import { useLongPress } from './useLongPress';
+import XCostSheet from './XCostSheet';
 
-/** One real card on the shared battlefield: tap = tap it, hold = sheet. */
+/** One real card on the shared battlefield: tap = tap it, hold = sheet.
+ * A summoning-sick creature only wears a badge: tapping it stays allowed
+ * (crewing and convoke are legal). */
 function VCard({
   card,
   art,
+  sick,
   onTap,
   onDetail,
 }: {
   card: CardInstance;
   art: string | null;
+  sick: boolean;
   onTap: () => void;
   onDetail: () => void;
 }) {
@@ -28,7 +34,7 @@ function VCard({
   return (
     <button
       className={`vcard${card.tapped ? ' vcard--tapped' : ''}`}
-      aria-label={`tap ${card.name}`}
+      aria-label={`tap ${card.name}${sick ? ', summoning sick' : ''}`}
       title="Tap to tap · hold for options"
       {...press}
     >
@@ -36,6 +42,11 @@ function VCard({
         <img src={art} alt="" loading="lazy" />
       ) : (
         <span className="vcard-placeholder">{card.name}</span>
+      )}
+      {sick && (
+        <span className="sick-badge" aria-hidden="true">
+          💤
+        </span>
       )}
       {p1p1 !== 0 && (
         <span className="count-badge vcard-counter">
@@ -65,6 +76,7 @@ export default function BattlefieldRow({ playerIdx }: Props) {
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [armDraw, setArmDraw] = useState(false);
   const [peek, setPeek] = useState<'confirm' | 'shown' | null>(null);
+  const [xFor, setXFor] = useState<string | null>(null); // the commander the X sheet is asking about
 
   const seat = game?.players[playerIdx]?.cards;
   const profiles = game?.config.profiles;
@@ -110,16 +122,25 @@ export default function BattlefieldRow({ playerIdx }: Props) {
   const topGrave = seat.graveyard[seat.graveyard.length - 1];
   // One pedestal per commander still at home (a partner pair has two), each
   // behind the mana gate with its own tax. An unread record never blocks.
+  // A commander with {X} lights up when X = 0 is payable, and a tap on it
+  // asks how much instead of casting.
   const player = game.players[playerIdx];
   const sources = sourcesFrom(seat.battlefield, records, player.board);
   const pedestals = seat.command.map((card) => {
     const record = records[card.cardId];
     const tax = commanderTax(player, card.iid);
-    const cost = record ? parseCost(record.manaCost) : null;
-    if (cost) cost.generic += tax;
-    return { card, art: record?.imageNormal ?? null, tax, poor: !!cost && !affordable(cost, sources) };
+    const costs = record ? castCosts(record, 'command', tax) : null;
+    return {
+      card,
+      art: record?.imageNormal ?? null,
+      tax,
+      poor: !!costs && !costs.some((cost) => affordable(cost, sources)),
+      asksX: !!costs && hasX(costs),
+    };
   });
   const shortIids = pedestals.filter((p) => p.poor).map((p) => p.card.iid);
+  // What gives the seat's creatures haste, for the summoning-sick badge.
+  const texts = permanentTexts(seat.battlefield, records, player.board);
 
   return (
     <div className={`bf-row bf-row--${size}`}>
@@ -129,6 +150,7 @@ export default function BattlefieldRow({ playerIdx }: Props) {
             key={c.iid}
             card={c}
             art={records[c.cardId]?.imageNormal ?? null}
+            sick={isSummoningSick(c, records[c.cardId], texts)}
             onTap={() => tapVirtualCard(playerIdx, c.iid)}
             onDetail={() => setCardSheet(c.iid)}
           />
@@ -177,7 +199,7 @@ export default function BattlefieldRow({ playerIdx }: Props) {
           </button>
         )}
         {pedestals.length > 0 ? (
-          pedestals.map(({ card, art, tax, poor }) => (
+          pedestals.map(({ card, art, tax, poor, asksX }) => (
             <button
               key={card.iid}
               className={`dock-pile dock-command${poor ? ' dock-command--poor' : ''}`}
@@ -186,7 +208,11 @@ export default function BattlefieldRow({ playerIdx }: Props) {
                   ? `commander ${card.name} — not enough mana`
                   : `commander ${card.name} — tap to cast`
               }
-              onClick={() => (poor ? setPile('command') : castCommander(playerIdx, card.iid))}
+              onClick={() => {
+                if (poor) setPile('command');
+                else if (asksX) setXFor(card.iid);
+                else castCommander(playerIdx, card.iid);
+              }}
             >
               {art ? <img src={art} alt="" loading="lazy" /> : <span className="dock-empty">★</span>}
               {tax > 0 && <span className="dock-count">+{tax}</span>}
@@ -223,6 +249,9 @@ export default function BattlefieldRow({ playerIdx }: Props) {
       )}
       {cardSheet && (
         <BattlefieldCardSheet playerIdx={playerIdx} iid={cardSheet} onClose={() => setCardSheet(null)} />
+      )}
+      {xFor && (
+        <XCostSheet playerIdx={playerIdx} iid={xFor} from="command" onClose={() => setXFor(null)} />
       )}
       {libraryOpen && (
         <LibrarySheet playerIdx={playerIdx} claimed={claimed} onClose={() => setLibraryOpen(false)} />

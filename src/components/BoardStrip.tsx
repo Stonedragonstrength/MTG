@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { computedPT } from '../lib/board';
+import { sickCopies } from '../lib/keywords';
 import { COLOR_NAMES, effectiveManaColors } from '../lib/mana';
 import { playSlash } from '../lib/sound';
 import type { BoardItem } from '../lib/types';
@@ -10,14 +11,18 @@ const DEATH_MS = 700;
 import CardDetail from './CardDetail';
 import CardSearch from './CardSearch';
 import { useLongPress } from './useLongPress';
+import { useSeatTexts } from './useSeatTexts';
 
 /** Tap = tap one copy (like a land); hold = card details. */
 function TokenCard({
   item,
+  seatTexts,
   onTap,
   onDetail,
 }: {
   item: BoardItem;
+  /** The rules text of the seat's permanents: one of them may give haste. */
+  seatTexts: string[];
   onTap: () => void;
   onDetail: () => void;
 }) {
@@ -25,7 +30,18 @@ function TokenCard({
   const tapped = item.tapped ?? 0;
   const pt = computedPT(item);
   const mana = effectiveManaColors(item);
-  const label = `${item.name}` + (tapped > 0 ? `, ${tapped} of ${item.count} tapped` : '');
+  // Only a creature gets summoning sick, and a stack is one when it has a
+  // power and toughness. The copies that arrived this turn wear the badge;
+  // tapping them stays allowed.
+  const sick = pt ? sickCopies(item, seatTexts) : 0;
+  const sickLabel =
+    sick === 0
+      ? ''
+      : sick >= item.count
+        ? ', summoning sick'
+        : `, ${sick} of ${item.count} summoning sick`;
+  const label =
+    `${item.name}` + (tapped > 0 ? `, ${tapped} of ${item.count} tapped` : '') + sickLabel;
   return (
     <button
       className={[
@@ -61,6 +77,11 @@ function TokenCard({
         </span>
       )}
       {tapped > 0 && <span className="tapped-badge">{tapped}⤵</span>}
+      {sick > 0 && (
+        <span className="sick-badge" aria-hidden="true">
+          💤{item.count > 1 ? sick : ''}
+        </span>
+      )}
       {item.count > 1 && <span className="thumb-count">×{item.count}</span>}
     </button>
   );
@@ -101,6 +122,7 @@ export default function BoardStrip({ playerIdx }: Props) {
   const [dying, setDying] = useState<{ item: BoardItem; at: number }[]>([]);
   const deathTimers = useRef<number[]>([]);
   useEffect(() => () => deathTimers.current.forEach((t) => window.clearTimeout(t)), []);
+  const seatTexts = useSeatTexts(playerIdx).own;
 
   if (!game) return null;
   const board = game.players[playerIdx].board.filter((item) => item.zone !== 'lands');
@@ -137,6 +159,7 @@ export default function BoardStrip({ playerIdx }: Props) {
           <div className="board-item" key={item.id}>
             <TokenCard
               item={item}
+              seatTexts={seatTexts}
               onTap={() => tapItem(playerIdx, item.id, 1)}
               onDetail={() => setDetailId(item.id)}
             />

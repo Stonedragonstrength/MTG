@@ -154,6 +154,97 @@ test('a partially tapped stack shows how many are tapped', () => {
   expect(screen.getByText('3⤵')).toBeInTheDocument();
 });
 
+// ---- summoning sickness on stacks ----
+
+/** Seat 0's board is exactly these stacks. */
+function boardOf(...items: BoardItem[]) {
+  const game = useAppStore.getState().game!;
+  useAppStore.setState({
+    game: { ...game, players: [{ ...game.players[0], board: items }, game.players[1]] },
+  });
+}
+const sickBadge = (container: HTMLElement) => container.querySelector('.thumb .sick-badge');
+
+test('a creature stack shows how many of its copies only just arrived', () => {
+  boardOf({ ...soldiers, sick: 3 });
+  const { container } = render(<BoardStrip playerIdx={0} />);
+  expect(sickBadge(container)).toHaveTextContent('💤3');
+  expect(screen.getByRole('button', { name: 'Soldier, 3 of 8 summoning sick' })).toBeInTheDocument();
+});
+
+test('a stack that arrived whole is summoning sick, plainly', () => {
+  boardOf({ ...soldiers, sick: 8 });
+  const { container } = render(<BoardStrip playerIdx={0} />);
+  expect(sickBadge(container)).toHaveTextContent('💤8');
+  expect(screen.getByRole('button', { name: 'Soldier, summoning sick' })).toBeInTheDocument();
+});
+
+test('a single fresh token wears the badge without a number', () => {
+  boardOf({ ...soldiers, count: 1, sick: 1 });
+  const { container } = render(<BoardStrip playerIdx={0} />);
+  expect(sickBadge(container)!.textContent).toBe('💤');
+  expect(screen.getByRole('button', { name: 'Soldier, summoning sick' })).toBeInTheDocument();
+});
+
+test('tapped copies and sick copies are both read out', () => {
+  boardOf({ ...soldiers, tapped: 2, sick: 3 });
+  render(<BoardStrip playerIdx={0} />);
+  expect(
+    screen.getByRole('button', { name: 'Soldier, 2 of 8 tapped, 3 of 8 summoning sick' }),
+  ).toBeInTheDocument();
+  expect(screen.getByText('2⤵')).toBeInTheDocument();
+  expect(screen.getByText('💤3')).toBeInTheDocument();
+});
+
+test('a stack whose copies have all been there a while shows no badge', () => {
+  const { container } = render(<BoardStrip playerIdx={0} />); // the soldiers of beforeEach: no sick count
+  expect(sickBadge(container)).toBeNull();
+  expect(screen.getByRole('button', { name: 'Soldier' })).toBeInTheDocument();
+});
+
+test('a stack that is not a creature never shows it, however fresh', () => {
+  const treasure: BoardItem = {
+    ...soldiers,
+    id: 'tok-treasure',
+    name: 'Treasure',
+    typeLine: 'Token Artifact — Treasure',
+    oracleText: '{T}, Sacrifice this artifact: Add one mana of any color.',
+    basePower: null,
+    baseToughness: null,
+    counters: {},
+    count: 2,
+    sick: 2,
+  };
+  boardOf(treasure);
+  const { container } = render(<BoardStrip playerIdx={0} />);
+  expect(sickBadge(container)).toBeNull();
+  expect(screen.getByRole('button', { name: 'Treasure' })).toBeInTheDocument();
+});
+
+test('a creature stack with haste shows none: its own, or handed to it by another stack', () => {
+  boardOf({ ...soldiers, oracleText: 'Flying, Haste', sick: 8 }); // a custom token with Haste ticked
+  const own = render(<BoardStrip playerIdx={0} />);
+  expect(sickBadge(own.container)).toBeNull();
+  expect(screen.getByRole('button', { name: 'Soldier' })).toBeInTheDocument();
+  own.unmount();
+
+  const fervor: BoardItem = {
+    ...soldiers,
+    id: 'card-fervor',
+    name: 'Fervor',
+    typeLine: 'Enchantment',
+    oracleText: 'Creatures you control have haste.',
+    basePower: null,
+    baseToughness: null,
+    counters: {},
+    count: 1,
+  };
+  boardOf({ ...soldiers, sick: 8 }, fervor);
+  const granted = render(<BoardStrip playerIdx={0} />);
+  expect(sickBadge(granted.container)).toBeNull();
+  expect(screen.getByRole('button', { name: 'Soldier' })).toBeInTheDocument();
+});
+
 test('holding the ✕ removes the whole stack; a short tap does not', async () => {
   const removeItem = vi.fn();
   useAppStore.setState({ removeItem });

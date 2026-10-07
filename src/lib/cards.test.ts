@@ -6,14 +6,17 @@ import {
   buildSeatCards,
   commanderDied,
   commanderTax,
+  countLandPlay,
   draw,
   isCommander,
   keepHand,
+  landsPlayed,
   millN,
   moveCard,
   mulberry32,
   mulligan,
   newIid,
+  readyCards,
   seedSeat,
   setCardCounter,
   setHandHeld,
@@ -440,6 +443,140 @@ describe('moveCard + battlefield state', () => {
     g = tapCard(g, 0, b, true);
     g = untapAllCards(g, 0);
     expect(g.players[0].cards!.battlefield.some((c) => c.tapped)).toBe(false);
+  });
+});
+
+describe('arriving on the battlefield (summoning sickness)', () => {
+  const onField = (g: GameState, iid: string, seat = 0) =>
+    g.players[seat].cards!.battlefield.find((c) => c.iid === iid)!;
+  /** Both seats dealt a deck: readying one must leave the other alone. */
+  const twoSeats = () => seedSeat(seeded(), 1, buildSeatCards(sampleDeck(), 7));
+
+  test('a card that enters from any other zone arrives sick', () => {
+    const g = seeded();
+    const seat = g.players[0].cards!;
+    const fromHand = seat.hand[0].iid;
+    const fromLibrary = seat.library[0].iid;
+    const commander = seat.command[0].iid;
+    let next = moveCard(g, 0, fromHand, 'hand', 'battlefield', { row: 'front' });
+    next = moveCard(next, 0, fromLibrary, 'library', 'battlefield', { row: 'front' });
+    next = moveCard(next, 0, commander, 'command', 'battlefield', { row: 'front' });
+    for (const iid of [fromHand, fromLibrary, commander]) expect(onField(next, iid).sick).toBe(true);
+    // back from the graveyard is a new arrival too
+    const died = moveCard(next, 0, fromHand, 'battlefield', 'graveyard');
+    const back = moveCard(died, 0, fromHand, 'graveyard', 'battlefield', { row: 'front' });
+    expect(onField(back, fromHand).sick).toBe(true);
+  });
+
+  test('a card that has not reached the battlefield is never marked', () => {
+    const g = seeded();
+    const iid = g.players[0].cards!.hand[0].iid;
+    expect('sick' in g.players[0].cards!.hand[0]).toBe(false);
+    const discarded = moveCard(g, 0, iid, 'hand', 'graveyard');
+    expect('sick' in discarded.players[0].cards!.graveyard[0]).toBe(false);
+  });
+
+  test('a shelf change on the battlefield keeps whatever the card had', () => {
+    const g = seeded();
+    const iid = g.players[0].cards!.hand[0].iid;
+    const fresh = moveCard(g, 0, iid, 'hand', 'battlefield', { row: 'front' });
+    const shelved = moveCard(fresh, 0, iid, 'battlefield', 'battlefield', { row: 'lands' });
+    expect(onField(shelved, iid).sick).toBe(true); // still this turn's arrival
+    const readied = readyCards(fresh, 0);
+    const moved = moveCard(readied, 0, iid, 'battlefield', 'battlefield', { row: 'lands' });
+    expect('sick' in onField(moved, iid)).toBe(false); // moving shelves is not arriving
+  });
+
+  test('leaving the battlefield strips it', () => {
+    const g = seeded();
+    const iid = g.players[0].cards!.hand[0].iid;
+    const fresh = moveCard(g, 0, iid, 'hand', 'battlefield', { row: 'front' });
+    for (const to of ['hand', 'graveyard', 'exile', 'library'] as const) {
+      const gone = moveCard(fresh, 0, iid, 'battlefield', to).players[0].cards![to];
+      expect('sick' in gone.find((c) => c.iid === iid)!).toBe(false);
+    }
+    const cmd = g.players[0].cards!.command[0].iid;
+    const cast = moveCard(g, 0, cmd, 'command', 'battlefield', { row: 'front' });
+    expect('sick' in commanderDied(cast, 0, cmd).players[0].cards!.command[0]).toBe(false);
+  });
+
+  test('readyCards clears that seat only, and omits the flag instead of writing false', () => {
+    const g = twoSeats();
+    const mine = g.players[0].cards!.hand[0].iid;
+    const theirs = g.players[1].cards!.hand[0].iid;
+    let next = moveCard(g, 0, mine, 'hand', 'battlefield', { row: 'front' });
+    next = moveCard(next, 1, theirs, 'hand', 'battlefield', { row: 'front' });
+    const readied = readyCards(next, 0);
+    expect('sick' in onField(readied, mine)).toBe(false);
+    expect(onField(readied, theirs, 1).sick).toBe(true);
+    expect(readied.players[1]).toBe(next.players[1]); // the other seat is not even copied
+  });
+
+  test('readyCards hands back the same state when there is nothing to clear', () => {
+    const g = seeded();
+    expect(readyCards(g, 0)).toBe(g); // empty battlefield
+    expect(readyCards(g, 1)).toBe(g); // tracker seat
+    const iid = g.players[0].cards!.hand[0].iid;
+    const readied = readyCards(moveCard(g, 0, iid, 'hand', 'battlefield', { row: 'front' }), 0);
+    expect(readyCards(readied, 0)).toBe(readied); // a replay changes nothing
+  });
+
+  test('readying keeps tapped state and counters; untapping keeps the sickness', () => {
+    const g = seeded();
+    const iid = g.players[0].cards!.hand[0].iid;
+    let fresh = moveCard(g, 0, iid, 'hand', 'battlefield', { row: 'front' });
+    fresh = setCardCounter(tapCard(fresh, 0, iid, true), 0, iid, 'p1p1', 2);
+    expect(onField(readyCards(fresh, 0), iid)).toMatchObject({ tapped: true, counters: { p1p1: 2 } });
+    expect(onField(untapAllCards(fresh, 0), iid).sick).toBe(true); // the untap button is not a new turn
+    expect(onField(tapCard(fresh, 0, iid, false), iid).sick).toBe(true);
+  });
+});
+
+describe('land plays', () => {
+  const atTurn = (g: GameState, turnNumber: number, activePlayerIndex: number): GameState => ({
+    ...g,
+    turnNumber,
+    activePlayerIndex,
+  });
+
+  test('a seat that has played no land this turn counts zero, and carries no stamp', () => {
+    const g = seeded();
+    expect(landsPlayed(g, 0)).toBe(0);
+    expect('landPlays' in g.players[0].cards!).toBe(false);
+    expect(landsPlayed(g, 1)).toBe(0); // tracker seat
+    expect(landsPlayed(g, 9)).toBe(0); // no such seat
+  });
+
+  test('the first land stamps the turn, the next ones count up', () => {
+    const g = atTurn(seeded(), 3, 0);
+    const once = countLandPlay(g, 0);
+    expect(once.players[0].cards!.landPlays).toEqual({ turn: 3, active: 0, n: 1 });
+    expect(landsPlayed(once, 0)).toBe(1);
+    const twice = countLandPlay(once, 0);
+    expect(twice.players[0].cards!.landPlays).toEqual({ turn: 3, active: 0, n: 2 });
+    expect(landsPlayed(twice, 0)).toBe(2);
+  });
+
+  test('the stamp expires by itself: any other turn reads zero and starts over', () => {
+    const played = countLandPlay(countLandPlay(atTurn(seeded(), 3, 0), 0), 0);
+    const nextPlayer = atTurn(played, 3, 1); // same round, the turn moved on
+    expect(landsPlayed(nextPlayer, 0)).toBe(0);
+    const nextRound = atTurn(played, 4, 0); // their own next turn
+    expect(landsPlayed(nextRound, 0)).toBe(0);
+    expect(nextRound.players[0].cards!.landPlays).toEqual({ turn: 3, active: 0, n: 2 }); // nobody reset it
+    expect(countLandPlay(nextRound, 0).players[0].cards!.landPlays).toEqual({ turn: 4, active: 0, n: 1 });
+  });
+
+  test('a seat without cards has nothing to count', () => {
+    const g = seeded();
+    expect(countLandPlay(g, 1)).toBe(g);
+  });
+
+  test('moving a land onto the battlefield by itself counts nothing: only a play does', () => {
+    const g = seeded();
+    const iid = g.players[0].cards!.hand[0].iid;
+    const moved = moveCard(g, 0, iid, 'hand', 'battlefield', { row: 'lands' });
+    expect(landsPlayed(moved, 0)).toBe(0);
   });
 });
 

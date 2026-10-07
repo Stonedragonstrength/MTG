@@ -5,8 +5,9 @@ import { kvDelete, kvGet, kvSet } from './db';
 
 /** Bump ONLY when GameState gains a load-bearing field — peers compare it
  * to decide who is running a stale build at a live table.
- * 2: cards mode (SeatCards zones, feed ring). */
-export const GAME_SCHEMA = 2;
+ * 2: cards mode (SeatCards zones, feed ring).
+ * 3: turn rules — sick flags, land plays — and the combat state that follows. */
+export const GAME_SCHEMA = 3;
 
 export type TableStatus =
   | { kind: 'connecting' }

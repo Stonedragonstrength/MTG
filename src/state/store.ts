@@ -53,7 +53,8 @@ export interface AppStore {
   // ---- cards mode ----
   seedSeatFromDeck(seat: number, deck: Deck, seed?: number): void;
   drawCards(seat: number, n: number): void;
-  playCard(seat: number, iid: string): Promise<void>;
+  /** `x`: the value chosen for a card with {X} in its cost (the X sheet asks). */
+  playCard(seat: number, iid: string, opts?: { x?: number }): Promise<void>;
   tapVirtualCard(seat: number, iid: string, wantTapped?: boolean): void;
   setVirtualCounter(seat: number, iid: string, name: string, value: number): void;
   moveVirtualCard(
@@ -69,7 +70,7 @@ export interface AppStore {
   shuffleSeat(seat: number): void;
   mulliganSeat(seat: number): void;
   keepHand(seat: number, bottomIids: string[]): void;
-  castCommander(seat: number, iid?: string): void;
+  castCommander(seat: number, iid?: string, opts?: { x?: number }): void;
   commanderDiedAction(seat: number, iid: string): void;
   commanderReturned(seat: number, iid: string, from: 'graveyard' | 'exile'): void;
   peekNotice(seat: number): void;
@@ -142,6 +143,19 @@ async function seatRecords(g: GameState, seat: number): Promise<SeatRecords> {
   return records;
 }
 
+/** The turn an action was made in. A replay that lands in another one
+ * (a rebase past a Pass turn) must not charge that later turn for it. */
+interface TurnStamp {
+  turn: number;
+  active: number;
+}
+const isTurn = (g: GameState, at: TurnStamp) =>
+  g.turnNumber === at.turn && g.activePlayerIndex === at.active;
+
+/** The X a cast was made for: a whole number, never below zero. */
+const wholeX = (x: number | undefined) =>
+  typeof x === 'number' && Number.isFinite(x) ? Math.max(0, Math.floor(x)) : 0;
+
 /** Pays for a cast against the state the op actually lands on — never a
  * tap list frozen earlier — so two casts fired together cannot spend the
  * same lands, and undo and rebase treat the card and its mana as one
@@ -154,9 +168,9 @@ function payFrom(
   seat: number,
   costs: payLib.PayCost[],
   records: SeatRecords,
-  castIn: { turn: number; active: number },
+  castIn: TurnStamp,
 ): (moved: GameState) => GameState {
-  const sameTurn = base.turnNumber === castIn.turn && base.activePlayerIndex === castIn.active;
+  const sameTurn = isTurn(base, castIn);
   const player = base.players[seat];
   const plan = sameTurn
     ? payLib.planAnyFace(
@@ -470,7 +484,7 @@ export function createAppStore() {
         );
       },
 
-      async playCard(seat, iid) {
+      async playCard(seat, iid, opts) {
         const g = get().game;
         const card = g?.players[seat]?.cards?.hand.find((c) => c.iid === iid);
         if (!g || !card) return;
@@ -489,18 +503,32 @@ export function createAppStore() {
         const verb = isSpell ? 'casts' : 'plays';
         // Auto-payment: the table pays the cost as the card lands. No plan
         // (cost-reducers, treasures, bare trust) = play, tap nothing.
-        const costs = isLand ? [] : payLib.parseCosts(record?.manaCost ?? '');
+        const costs = payLib.castCosts(record, 'hand'); // a land has none
+        // A card with {X} is paid for the X it was cast for (zero when no
+        // one asked), and its feed line says which.
+        const asksX = payLib.hasX(costs);
+        const x = asksX ? wholeX(opts?.x) : 0;
+        const priced = payLib.priceX(costs, x);
+        const counters = !isSpell && x > 0 && payLib.entersWithX(record?.oracleText ?? '');
         const records = await seatRecords(g, seat);
         const castIn = { turn: g.turnNumber, active: g.activePlayerIndex };
         cardMutate(
           (base) => {
-            const pay = payFrom(base, seat, costs, records, castIn);
-            const moved = isSpell
+            const pay = payFrom(base, seat, priced, records, castIn);
+            let moved = isSpell
               ? cardsLib.moveCard(base, seat, iid, 'hand', 'graveyard')
               : cardsLib.moveCard(base, seat, iid, 'hand', 'battlefield', { row });
-            return moved === base ? base : pay(moved);
+            if (moved === base) return base;
+            // The land drop is counted in the same op as the move, so undo
+            // and a rebase take both or neither — and only for the turn it
+            // was made in: arriving a round late, it is not this turn's land.
+            if (isLand && isTurn(base, castIn)) moved = cardsLib.countLandPlay(moved, seat);
+            // "Enters with X +1/+1 counters on it": X belongs to the cast,
+            // so the counters arrive even where the mana no longer does.
+            if (counters) moved = cardsLib.setCardCounter(moved, seat, iid, 'p1p1', x);
+            return pay(moved);
           },
-          `${seatName(g, seat)} ${verb} ${card.name}`,
+          `${seatName(g, seat)} ${verb} ${card.name}${asksX ? ` (X=${x})` : ''}`,
           (base) => !!base.players[seat]?.cards?.hand.some((c) => c.iid === iid),
         );
       },
@@ -642,7 +670,7 @@ export function createAppStore() {
         );
       },
 
-      castCommander(seat, iid) {
+      castCommander(seat, iid, opts) {
         const g = get().game;
         const command = g?.players[seat]?.cards?.command ?? [];
         // A partner pair casts one at a time: the caller names which.
@@ -657,19 +685,24 @@ export function createAppStore() {
             return m.findCardByName(cmd.name).catch(() => undefined);
           });
           // From the command zone it is the front face that is cast.
-          const cost = payLib.parseCost(record?.manaCost ?? '');
-          cost.generic += tax;
+          const costs = payLib.castCosts(record, 'command', tax);
+          const asksX = payLib.hasX(costs);
+          const x = asksX ? wholeX(opts?.x) : 0;
+          const priced = payLib.priceX(costs, x);
+          const counters = x > 0 && payLib.entersWithX(record?.oracleText ?? '');
           const records = await seatRecords(g, seat);
           const castIn = { turn: g.turnNumber, active: g.activePlayerIndex };
           cardMutate(
             (base) => {
-              const pay = payFrom(base, seat, [cost], records, castIn);
-              const moved = cardsLib.moveCard(base, seat, cmd.iid, 'command', 'battlefield', {
+              const pay = payFrom(base, seat, priced, records, castIn);
+              let moved = cardsLib.moveCard(base, seat, cmd.iid, 'command', 'battlefield', {
                 row: 'front',
               });
-              return moved === base ? base : pay(moved);
+              if (moved === base) return base;
+              if (counters) moved = cardsLib.setCardCounter(moved, seat, cmd.iid, 'p1p1', x);
+              return pay(moved);
             },
-            `${seatName(g, seat)} casts ${cmd.name}${tax > 0 ? ` (tax +${tax})` : ''}`,
+            `${seatName(g, seat)} casts ${cmd.name}${tax > 0 ? ` (tax +${tax})` : ''}${asksX ? ` (X=${x})` : ''}`,
             (base) => !!base.players[seat]?.cards?.command.some((c) => c.iid === cmd.iid),
           );
         })();
@@ -763,10 +796,14 @@ export function createAppStore() {
         mutateGame(
           (g) => {
             const next = gameLib.passTurn(g);
+            const incoming = next.activePlayerIndex;
             // The incoming player's untap step readies all their permanents —
             // token stacks and virtual cards alike.
-            const readied = boardLib.untapAll(next, next.activePlayerIndex);
-            return cardsLib.untapAllCards(readied, readied.activePlayerIndex);
+            const untapped = cardsLib.untapAllCards(boardLib.untapAll(next, incoming), incoming);
+            // Their turn begins: what arrived since their last one is no
+            // longer summoning sick. Only theirs — and only here, never on
+            // the untap button.
+            return boardLib.readyItems(cardsLib.readyCards(untapped, incoming), incoming);
           },
           (_prev, next) => `Turn ${next.turnNumber}: ${playerName(next, next.activePlayerIndex)}`,
           {

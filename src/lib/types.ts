@@ -43,6 +43,11 @@ export interface CardInstance {
    * has drawn from this tap. A tapped card with nothing spent is floating
    * its whole yield (the player tapped it by hand). */
   spent?: number;
+  /** Battlefield only: the card arrived since its controller's last turn
+   * began. Every card gets it, whatever its type — the reducers do not
+   * read cards. Whether it means summoning sickness is for the table and
+   * the mana engine to say (lib/keywords.ts). */
+  sick?: true;
 }
 
 export interface SeatCards {
@@ -64,6 +69,10 @@ export interface SeatCards {
    * surveil): a draw or mill made before it cannot trust the top it saw.
    * A shuffle leaves it alone. Absent until the first such look. */
   stacked?: string;
+  /** Lands PLAYED from hand during one turn, named by the game's
+   * turnNumber and activePlayerIndex. Nothing ever resets it: a stamp from
+   * any other turn simply counts as zero. Absent until the first land. */
+  landPlays?: { turn: number; active: number; n: number };
 }
 
 /** Synced announcement ring — the trust model's deterrent. Cap 30. */
@@ -88,6 +97,9 @@ export interface BoardItem {
   color: string | null; // custom tokens only
   zone: 'board' | 'lands';
   tapped?: number; // mana sources marked used this turn (≤ count)
+  /** Copies that arrived since their controller's turn began (≤ count).
+   * Omitted when none did. */
+  sick?: number;
   // Mana override: a color/'any' makes this stack a mana source (Ashaya,
   // Cryptolith Rite…), 'none' silences a real dork, unset = read oracle text.
   manaMode?: 'W' | 'U' | 'B' | 'R' | 'G' | 'C' | 'any' | 'none';

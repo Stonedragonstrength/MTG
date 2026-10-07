@@ -699,6 +699,351 @@ describe('cards mode', () => {
     ).toBeUndefined();
   });
 
+  // ---- turn rules: one land per turn, summoning sickness, X costs ----
+
+  const FOREST = { iid: 'h-forest', cardId: 'c-forest', name: 'Forest' };
+  const FOREST_2 = { iid: 'h-forest2', cardId: 'c-forest', name: 'Forest' };
+  const BEAR = { iid: 'h-bear', cardId: 'c-bear', name: 'Grizzly Bears' };
+  const seat0 = (store: ReturnType<typeof createAppStore>) => store.getState().game!.players[0].cards!;
+  const onField = (store: ReturnType<typeof createAppStore>, iid: string) =>
+    seat0(store).battlefield.find((c) => c.iid === iid);
+  const feedOf = (store: ReturnType<typeof createAppStore>) =>
+    store.getState().game!.feed!.map((e) => e.text);
+  /** The lands seat 0 has played from hand in the turn the game is in. */
+  const landsThisTurn = async (store: ReturnType<typeof createAppStore>) =>
+    (await import('../lib/cards')).landsPlayed(store.getState().game!, 0);
+
+  test('a land played from hand is counted for the turn, and so is a second one', async () => {
+    const store = await tableWith([FOREST, FOREST_2], 0);
+    expect('landPlays' in seat0(store)).toBe(false);
+    await store.getState().playCard(0, 'h-forest');
+    expect(await landsThisTurn(store)).toBe(1);
+    // The store does not refuse the second land: the table dims it, and "Play anyway" must still count.
+    await store.getState().playCard(0, 'h-forest2');
+    expect(await landsThisTurn(store)).toBe(2);
+    expect(seat0(store).landPlays).toEqual({ turn: 1, active: 0, n: 2 });
+    expect(seat0(store).battlefield.filter((c) => c.row === 'lands')).toHaveLength(2);
+  });
+
+  test('a spell or a creature is not a land play', async () => {
+    const store = await tableWith([BEAR], 2);
+    await store.getState().playCard(0, 'h-bear');
+    expect(await landsThisTurn(store)).toBe(0);
+    expect('landPlays' in seat0(store)).toBe(false);
+  });
+
+  test('a land that reaches the battlefield any other way was not played', async () => {
+    const store = await tableWith([FOREST], 0);
+    const fromLibrary = seat0(store).library[0].iid;
+    store.getState().moveVirtualCard(0, fromLibrary, 'library', 'battlefield', { row: 'lands' }); // a search
+    store.getState().moveVirtualCard(0, 'h-forest', 'hand', 'graveyard'); // discarded…
+    store.getState().moveVirtualCard(0, 'h-forest', 'graveyard', 'battlefield', { row: 'lands' }); // …and brought back
+    expect(seat0(store).battlefield).toHaveLength(2);
+    expect(await landsThisTurn(store)).toBe(0);
+  });
+
+  test('undo takes a land and its count back together', async () => {
+    const store = await tableWith([FOREST], 0);
+    await store.getState().playCard(0, 'h-forest');
+    store.getState().undo();
+    expect(seat0(store).hand.some((c) => c.iid === 'h-forest')).toBe(true);
+    expect(await landsThisTurn(store)).toBe(0);
+  });
+
+  test('the land count starts over when the turn comes round again', async () => {
+    const store = await tableWith([FOREST, FOREST_2], 0);
+    await store.getState().playCard(0, 'h-forest');
+    store.getState().passTurn(); // to player 1
+    expect(await landsThisTurn(store)).toBe(0); // not seat 0's turn: nothing counts
+    store.getState().passTurn(); // back to player 0, a new turn
+    expect(await landsThisTurn(store)).toBe(0);
+    await store.getState().playCard(0, 'h-forest2');
+    expect(seat0(store).landPlays).toEqual({ turn: 2, active: 0, n: 1 });
+  });
+
+  const soldiers = (id: string) => ({
+    id,
+    cardId: null,
+    name: 'Soldier',
+    imageNormal: null,
+    imageArtCrop: null,
+    typeLine: 'Token Creature — Soldier',
+    oracleText: '',
+    basePower: 1,
+    baseToughness: 1,
+    count: 2,
+    counters: {},
+    color: null,
+    zone: 'board' as const,
+  });
+
+  test('passing the turn readies the incoming seat only: what arrived there is no longer new', async () => {
+    const store = await tableWith([BEAR], 2);
+    const { addCard, createDeck } = await import('../lib/deck');
+    const theirs = addCard(createDeck('Theirs'), deckRecord('c-bear', 'Grizzly Bears', 'Creature — Bear'));
+    store.getState().seedSeatFromDeck(1, theirs, 7);
+    const theirBear = store.getState().game!.players[1].cards!.hand[0].iid;
+    await store.getState().playCard(0, 'h-bear');
+    store.getState().moveVirtualCard(1, theirBear, 'hand', 'battlefield', { row: 'front' }); // flashed in
+    store.getState().addItem(0, soldiers('tok-0'));
+    store.getState().addItem(1, soldiers('tok-1'));
+    const sick = () => {
+      const [a, b] = store.getState().game!.players;
+      return {
+        mine: a.cards!.battlefield.find((c) => c.iid === 'h-bear')!.sick ?? false,
+        myTokens: a.board[0].sick ?? 0,
+        theirs: b.cards!.battlefield[0].sick ?? false,
+        theirTokens: b.board[0].sick ?? 0,
+      };
+    };
+    expect(sick()).toEqual({ mine: true, myTokens: 2, theirs: true, theirTokens: 2 });
+
+    store.getState().passTurn(); // player 1's turn begins
+    expect(sick()).toEqual({ mine: true, myTokens: 2, theirs: false, theirTokens: 0 });
+
+    store.getState().passTurn(); // and now player 0's
+    expect(sick()).toEqual({ mine: false, myTokens: 0, theirs: false, theirTokens: 0 });
+  });
+
+  test('the untap button readies mana, not creatures: sickness waits for the turn', async () => {
+    const store = await tableWith([BEAR], 2);
+    await store.getState().playCard(0, 'h-bear');
+    store.getState().addItem(0, soldiers('tok-0'));
+    store.getState().untapAll(0);
+    expect(onField(store, 'h-bear')?.sick).toBe(true);
+    expect(store.getState().game!.players[0].board[0].sick).toBe(2);
+    expect(lands(store).some((c) => c.tapped)).toBe(false); // it did untap
+  });
+
+  test('a mana creature cannot help pay the turn it is played, and can from its next turn on', async () => {
+    const elves = { iid: 'h-elves', cardId: 'c-elves', name: 'Llanowar Elves' };
+    const store = await tableWith([elves, BEAR, { iid: 'h-cub', cardId: 'c-cub', name: 'Bear Cub' }], 2);
+    await getDb().cards.bulkPut([
+      {
+        ...deckRecord('c-elves', 'Llanowar Elves', 'Creature — Elf Druid'),
+        manaCost: '{G}',
+        oracleText: '{T}: Add {G}.',
+      },
+    ]);
+    await store.getState().playCard(0, 'h-elves'); // one Forest
+    await store.getState().playCard(0, 'h-bear'); // {1}{G}: one Forest left, and the elf only just arrived
+    expect(onField(store, 'h-bear')).toBeDefined(); // the card still lands (trust model)…
+    expect(onField(store, 'h-elves')?.tapped).toBeUndefined(); // …but the elf paid nothing
+    expect(lands(store).filter((c) => c.tapped)).toHaveLength(1); // and no half-payment
+
+    store.getState().passTurn();
+    store.getState().passTurn(); // seat 0 again: everything untapped, the elf is ready
+    await store.getState().playCard(0, 'h-cub'); // {1}{G}
+    expect(lands(store).filter((c) => c.tapped)).toHaveLength(2);
+    expect(onField(store, 'h-elves')?.tapped).toBeUndefined(); // lands first; the elf was on offer, not needed
+    expect(onField(store, 'h-elves')?.sick).toBeUndefined();
+  });
+
+  /** Card records for the X tests, on top of what tableWith stores. */
+  async function xRecords() {
+    await getDb().cards.bulkPut([
+      {
+        ...deckRecord('c-hydra', 'Hungering Hydra', 'Creature — Hydra'),
+        manaCost: '{X}{G}',
+        oracleText:
+          'Hungering Hydra enters with X +1/+1 counters on it.\nHungering Hydra can’t be blocked by more than one creature.',
+      },
+      {
+        ...deckRecord('c-blaze', 'Blaze', 'Sorcery'),
+        manaCost: '{X}{G}', // green here: the table in these tests only has Forests
+        oracleText: 'Blaze deals X damage to any target.',
+      },
+      {
+        ...deckRecord('c-thing', 'Verdeloth', 'Creature — Treefolk'),
+        manaCost: '{X}{G}',
+        oracleText: 'When Verdeloth enters, create X 1/1 green Saproling creature tokens.',
+      },
+    ]);
+  }
+  const HYDRA = { iid: 'h-hydra', cardId: 'c-hydra', name: 'Hungering Hydra' };
+
+  test('a card played for X pays X on top, arrives with its X counters and says so', async () => {
+    const store = await tableWith([HYDRA], 5);
+    await xRecords();
+    await store.getState().playCard(0, 'h-hydra', { x: 3 });
+    expect(onField(store, 'h-hydra')?.counters).toEqual({ p1p1: 3 });
+    expect(lands(store).filter((c) => c.tapped)).toHaveLength(4); // {X}{G} with X = 3
+    expect(feedOf(store)).toContain('A plays Hungering Hydra (X=3)');
+  });
+
+  test('an X spell is paid the same way and says its X too', async () => {
+    const store = await tableWith([{ iid: 'h-blaze', cardId: 'c-blaze', name: 'Blaze' }], 5);
+    await xRecords();
+    await store.getState().playCard(0, 'h-blaze', { x: 2 });
+    expect(seat0(store).graveyard.some((c) => c.iid === 'h-blaze')).toBe(true);
+    expect(lands(store).filter((c) => c.tapped)).toHaveLength(3);
+    expect(feedOf(store)).toContain('A casts Blaze (X=2)');
+  });
+
+  test('a card with X played without a value is cast for zero', async () => {
+    const store = await tableWith([HYDRA], 5);
+    await xRecords();
+    await store.getState().playCard(0, 'h-hydra');
+    expect(onField(store, 'h-hydra')).toBeDefined();
+    expect('counters' in onField(store, 'h-hydra')!).toBe(false);
+    expect(lands(store).filter((c) => c.tapped)).toHaveLength(1); // just the {G}
+    expect(feedOf(store)).toContain('A plays Hungering Hydra (X=0)');
+  });
+
+  test('a card without X pays its own cost whatever is passed, and its line says nothing about X', async () => {
+    const store = await tableWith([BEAR], 5);
+    await store.getState().playCard(0, 'h-bear', { x: 3 });
+    expect(lands(store).filter((c) => c.tapped)).toHaveLength(2); // {1}{G}
+    expect('counters' in onField(store, 'h-bear')!).toBe(false);
+    expect(feedOf(store)).toContain('A plays Grizzly Bears');
+  });
+
+  test('only a card that enters with X counters gets them: nothing else about X is automated', async () => {
+    const store = await tableWith([{ iid: 'h-thing', cardId: 'c-thing', name: 'Verdeloth' }], 5);
+    await xRecords();
+    await store.getState().playCard(0, 'h-thing', { x: 2 });
+    expect('counters' in onField(store, 'h-thing')!).toBe(false);
+    expect(store.getState().game!.players[0].board).toHaveLength(0); // no tokens made either
+    expect(lands(store).filter((c) => c.tapped)).toHaveLength(3);
+  });
+
+  test('an X the seat cannot pay still resolves as asked, tapping nothing (cast anyway)', async () => {
+    const store = await tableWith([HYDRA], 3);
+    await xRecords();
+    await store.getState().playCard(0, 'h-hydra', { x: 9 });
+    expect(onField(store, 'h-hydra')?.counters).toEqual({ p1p1: 9 });
+    expect(lands(store).some((c) => c.tapped)).toBe(false); // no half-payments
+    expect(feedOf(store)).toContain('A plays Hungering Hydra (X=9)');
+  });
+
+  test('a nonsense X is read as a whole number, never below zero', async () => {
+    const store = await tableWith([HYDRA, { ...HYDRA, iid: 'h-hydra2' }], 6);
+    await xRecords();
+    await store.getState().playCard(0, 'h-hydra', { x: 2.9 });
+    expect(onField(store, 'h-hydra')?.counters).toEqual({ p1p1: 2 });
+    await store.getState().playCard(0, 'h-hydra2', { x: -4 });
+    expect('counters' in onField(store, 'h-hydra2')!).toBe(false);
+    expect(feedOf(store)).toContain('A plays Hungering Hydra (X=0)');
+  });
+
+  /** Seat 0's commander costs {X}{G} and enters with X counters; `forests` lands, `returns` trips home. */
+  async function xCommander(forests: number, returns = 0) {
+    const store = await cardsStore();
+    await getDb().cards.bulkPut([
+      {
+        ...deckRecord('c-cmd', 'Ashaya', 'Legendary Creature — Elemental'),
+        manaCost: '{X}{G}',
+        oracleText: 'Ashaya enters with X +1/+1 counters on it.',
+      },
+      { ...deckRecord('c-forest', 'Forest', 'Basic Land — Forest'), oracleText: '({T}: Add {G}.)' },
+    ]);
+    const g = store.getState().game!;
+    const seat = g.players[0].cards!;
+    store.setState({
+      game: {
+        ...g,
+        players: g.players.map((p, i) =>
+          i === 0
+            ? {
+                ...p,
+                cards: {
+                  ...seat,
+                  cmd: { [seat.command[0].iid]: returns },
+                  battlefield: Array.from({ length: forests }, (_, k) => ({
+                    iid: `f${k + 1}`,
+                    cardId: 'c-forest',
+                    name: 'Forest',
+                    row: 'lands' as const,
+                  })),
+                },
+              }
+            : p,
+        ),
+      },
+    });
+    return store;
+  }
+  const commanderOnField = (store: ReturnType<typeof createAppStore>) =>
+    seat0(store).battlefield.find((c) => c.name === 'Ashaya');
+
+  test('a commander cast for X pays X, arrives with its counters and says so', async () => {
+    const store = await xCommander(6);
+    store.getState().castCommander(0, undefined, { x: 3 });
+    await vi.waitFor(() => expect(commanderOnField(store)).toBeDefined());
+    expect(commanderOnField(store)?.counters).toEqual({ p1p1: 3 });
+    expect(lands(store).filter((c) => c.tapped)).toHaveLength(4);
+    expect(feedOf(store)).toContain('A casts Ashaya (X=3)');
+  });
+
+  test('commander tax rides on top of X, and the line names both', async () => {
+    const store = await xCommander(6, 1); // it has gone home once: +2
+    const iid = seat0(store).command[0].iid;
+    store.getState().castCommander(0, iid, { x: 3 });
+    await vi.waitFor(() => expect(commanderOnField(store)).toBeDefined());
+    expect(lands(store).filter((c) => c.tapped)).toHaveLength(6); // {G} + 3 + 2
+    expect(feedOf(store)).toContain('A casts Ashaya (tax +2) (X=3)');
+  });
+
+  test('a land replayed onto a table that moved is still counted with its card, and is off entirely once the card is gone', async () => {
+    const store = await tableWith([FOREST], 0);
+    const before = store.getState().game!;
+    (tableSync.onLocalMutation as ReturnType<typeof vi.fn>).mockClear();
+    await store.getState().playCard(0, 'h-forest');
+    const { op, guard, orig } = lastSynced();
+    const { landsPlayed } = await import('../lib/cards');
+
+    // A life total changed meanwhile: the land and its count arrive together.
+    const moved = { ...before, players: before.players.map((p, i) => (i === 1 ? { ...p, life: 31 } : p)) };
+    expect(guard(moved, orig)).toBe(true);
+    const replayed = op(moved);
+    expect(replayed.players[0].cards!.battlefield.some((c) => c.iid === 'h-forest')).toBe(true);
+    expect(landsPlayed(replayed, 0)).toBe(1);
+    expect(replayed.players[1].life).toBe(31);
+
+    // Another land of this turn already landed there: this one counts on top.
+    const { countLandPlay } = await import('../lib/cards');
+    expect(landsPlayed(op(countLandPlay(moved, 0)), 0)).toBe(2);
+
+    // The card was discarded on another device first: nothing moves, nothing is counted.
+    const { moveCard } = await import('../lib/cards');
+    const gone = moveCard(before, 0, 'h-forest', 'hand', 'graveyard');
+    expect(guard(gone, orig)).toBe(false);
+    expect(op(gone)).toBe(gone);
+  });
+
+  test('a land replayed into a later turn arrives without using up that turn’s land', async () => {
+    const store = await tableWith([FOREST], 0);
+    const before = store.getState().game!;
+    (tableSync.onLocalMutation as ReturnType<typeof vi.fn>).mockClear();
+    await store.getState().playCard(0, 'h-forest');
+    const { op } = lastSynced();
+    const { landsPlayed } = await import('../lib/cards');
+    // The table went all the way round before this play arrived.
+    const nextTurn = op({ ...before, turnNumber: before.turnNumber + 1 });
+    expect(nextTurn.players[0].cards!.battlefield.some((c) => c.iid === 'h-forest')).toBe(true);
+    expect(landsPlayed(nextTurn, 0)).toBe(0);
+    expect('landPlays' in nextTurn.players[0].cards!).toBe(false);
+  });
+
+  test('an X cast replayed into a later turn still arrives with its counters, but taps nothing there', async () => {
+    const store = await tableWith([HYDRA], 5);
+    await xRecords();
+    const before = store.getState().game!;
+    (tableSync.onLocalMutation as ReturnType<typeof vi.fn>).mockClear();
+    await store.getState().playCard(0, 'h-hydra', { x: 3 });
+    const { op, guard, orig } = lastSynced();
+    expect(guard(orig, orig)).toBe(true);
+
+    const sameTurn = op({ ...before, players: before.players.map((p, i) => (i === 1 ? { ...p, life: 31 } : p)) });
+    const hydra = (g: GameState) => g.players[0].cards!.battlefield.find((c) => c.iid === 'h-hydra')!;
+    expect(hydra(sameTurn).counters).toEqual({ p1p1: 3 });
+    expect(sameTurn.players[0].cards!.battlefield.filter((c) => c.tapped)).toHaveLength(4);
+
+    const later = op({ ...before, turnNumber: before.turnNumber + 2 });
+    expect(hydra(later).counters).toEqual({ p1p1: 3 }); // X belongs to the cast, not to the turn
+    expect(later.players[0].cards!.battlefield.some((c) => c.tapped)).toBe(false);
+  });
+
   test('tap carries a direction guard so replays cannot invert it', async () => {
     const store = await cardsStore();
     const iid = store.getState().game!.players[0].cards!.hand[0].iid;

@@ -63,8 +63,17 @@ function updateBoard(
   };
 }
 
+/** How many copies arrived since their controller's turn began. The key is
+ * left out at zero, like every optional field (the state goes over the wire). */
+function withSick(item: BoardItem, sick: number): BoardItem {
+  const { sick: _was, ...rest } = item;
+  return sick > 0 ? { ...rest, sick } : rest;
+}
+
+/** A new stack has only just arrived — every copy of it. Like the cards'
+ * flag this is blind to types: the table decides which stacks it matters for. */
 export function addItem(s: GameState, playerIdx: number, item: BoardItem): GameState {
-  return updateBoard(s, playerIdx, (board) => [...board, item]);
+  return updateBoard(s, playerIdx, (board) => [...board, withSick(item, item.count)]);
 }
 
 export function removeItem(s: GameState, playerIdx: number, itemId: string): GameState {
@@ -82,7 +91,10 @@ export function changeCount(
       .map((it) => {
         if (it.id !== itemId) return it;
         const count = Math.max(0, it.count + delta);
-        return { ...it, count, tapped: Math.min(it.tapped ?? 0, count) };
+        // Copies added have only just arrived; taking copies away can
+        // only clamp how many of the rest still are.
+        const sick = Math.min((it.sick ?? 0) + Math.max(0, delta), count);
+        return withSick({ ...it, count, tapped: Math.min(it.tapped ?? 0, count) }, sick);
       })
       .filter((it) => it.count > 0),
   );
@@ -110,6 +122,16 @@ export function untapAll(s: GameState, playerIdx: number): GameState {
   );
 }
 
+/** That player's turn begins: the copies that arrived since their last
+ * one have now been there all along. Not part of untapAll — the untap
+ * button mid-turn does not cure summoning sickness. */
+export function readyItems(s: GameState, playerIdx: number): GameState {
+  if (!s.players[playerIdx]?.board.some((it) => it.sick)) return s; // nothing to clear
+  return updateBoard(s, playerIdx, (board) =>
+    board.map((it) => (it.sick ? withSick(it, 0) : it)),
+  );
+}
+
 export function splitItem(
   s: GameState,
   playerIdx: number,
@@ -120,20 +142,29 @@ export function splitItem(
     const source = board.find((it) => it.id === itemId);
     if (!source || !Number.isInteger(moveCount) || moveCount <= 0 || moveCount >= source.count)
       return board;
-    // The copies split off are the ones you can still use: untapped first.
+    // The copies split off are the ones you can still use: untapped first,
+    // and the ones that have been here a while before this turn's arrivals.
     const tapped = source.tapped ?? 0;
     const splitTapped = Math.max(0, moveCount - (source.count - tapped));
-    const split: BoardItem = {
-      ...source,
-      id: newId(),
-      count: moveCount,
-      counters: {},
-      ...(tapped > 0 ? { tapped: splitTapped } : {}),
-    };
+    const sick = source.sick ?? 0;
+    const splitSick = Math.max(0, moveCount - (source.count - sick));
+    const split: BoardItem = withSick(
+      {
+        ...source,
+        id: newId(),
+        count: moveCount,
+        counters: {},
+        ...(tapped > 0 ? { tapped: splitTapped } : {}),
+      },
+      splitSick,
+    );
     return board
       .map((it) =>
         it.id === itemId
-          ? { ...it, count: it.count - moveCount, ...(tapped > 0 ? { tapped: tapped - splitTapped } : {}) }
+          ? withSick(
+              { ...it, count: it.count - moveCount, ...(tapped > 0 ? { tapped: tapped - splitTapped } : {}) },
+              sick - splitSick,
+            )
           : it,
       )
       .concat(split);

@@ -1,3 +1,4 @@
+import { isSummoningSick, permanentTexts, sickCopies } from './keywords';
 import { tapManaFromText, type ManaColor } from './mana';
 import type { BoardItem, CardInstance, CardRecord } from './types';
 
@@ -6,6 +7,9 @@ import type { BoardItem, CardInstance, CardRecord } from './types';
 export interface PayCost {
   generic: number;
   pips: ManaColor[][];
+  /** How many {X} the face holds. Left out when it holds none. X costs
+   * nothing until the caster names it — see withX. */
+  x?: number;
 }
 
 /** One thing a seat can draw mana from right now: a virtual card (key =
@@ -18,7 +22,8 @@ export interface ManaSource {
   amount: number;
   /** Already tapped by hand — its unspent mana is sitting in the pool. */
   floating?: boolean;
-  /** Creatures pay last (they may be summoning sick, or needed to attack). */
+  /** Creatures pay last (they may be needed to attack). One that is
+   * summoning sick is not on offer at all: sourcesFrom leaves it out. */
   creature?: boolean;
 }
 
@@ -44,23 +49,72 @@ export function parseCost(manaCost: string): PayCost {
   return parseFace(manaCost.split(' // ')[0]);
 }
 
-/** {3}{G}{G} → 3 generic + two G pips. X pays zero; hybrid {G/W} accepts
- * either side; {2/W} and phyrexian {G/P} approximate to their color;
- * {C} stays strict (an any-color source cannot make colorless). */
+/** {3}{G}{G} → 3 generic + two G pips. {X} is counted, not priced (the
+ * caster names it: see withX); hybrid {G/W} accepts either side; {2/W}
+ * and phyrexian {G/P} approximate to their color; {C} stays strict (an
+ * any-color source cannot make colorless). */
 function parseFace(manaCost: string): PayCost {
   let generic = 0;
+  let x = 0;
   const pips: ManaColor[][] = [];
   for (const [, symbol] of manaCost.matchAll(/\{([^}]+)\}/g)) {
     if (/^\d+$/.test(symbol)) {
       generic += Number(symbol);
       continue;
     }
-    if (symbol.includes('X')) continue; // X is chosen at cast: tap for it yourself
+    if (symbol.includes('X')) {
+      x += 1; // chosen at cast
+      continue;
+    }
     const colors = symbol.split('/').filter((part) => COLOR_SET.has(part)) as ManaColor[];
     if (colors.length > 0) pips.push(colors);
     else generic += 1; // snow and friends: close enough to generic
   }
-  return { generic, pips };
+  return x > 0 ? { generic, pips, x } : { generic, pips };
+}
+
+/** The cost of each face a cast from this zone could pay: every castable
+ * face from hand, the front face with its tax from the command zone. A
+ * land is played, not cast, so from hand it has no cost at all — and an
+ * unread card costs nothing, as always. The store and the table both
+ * price from here, so they cannot disagree about what a card asks. */
+export function castCosts(
+  record: Pick<CardRecord, 'typeLine' | 'manaCost'> | null | undefined,
+  from: 'hand' | 'command',
+  tax = 0,
+): PayCost[] {
+  if (from === 'command') {
+    const cost = parseCost(record?.manaCost ?? '');
+    return [{ ...cost, generic: cost.generic + tax }];
+  }
+  return /Land/.test(record?.typeLine ?? '') ? [] : parseCosts(record?.manaCost ?? '');
+}
+
+/** Does any of these faces hold an {X}? Then the cast has to ask for it. */
+export function hasX(costs: PayCost[]): boolean {
+  return costs.some((cost) => (cost.x ?? 0) > 0);
+}
+
+/** The cost with X named: `value` more generic mana for every {X} in it. */
+export function withX(cost: PayCost, value: number): PayCost {
+  if (!cost.x || !(value > 0)) return cost;
+  return { ...cost, generic: cost.generic + cost.x * value };
+}
+
+/** What a cast for this X can be paying. A value above zero can only mean
+ * a face with an X to put it in (Expansion // Explosion for 3 is Explosion,
+ * never the cheaper half); zero leaves every face open, like any other
+ * card. A card without X costs what it costs. */
+export function priceX(costs: PayCost[], x: number): PayCost[] {
+  const open = costs.filter((cost) => cost.x);
+  return (x > 0 && open.length > 0 ? open : costs).map((cost) => withX(cost, x));
+}
+
+/** "Hydra enters with X +1/+1 counters on it": the one consequence of X
+ * the table carries out by itself. (Older card data says "enters the
+ * battlefield with".) */
+export function entersWithX(oracleText: string): boolean {
+  return /\benters (?:the battlefield )?with X \+1\/\+1 counters on it\b/i.test(oracleText);
 }
 
 function canPay(s: ManaSource, pip: ManaColor[]): boolean {
@@ -160,6 +214,20 @@ export function availableMana(sources: ManaSource[]): number {
   return sources.reduce((sum, s) => sum + s.amount, 0);
 }
 
+/** The largest X the seat can still pay for: 0 when it cannot even pay
+ * for X = 0, or the cost has no X. Nobody taps for more than 40, so the
+ * search stops there. */
+export function maxX(cost: PayCost, sources: ManaSource[]): number {
+  if (!cost.x) return 0;
+  // Every point of X is `cost.x` more mana than the rest of the cost:
+  // nothing above this ceiling can be payable, whatever the colors.
+  const spare = availableMana(sources) - cost.generic - cost.pips.length;
+  for (let value = Math.min(40, Math.floor(spare / cost.x)); value > 0; value--) {
+    if (affordable(withX(cost, value), sources)) return value;
+  }
+  return 0;
+}
+
 const BASIC_COLOR: Record<string, ManaColor> = {
   plains: 'W',
   island: 'U',
@@ -211,7 +279,9 @@ function grantsFrom(texts: string[]): Grants {
  * are fresh sources; a card you tapped by hand floats whatever nothing has
  * spent yet. Board stacks offer their untapped copies. An ability that
  * sacrifices something is never counted (tapManaFromText skips it) — a
- * payment does not eat a permanent — so Treasures stay manual. */
+ * payment does not eat a permanent — so Treasures stay manual. A creature
+ * that arrived this turn is left out unless it has haste: a dork cannot
+ * pay the turn it is played. Lands and rocks tap at once. */
 export function sourcesFrom(
   battlefield: CardInstance[],
   records: Record<string, CardRecord | null | undefined>,
@@ -220,6 +290,8 @@ export function sourcesFrom(
   const granted = grantsFrom(
     battlefield.map((c) => records[c.cardId]?.oracleText ?? '').filter((t) => t !== ''),
   );
+  // Haste can come from any permanent of the seat, a tracked stack included.
+  const texts = permanentTexts(battlefield, records, board);
   const out: ManaSource[] = [];
   const widen = (produces: Colors, extra: Colors) => {
     for (const g of extra) if (!produces.includes(g)) produces.push(g);
@@ -228,6 +300,8 @@ export function sourcesFrom(
   for (const c of battlefield) {
     const record = records[c.cardId];
     if (!record) continue; // unresolved: its text is not readable yet
+    // Tapping it by hand stays legal (crew, convoke) — it just floats nothing.
+    if (isSummoningSick(c, record, texts)) continue;
     const creature = /Creature/.test(record.typeLine);
     const own = tapManaFromText(record.oracleText);
     const produces = [...own.produces];
@@ -258,7 +332,10 @@ export function sourcesFrom(
     if (creature) widen(produces, granted.creatures);
     if (item.zone === 'lands' || /\bLand\b/.test(item.typeLine)) widen(produces, granted.lands);
     if (produces.length === 0) continue;
-    const ready = item.count - (item.tapped ?? 0);
+    // Which copies are tapped and which only just arrived is not tracked:
+    // offer as many as could be both untapped and past their first turn.
+    const sick = creature ? sickCopies(item, texts) : 0;
+    const ready = Math.min(item.count - (item.tapped ?? 0), item.count - sick);
     for (let i = 0; i < ready; i++) {
       out.push({
         key: item.id,

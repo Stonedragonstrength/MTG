@@ -1,32 +1,36 @@
 import { useEffect, useState } from 'react';
-import { affordable, parseCosts, sourcesFrom } from '../lib/pay';
+import { affordable, castCosts, hasX, parseCosts, sourcesFrom } from '../lib/pay';
+import { canPlayLand } from '../lib/turnRules';
 import type { CardInstance } from '../lib/types';
 import { useAppStore } from '../state/store';
 import HandCardSheet from './HandCardSheet';
 import { useCardRecords } from './useCardRecords';
 import { useLongPress } from './useLongPress';
+import { useSeatTexts } from './useSeatTexts';
+import XCostSheet from './XCostSheet';
 
 function HandCard({
   name,
   art,
   selected,
-  poor,
+  why,
   onPlay,
   onDetail,
 }: {
   name: string;
   art: string | null;
   selected: boolean;
-  poor: boolean;
+  /** Why a tap will not play it right now (dimmed); null when it will. */
+  why: string | null;
   onPlay: () => void;
   onDetail: () => void;
 }) {
   const press = useLongPress(onPlay, onDetail);
   return (
     <button
-      className={`hand-card${selected ? ' hand-card--selected' : ''}${poor ? ' hand-card--poor' : ''}`}
+      className={`hand-card${selected ? ' hand-card--selected' : ''}${why ? ' hand-card--poor' : ''}`}
       aria-label={`play ${name}`}
-      title={poor ? 'Not enough untapped mana · hold for options' : 'Tap to play · hold for options'}
+      title={why ? `${why.replace(/\.$/, '')} · hold for options` : 'Tap to play · hold for options'}
       {...press}
     >
       {art ? <img src={art} alt="" loading="lazy" /> : <span className="vcard-placeholder">{name}</span>}
@@ -54,6 +58,7 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
   const [bottoming, setBottoming] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const [showHeld, setShowHeld] = useState(false); // dead-phone escape hatch
+  const [xFor, setXFor] = useState<string | null>(null); // the card the X sheet is asking about
 
   const activeIdx = game?.activePlayerIndex;
   useEffect(() => {
@@ -65,19 +70,31 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
   const seat = game?.players[playerIdx]?.cards;
   const records = useCardRecords(seat?.hand ?? []);
   const bfRecords = useCardRecords(seat?.battlefield ?? []);
+  const texts = useSeatTexts(playerIdx);
   if (!game || !seat) return null;
 
-  // The mana gate: a card lights up only while the untapped table can pay
-  // it. Lands and unread records never block; "Play anyway" lives in the
-  // hold sheet for cost-reducers and treasure math the gate can't see.
+  // The gates: a spell lights up only while the untapped table can pay it,
+  // a land only while the seat has a land drop left on its own turn. An
+  // unread record never blocks; "Play anyway" lives in the hold sheet for
+  // cost-reducers, treasure math and every rule the gates can't see.
   const sources = sourcesFrom(seat.battlefield, bfRecords, game.players[playerIdx]?.board ?? []);
-  const payable = (c: CardInstance): boolean => {
+  /** Why a tap will not play this card right now — null when it will. */
+  const refusal = (c: CardInstance): string | null => {
     const r = records[c.cardId];
-    if (!r) return true;
-    if (/Land/.test(r.typeLine)) return true;
+    if (!r) return null;
+    if (/Land/.test(r.typeLine))
+      return canPlayLand(game, playerIdx, texts.own, texts.others).why ?? null;
     // Either face will do: a split card needs one half, an adventure
-    // creature its own cost — never the two added together.
-    return parseCosts(r.manaCost).some((cost) => affordable(cost, sources));
+    // creature its own cost — never the two added together. A card with
+    // {X} lights up as soon as X = 0 is payable.
+    return parseCosts(r.manaCost).some((cost) => affordable(cost, sources))
+      ? null
+      : 'Not enough mana ready.';
+  };
+  /** A tap on a card the gates let through: one with {X} asks how much first. */
+  const play = (c: CardInstance) => {
+    if (hasX(castCosts(records[c.cardId], 'hand'))) setXFor(c.iid);
+    else void playCard(playerIdx, c.iid);
   };
   const claimed = !online || online.mySeat === playerIdx || online.mySeat === null;
   if (!claimed) return null; // unclaimed hands live behind the dock's peek gate
@@ -132,10 +149,10 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
                 name={c.name}
                 art={records[c.cardId]?.imageNormal ?? null}
                 selected={selected.includes(c.iid)}
-                poor={!bottoming && !payable(c)}
+                why={bottoming ? null : refusal(c)}
                 onPlay={() => {
                   if (bottoming) toggleSelect(c.iid);
-                  else if (payable(c)) void playCard(playerIdx, c.iid);
+                  else if (!refusal(c)) play(c);
                 }}
                 onDetail={() => !bottoming && setDetail(c.iid)}
               />
@@ -201,12 +218,15 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
         <HandCardSheet
           playerIdx={playerIdx}
           iid={detail}
-          poor={(() => {
+          why={(() => {
             const c = seat.hand.find((x) => x.iid === detail);
-            return c ? !payable(c) : false;
+            return c ? refusal(c) : null;
           })()}
           onClose={() => setDetail(null)}
         />
+      )}
+      {xFor && (
+        <XCostSheet playerIdx={playerIdx} iid={xFor} from="hand" onClose={() => setXFor(null)} />
       )}
     </div>
   );

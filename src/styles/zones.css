@@ -880,6 +880,60 @@ input[type='range'] {
   display: inline-block;
 }
 
+/* ---- summoning sickness ----
+   A creature (or the copies of a stack) that arrived since its controller's
+   turn began: it cannot attack or tap for mana yet. Top right, clear of the
+   tapped count (top left), the mana dots (bottom left) and the P/T. */
+.sick-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: rgba(0, 0, 0, 0.8);
+  border-radius: 4px;
+  padding: 0 3px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.board-strip--md .sick-badge {
+  font-size: 0.8rem;
+}
+
+.board-strip--lg .sick-badge {
+  font-size: 0.95rem;
+  padding: 1px 5px;
+}
+
+/* A deck seat's own cards are drawn large: the badge keeps up. Its token
+   shelf is small, whatever tier the strip is on: the badge stays small. */
+.zone--cards.zone--focused .vcard .sick-badge,
+.hs-board .vcard .sick-badge {
+  top: 4px;
+  right: 4px;
+  font-size: 1rem;
+  padding: 1px 6px;
+}
+
+/* A tapped card tilts, and its top right corner swings out past the row's
+   edge where the row clips: the badge steps in so it stays whole. */
+.zone--cards.zone--focused .vcard--tapped .sick-badge,
+.hs-board .vcard--tapped .sick-badge {
+  right: 12%;
+}
+
+.zone--cards.zone--focused .board-strip .sick-badge {
+  font-size: 0.72rem;
+  padding: 0 3px;
+}
+
+/* A collapsed player is not taking their turn: their minis stay clean, and
+   that corner belongs to the copy count there. */
+.focus-mode .zone:not(.zone--focused) .sick-badge {
+  display: none;
+}
+
 /* ---- animation layer: tapping, spawning, dying ---- */
 
 /* Tap/untap eases instead of snapping — lands share the treatment. */
@@ -2594,6 +2648,7 @@ input[type='checkbox'] {
 
 .zone--cards.zone--focused .lands-total,
 .zone--cards.zone--focused .mana-ready,
+.zone--cards.zone--focused .turn-readouts,
 .zone--cards.zone--focused .untap-btn {
   flex: 0 0 auto;
   white-space: nowrap;
@@ -2765,11 +2820,24 @@ input[type='checkbox'] {
   filter: saturate(0.4);
 }
 
-.mana-ready {
+/* "5 ready" and, on the active seat, "land 0/1": the two things a deck
+   seat can still spend this turn, equally loud. One above the other — the
+   lands line has no width left for both (a second readout beside the first
+   pushed the last land stack out of sight on side seats). */
+.mana-ready,
+.land-plays {
   font-size: 0.74rem;
   font-weight: 700;
   color: var(--accent);
   white-space: nowrap;
+}
+
+.turn-readouts {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  line-height: 1.1;
 }
 
 .hand-pill--held {

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { buildSeatCards, moveCard, seedSeat } from '../lib/cards';
@@ -41,6 +41,7 @@ function rec(id: string, name: string, typeLine: string): CardRecord {
 const RECORDS: Record<string, CardRecord> = {
   'c-cmd': rec('c-cmd', 'Ashaya', 'Legendary Creature — Elemental'),
   'c-bear': rec('c-bear', 'Grizzly Bears', 'Creature — Bear'),
+  'c-goose': { ...rec('c-goose', 'The Goose Mother', 'Legendary Creature — Bird Hydra'), manaCost: '{X}{G}' },
 };
 
 vi.mock('../data/scryfall', () => ({
@@ -119,4 +120,70 @@ test('casting from the command sheet casts the card on that row', async () => {
   expect(screen.getAllByRole('button', { name: /^cast$/i })).toHaveLength(1);
   await user.click(screen.getByRole('button', { name: /cast anyway/i }));
   expect(useAppStore.getState().castCommander).toHaveBeenCalledWith(0, second.iid);
+});
+
+/** A deliberate tap a moment from now. The X sheet takes no tap as an answer for its
+ * first moment on screen (it goes by when the tap happened, not when it was handled). */
+function tapLater(el: HTMLElement) {
+  const tap = new MouseEvent('click', { bubbles: true, cancelable: true });
+  Object.defineProperty(tap, 'timeStamp', { value: Date.now() + 1000 });
+  fireEvent(el, tap);
+}
+
+/** A partner pair in the command zone: the Goose Mother ({X}{G}) and plain Ashaya. */
+async function gooseAndAshaya() {
+  const { setPartner } = await import('../lib/deck');
+  let deck = setPartner(setCommander(createDeck('Pair'), RECORDS['c-goose']), RECORDS['c-cmd']);
+  deck = addCard(deck, RECORDS['c-bear']);
+  deck = changeCardCount(deck, 'c-bear', 9);
+  const g = seedSeat(createGame(config), 0, buildSeatCards(deck, 42));
+  const [goose, ashaya] = g.players[0].cards!.command;
+  return { g, goose, ashaya };
+}
+
+test('casting a commander with X in its cost asks how much first, in place of this sheet', async () => {
+  const { g, goose } = await gooseAndAshaya();
+  useAppStore.setState({ game: g });
+  const onClose = vi.fn();
+  const user = userEvent.setup();
+  render(<PileSheet playerIdx={0} zone="command" onClose={onClose} />);
+  const row = (await screen.findByText('The Goose Mother')).closest('li')!;
+  await waitFor(() => expect(row.querySelector('img')).not.toBeNull()); // its cost is read
+  await user.click(within(row).getByRole('button', { name: /^cast$/i }));
+  expect(useAppStore.getState().castCommander).not.toHaveBeenCalled();
+  expect(onClose).not.toHaveBeenCalled(); // still open: it is asking, not done
+  expect(await screen.findByRole('heading', { name: 'The Goose Mother' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /^cast (for|anyway)/i })).toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: 'Command zone' })).not.toBeInTheDocument(); // one sheet, not two
+
+  tapLater(screen.getByRole('button', { name: /^cast (for|anyway)/i }));
+  expect(useAppStore.getState().castCommander).toHaveBeenCalledWith(0, goose.iid, { x: 0 });
+  expect(onClose).toHaveBeenCalled();
+});
+
+test('closing the X question closes the command sheet with it, casting nothing', async () => {
+  const { g } = await gooseAndAshaya();
+  useAppStore.setState({ game: g });
+  const onClose = vi.fn();
+  const user = userEvent.setup();
+  render(<PileSheet playerIdx={0} zone="command" onClose={onClose} />);
+  const row = (await screen.findByText('The Goose Mother')).closest('li')!;
+  await waitFor(() => expect(row.querySelector('img')).not.toBeNull());
+  await user.click(within(row).getByRole('button', { name: /^cast$/i }));
+  tapLater(await screen.findByRole('button', { name: 'close' }));
+  expect(onClose).toHaveBeenCalled();
+  expect(useAppStore.getState().castCommander).not.toHaveBeenCalled();
+});
+
+test('its partner without X still casts straight from the row', async () => {
+  const { g, ashaya } = await gooseAndAshaya();
+  useAppStore.setState({ game: g });
+  const onClose = vi.fn();
+  const user = userEvent.setup();
+  render(<PileSheet playerIdx={0} zone="command" onClose={onClose} />);
+  const row = (await screen.findByText('Ashaya')).closest('li')!;
+  await waitFor(() => expect(row.querySelector('img')).not.toBeNull());
+  await user.click(within(row).getByRole('button', { name: /^cast$/i }));
+  expect(useAppStore.getState().castCommander).toHaveBeenCalledWith(0, ashaya.iid);
+  expect(onClose).toHaveBeenCalled();
 });

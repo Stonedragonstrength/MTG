@@ -108,7 +108,7 @@ export function seedSeat(g: GameState, seat: number, cards: SeatCards): GameStat
 
 /** Battlefield-only fields never travel to other zones. */
 function stripped(c: CardInstance): CardInstance {
-  const { tapped: _t, counters: _c, row: _r, spent: _s, ...rest } = c;
+  const { tapped: _t, counters: _c, row: _r, spent: _s, sick: _k, ...rest } = c;
   return rest;
 }
 
@@ -217,12 +217,13 @@ export function moveCard(
     const card = source.find((c) => c.iid === iid);
     if (!card) return null; // identity rule: the SOURCE zone must hold it
     // A same-zone move is a shelf/position change, not a zone exit: the
-    // card keeps its tapped state and counters (review finding).
+    // card keeps its tapped state and counters (review finding). Anything
+    // that reaches the battlefield from elsewhere has only just arrived.
     const moved: CardInstance =
       from === to
         ? { ...card, ...(opts?.row ? { row: opts.row } : {}) }
         : to === 'battlefield'
-          ? { ...stripped(card), ...(opts?.row ? { row: opts.row } : {}) }
+          ? { ...stripped(card), ...(opts?.row ? { row: opts.row } : {}), sick: true }
           : stripped(card);
     const without = source.filter((c) => c.iid !== iid);
     const dest = to === from ? without : cards[to];
@@ -366,6 +367,41 @@ export function untapAllCards(g: GameState, seat: number): GameState {
       }),
     };
   });
+}
+
+/** A seat's turn begins: what arrived since its last one has now been
+ * there all along. The untap BUTTON never calls this — tapping lands back
+ * up mid-turn does not cure summoning sickness. */
+export function readyCards(g: GameState, seat: number): GameState {
+  return updateSeat(g, seat, (cards) => {
+    if (!cards.battlefield.some((c) => c.sick)) return null;
+    return {
+      ...cards,
+      battlefield: cards.battlefield.map((c) => {
+        if (!c.sick) return c;
+        const { sick: _k, ...rest } = c; // omit, never write false
+        return rest;
+      }),
+    };
+  });
+}
+
+/** Lands this seat has played from hand in the turn the game is in now.
+ * A stamp left by any other turn is stale and reads zero. */
+export function landsPlayed(g: GameState, seat: number): number {
+  const stamp = g.players[seat]?.cards?.landPlays;
+  return stamp && stamp.turn === g.turnNumber && stamp.active === g.activePlayerIndex
+    ? stamp.n
+    : 0;
+}
+
+/** One more land played from hand this turn. The caller runs it in the
+ * same op that moves the card, so undo and a rebase take both or neither. */
+export function countLandPlay(g: GameState, seat: number): GameState {
+  return updateSeat(g, seat, (cards) => ({
+    ...cards,
+    landPlays: { turn: g.turnNumber, active: g.activePlayerIndex, n: landsPlayed(g, seat) + 1 },
+  }));
 }
 
 /** The synced announcement ring: dedup by id (rebases re-append), cap 30. */

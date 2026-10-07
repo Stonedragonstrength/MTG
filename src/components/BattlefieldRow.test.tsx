@@ -1,10 +1,10 @@
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { buildSeatCards, seedSeat } from '../lib/cards';
 import { addCard, changeCardCount, createDeck, setCommander } from '../lib/deck';
 import { createGame } from '../lib/game';
-import type { CardRecord, GameConfig } from '../lib/types';
+import type { CardInstance, CardRecord, GameConfig, GameState } from '../lib/types';
 import { useAppStore } from '../state/store';
 import BattlefieldRow from './BattlefieldRow';
 
@@ -42,6 +42,17 @@ const RECORDS: Record<string, CardRecord> = {
   'c-cmd': rec('c-cmd', 'Ashaya', 'Legendary Creature — Elemental'),
   'c-bear': rec('c-bear', 'Grizzly Bears', 'Creature — Bear'),
   'c-forest': { ...rec('c-forest', 'Forest', 'Basic Land — Forest'), oracleText: '({T}: Add {G}.)' },
+  'c-goblin': { ...rec('c-goblin', 'Raging Goblin', 'Creature — Goblin Berserker'), oracleText: 'Haste' },
+  'c-sol': { ...rec('c-sol', 'Sol Ring', 'Artifact'), oracleText: '{T}: Add {C}{C}.' },
+  'c-fervor': {
+    ...rec('c-fervor', 'Fervor', 'Enchantment'),
+    oracleText: 'Creatures you control have haste.',
+  },
+  'c-goose': {
+    ...rec('c-goose', 'The Goose Mother', 'Legendary Creature — Bird Hydra'),
+    manaCost: '{X}{G}',
+    oracleText: 'Flying\nThe Goose Mother enters with X +1/+1 counters on it.',
+  },
 };
 
 vi.mock('../data/scryfall', () => ({
@@ -144,6 +155,153 @@ test('battlefield cards render with art and tap to tap', async () => {
   const card = (await screen.findAllByRole('button', { name: /^tap / }))[0];
   await user.click(card);
   expect(useAppStore.getState().tapVirtualCard).toHaveBeenCalledWith(0, iid);
+});
+
+// ---- turn rules: summoning sickness, X costs ----
+
+/** The seeded game with exactly these cards on seat 0's battlefield. */
+function gameWith(battlefield: CardInstance[]): GameState {
+  const g = seededGame();
+  g.players[0] = { ...g.players[0], cards: { ...g.players[0].cards!, battlefield } };
+  return g;
+}
+const FRESH_BEAR: CardInstance = { iid: 'b1', cardId: 'c-bear', name: 'Grizzly Bears', row: 'front', sick: true };
+const badge = (card: HTMLElement) => card.querySelector('.sick-badge');
+
+test('a creature that arrived this turn wears the summoning-sick badge and says so', async () => {
+  useAppStore.setState({ game: gameWith([FRESH_BEAR]) });
+  render(<BattlefieldRow playerIdx={0} />);
+  const card = await screen.findByRole('button', { name: 'tap Grizzly Bears, summoning sick' });
+  expect(badge(card)).toHaveTextContent('💤');
+});
+
+test('once its controller’s turn has come round the badge is gone', async () => {
+  const { sick: _sick, ...readied } = FRESH_BEAR;
+  useAppStore.setState({ game: gameWith([readied]) });
+  render(<BattlefieldRow playerIdx={0} />);
+  const card = screen.getByRole('button', { name: 'tap Grizzly Bears' });
+  await waitFor(() => expect(card.querySelector('img')).not.toBeNull()); // record in
+  expect(badge(card)).toBeNull();
+  expect(card).toHaveAccessibleName('tap Grizzly Bears');
+});
+
+test('a fresh artifact or land never shows it: only creatures get summoning sick', async () => {
+  useAppStore.setState({
+    game: gameWith([
+      { iid: 's1', cardId: 'c-sol', name: 'Sol Ring', row: 'front', sick: true },
+      { iid: 'f1', cardId: 'c-forest', name: 'Forest', row: 'front', sick: true }, // a land moved up front
+    ]),
+  });
+  render(<BattlefieldRow playerIdx={0} />);
+  for (const name of ['tap Sol Ring', 'tap Forest']) {
+    const card = screen.getByRole('button', { name });
+    await waitFor(() => expect(card.querySelector('img')).not.toBeNull());
+    expect(badge(card)).toBeNull();
+    expect(card).toHaveAccessibleName(name);
+  }
+});
+
+test('a fresh creature with haste shows none, whether the haste is its own or handed to it', async () => {
+  useAppStore.setState({
+    game: gameWith([{ iid: 'g1', cardId: 'c-goblin', name: 'Raging Goblin', row: 'front', sick: true }]),
+  });
+  const first = render(<BattlefieldRow playerIdx={0} />);
+  const goblin = screen.getByRole('button', { name: /^tap Raging Goblin/ });
+  await waitFor(() => expect(goblin.querySelector('img')).not.toBeNull());
+  expect(badge(goblin)).toBeNull();
+  expect(goblin).toHaveAccessibleName('tap Raging Goblin');
+  first.unmount();
+
+  useAppStore.setState({
+    game: gameWith([FRESH_BEAR, { iid: 'v1', cardId: 'c-fervor', name: 'Fervor', row: 'front' }]),
+  });
+  render(<BattlefieldRow playerIdx={0} />);
+  const fervor = screen.getByRole('button', { name: 'tap Fervor' });
+  await waitFor(() => expect(fervor.querySelector('img')).not.toBeNull());
+  const bear = screen.getByRole('button', { name: /^tap Grizzly Bears/ });
+  expect(badge(bear)).toBeNull();
+  expect(bear).toHaveAccessibleName('tap Grizzly Bears');
+});
+
+test('a fresh card whose record cannot be read shows no badge', async () => {
+  useAppStore.setState({
+    game: gameWith([{ iid: 'u1', cardId: 'c-unknown', name: 'Mystery Beast', row: 'front', sick: true }]),
+  });
+  render(<BattlefieldRow playerIdx={0} />);
+  const card = screen.getByRole('button', { name: /^tap Mystery Beast/ });
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 50)); // the lookup comes back empty
+  });
+  expect(badge(card)).toBeNull();
+  expect(card).toHaveAccessibleName('tap Mystery Beast');
+});
+
+test('a summoning-sick creature still taps on a tap: crewing and convoke are legal', async () => {
+  useAppStore.setState({ game: gameWith([FRESH_BEAR]) });
+  const user = userEvent.setup();
+  render(<BattlefieldRow playerIdx={0} />);
+  await user.click(await screen.findByRole('button', { name: 'tap Grizzly Bears, summoning sick' }));
+  expect(useAppStore.getState().tapVirtualCard).toHaveBeenCalledWith(0, 'b1');
+});
+
+/** A seat whose commander costs {X}{G}, with `forests` Forests on its lands shelf. */
+function gooseGame(forests: number): { g: GameState; iid: string } {
+  let deck = setCommander(createDeck('Geese'), RECORDS['c-goose']);
+  deck = addCard(deck, RECORDS['c-forest']);
+  deck = changeCardCount(deck, 'c-forest', 9);
+  const g = seedSeat(createGame(config), 0, buildSeatCards(deck, 42));
+  g.players[0] = {
+    ...g.players[0],
+    cards: {
+      ...g.players[0].cards!,
+      battlefield: Array.from({ length: forests }, (_, k) => ({
+        iid: `f${k + 1}`,
+        cardId: 'c-forest',
+        name: 'Forest',
+        row: 'lands' as const,
+      })),
+    },
+  };
+  return { g, iid: g.players[0].cards!.command[0].iid };
+}
+
+test('a commander with X in its cost asks how much from the pedestal, instead of casting', async () => {
+  const { g, iid } = gooseGame(3);
+  useAppStore.setState({ game: g });
+  const user = userEvent.setup();
+  render(<BattlefieldRow playerIdx={0} />);
+  const pedestal = screen.getByLabelText(/commander The Goose Mother/i);
+  await waitFor(() => expect(pedestal.querySelector('img')).not.toBeNull()); // records in
+  expect(pedestal).toHaveAccessibleName('commander The Goose Mother — tap to cast'); // X = 0 is payable
+  await user.click(pedestal);
+  expect(useAppStore.getState().castCommander).not.toHaveBeenCalled();
+  expect(await screen.findByRole('heading', { name: 'The Goose Mother' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Cast for X = 0' })).toBeInTheDocument();
+  // Deliberate taps, a moment after the sheet opened: for its first moment on
+  // screen the X sheet takes no tap as an answer (it goes by when the tap happened).
+  const tapLater = (el: HTMLElement) => {
+    const tap = new MouseEvent('click', { bubbles: true, cancelable: true });
+    Object.defineProperty(tap, 'timeStamp', { value: Date.now() + 1000 });
+    fireEvent(el, tap);
+  };
+  tapLater(screen.getByRole('button', { name: 'Max' }));
+  tapLater(screen.getByRole('button', { name: 'Cast for X = 2' }));
+  expect(useAppStore.getState().castCommander).toHaveBeenCalledWith(0, iid, { x: 2 });
+  await waitFor(() =>
+    expect(screen.queryByRole('heading', { name: 'The Goose Mother' })).not.toBeInTheDocument(),
+  );
+});
+
+test('an X commander the seat cannot pay for: Cast anyway asks for X as well', async () => {
+  const { g } = gooseGame(0);
+  useAppStore.setState({ game: g });
+  const user = userEvent.setup();
+  render(<BattlefieldRow playerIdx={0} />);
+  await user.click(await screen.findByLabelText(/commander The Goose Mother — not enough mana/i));
+  await user.click(await screen.findByRole('button', { name: /cast anyway/i }));
+  expect(useAppStore.getState().castCommander).not.toHaveBeenCalled();
+  expect(await screen.findByRole('button', { name: 'Cast anyway (X = 0)' })).toBeInTheDocument();
+  expect(screen.queryByText(/command zone/i, { selector: 'h2' })).not.toBeInTheDocument(); // one sheet, not two
 });
 
 test('the graveyard pile opens the browser sheet', async () => {

@@ -7,6 +7,7 @@ import {
   computedPT,
   createBoardItem,
   createCustomToken,
+  readyItems,
   removeItem,
   setCounter,
   setManaMode,
@@ -243,6 +244,93 @@ describe('mana tapping', () => {
     g = tapItem(g, 0, id, 3);
     g = changeCount(g, 0, id, -2);
     expect(g.players[0].board[0].tapped).toBe(1);
+  });
+});
+
+describe('copies that only just arrived (summoning sickness)', () => {
+  /** A stack of `count` soldiers of which `sick` arrived this turn. */
+  function stack(count: number, sick: number): { g: GameState; id: string } {
+    const item = createBoardItem(soldier);
+    const ready = count - sick;
+    if (ready === 0) return { g: addItem(freshGame(), 0, { ...item, count }), id: item.id };
+    // The ones that have been here a while: added, then readied by their controller's turn.
+    let g = readyItems(addItem(freshGame(), 0, { ...item, count: ready }), 0);
+    if (sick > 0) g = changeCount(g, 0, item.id, sick); // these only just arrived
+    return { g, id: item.id };
+  }
+  const only = (g: GameState) => g.players[0].board[0];
+
+  test('a new stack arrives all sick', () => {
+    const g = addItem(freshGame(), 0, createBoardItem(soldier));
+    expect(only(g).sick).toBe(1);
+    const five = addItem(freshGame(), 0, { ...createBoardItem(soldier), count: 5 });
+    expect(only(five).sick).toBe(5);
+  });
+
+  test('copies added to a stack arrive sick, on top of what already was', () => {
+    const { g, id } = stack(3, 0); // three soldiers that have been here a while
+    expect('sick' in only(g)).toBe(false);
+    const more = changeCount(g, 0, id, 2);
+    expect([only(more).count, only(more).sick]).toEqual([5, 2]);
+    expect(only(changeCount(more, 0, id, 1)).sick).toBe(3);
+  });
+
+  test('removing copies never leaves more sick ones than the stack holds', () => {
+    const { g, id } = stack(5, 4);
+    expect([only(g).count, only(g).sick]).toEqual([5, 4]);
+    expect(only(changeCount(g, 0, id, -1)).sick).toBe(4); // four left: the one that went was the ready one
+    expect(only(changeCount(g, 0, id, -3)).sick).toBe(2); // two left: at most two can be sick
+  });
+
+  test('the count is left out entirely when no copy is sick', () => {
+    const { g, id } = stack(3, 0);
+    expect('sick' in only(changeCount(g, 0, id, -1))).toBe(false);
+    const { g: fresh, id: freshId } = stack(2, 2);
+    expect('sick' in only(readyItems(fresh, 0))).toBe(false);
+    expect('sick' in only(changeCount(readyItems(fresh, 0), 0, freshId, -1))).toBe(false);
+  });
+
+  test('a split takes the copies that are ready first, as it does with untapped ones', () => {
+    const { g, id } = stack(8, 6); // 2 ready, 6 sick
+    const split = splitItem(g, 0, id, 3);
+    const [rest, off] = split.players[0].board;
+    expect([off.count, off.sick]).toEqual([3, 1]); // both ready ones, plus one sick
+    expect([rest.count, rest.sick]).toEqual([5, 5]);
+  });
+
+  test('splitting off fewer than the ready copies leaves every sick one behind', () => {
+    const { g, id } = stack(8, 2);
+    const split = splitItem(g, 0, id, 3);
+    const [rest, off] = split.players[0].board;
+    expect('sick' in off).toBe(false);
+    expect([rest.count, rest.sick]).toEqual([5, 2]);
+  });
+
+  test('a stack with nobody sick splits without growing the key', () => {
+    const { g, id } = stack(4, 0);
+    const [rest, off] = splitItem(g, 0, id, 1).players[0].board;
+    expect('sick' in rest).toBe(false);
+    expect('sick' in off).toBe(false);
+  });
+
+  test('readyItems clears that player only, and hands back the same state when there is nothing to clear', () => {
+    let g = addItem(freshGame(), 0, createBoardItem(soldier));
+    g = addItem(g, 1, createBoardItem(soldier));
+    const readied = readyItems(g, 0);
+    expect('sick' in readied.players[0].board[0]).toBe(false);
+    expect(readied.players[1].board[0].sick).toBe(1);
+    expect(readied.players[1]).toBe(g.players[1]); // untouched, not even copied
+    expect(readyItems(readied, 0)).toBe(readied); // a replay changes nothing
+    expect(readyItems(freshGame(), 0)).toEqual(freshGame());
+    const empty = freshGame();
+    expect(readyItems(empty, 0)).toBe(empty);
+    expect(readyItems(empty, 9)).toBe(empty); // no such seat
+  });
+
+  test('untapping and tapping leave sickness alone', () => {
+    const { g, id } = stack(3, 3);
+    expect(only(untapAll(tapItem(g, 0, id, 2), 0)).sick).toBe(3); // the untap button is not a new turn
+    expect(only(tapItem(g, 0, id, 1)).sick).toBe(3);
   });
 });
 

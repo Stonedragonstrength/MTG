@@ -2,8 +2,10 @@ import { useState } from 'react';
 import { randomBasicArt } from '../data/images';
 import { findBasicLand } from '../data/scryfall';
 import { createBoardItem } from '../lib/board';
+import { landsPlayed } from '../lib/cards';
 import { COLOR_NAMES, isOneShotSource, landSummary, MANA_COLORS, type ManaColor } from '../lib/mana';
 import { availableMana, sourcesFrom } from '../lib/pay';
+import { landAllowance } from '../lib/turnRules';
 import type { BoardItem, CardInstance } from '../lib/types';
 import { useAppStore } from '../state/store';
 import BattlefieldCardSheet from './BattlefieldCardSheet';
@@ -12,6 +14,7 @@ import CardSearch from './CardSearch';
 import DiceRoller from './DiceRoller';
 import { useCardRecords } from './useCardRecords';
 import { useLongPress } from './useLongPress';
+import { useSeatTexts } from './useSeatTexts';
 
 const BASICS: { name: string; color: ManaColor }[] = [
   { name: 'Plains', color: 'W' },
@@ -151,6 +154,7 @@ export default function LandsRow({ playerIdx }: Props) {
   // Every battlefield card, not just the shelf: rocks and dorks up front
   // are mana too, and the ready count has to see them.
   const records = useCardRecords(seat?.battlefield ?? []);
+  const texts = useSeatTexts(playerIdx);
 
   if (!game) return null;
   const lands = game.players[playerIdx].board.filter((it) => it.zone === 'lands');
@@ -169,6 +173,18 @@ export default function LandsRow({ playerIdx }: Props) {
   const ready = seat
     ? availableMana(sourcesFrom(seat.battlefield, records, game.players[playerIdx].board))
     : null;
+  // The land drop, for the deck seat whose turn it is: how many lands it
+  // has played from hand against how many it may (the hand's gate reads
+  // the same two numbers). Nobody else has a land drop to show.
+  const landDrop =
+    seat && game.activePlayerIndex === playerIdx
+      ? { used: landsPlayed(game, playerIdx), allowed: landAllowance(texts.own, texts.others) }
+      : null;
+  const readyReadout = ready !== null && (
+    <span className="mana-ready" aria-label={`${ready} mana ready`}>
+      {ready} ready
+    </span>
+  );
 
   async function quickAdd(name: string) {
     const existing = lands.find((it) => it.name === name);
@@ -207,9 +223,22 @@ export default function LandsRow({ playerIdx }: Props) {
             {summary.any}
           </span>
         )}
-        {ready !== null && (
-          <span className="mana-ready" aria-label={`${ready} mana ready`}>
-            {ready} ready
+        {!landDrop && readyReadout}
+        {landDrop && (
+          // One above the other: the line has no width to spare for a second
+          // readout beside the first (it pushed a land stack out of sight).
+          <span className="turn-readouts">
+            {readyReadout}
+            <span
+              className="land-plays"
+              aria-label={
+                Number.isFinite(landDrop.allowed)
+                  ? `${landDrop.used} of ${landDrop.allowed} land plays used`
+                  : `${landDrop.used} land plays used, no limit`
+              }
+            >
+              land {landDrop.used}/{Number.isFinite(landDrop.allowed) ? landDrop.allowed : '∞'}
+            </span>
           </span>
         )}
         {anyTapped && (

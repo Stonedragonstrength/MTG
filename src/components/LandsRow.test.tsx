@@ -2,7 +2,14 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { createGame } from '../lib/game';
-import type { BoardItem, CardInstance, CardRecord, GameConfig, SeatCards } from '../lib/types';
+import type {
+  BoardItem,
+  CardInstance,
+  CardRecord,
+  GameConfig,
+  GameState,
+  SeatCards,
+} from '../lib/types';
 import { useAppStore } from '../state/store';
 import LandsRow from './LandsRow';
 
@@ -29,6 +36,25 @@ const forestCard = record('forest-1', 'Forest', 'Basic Land — Forest', '({T}: 
 const VRECORDS: Record<string, CardRecord> = {
   'c-forest': record('c-forest', 'Forest', 'Basic Land — Forest', '({T}: Add {G}.)'),
   'c-tower': record('c-tower', 'Command Tower', 'Land', '{T}: Add one mana of any color.'),
+  'c-exploration': record(
+    'c-exploration',
+    'Exploration',
+    'Enchantment',
+    'You may play an additional land on each of your turns.',
+  ),
+  'c-rites': record(
+    'c-rites',
+    'Rites of Flourishing',
+    'Enchantment',
+    "At the beginning of each player's draw step, that player draws an additional card.\nEach player may play an additional land on each of their turns.",
+  ),
+  'c-fastbond': record(
+    'c-fastbond',
+    'Fastbond',
+    'Enchantment',
+    "You may play any number of lands on each of your turns.\nWhenever you play a land, if it wasn't the first land you played this turn, Fastbond deals 1 damage to you.",
+  ),
+  'c-elves': record('c-elves', 'Llanowar Elves', 'Creature — Elf Druid', '{T}: Add {G}.'),
 };
 
 vi.mock('../data/scryfall', () => ({
@@ -288,6 +314,100 @@ test('a deck seat reads how much mana is ready: untapped lands plus what floats'
   useAppStore.setState({ game });
   render(<LandsRow playerIdx={0} />);
   expect(await screen.findByLabelText('2 mana ready')).toBeInTheDocument();
+});
+
+// ---- turn rules: the land drop readout, and mana a fresh creature cannot make yet ----
+
+const FOREST: CardInstance = { iid: 'i1', cardId: 'c-forest', name: 'Forest', row: 'lands' };
+
+/** A two-player game where seat 0 holds these cards; `over` adjusts the game itself. */
+function cardsGame(seat: SeatCards, over: Partial<GameState> = {}): GameState {
+  const game = createGame(config);
+  game.players[0] = { ...game.players[0], cards: seat };
+  return { ...game, ...over };
+}
+
+test('the active deck seat reads its land drop next to its mana', () => {
+  useAppStore.setState({ game: cardsGame(seatWith([FOREST])) });
+  render(<LandsRow playerIdx={0} />);
+  const readout = screen.getByLabelText('0 of 1 land plays used');
+  expect(readout).toHaveTextContent('land 0/1');
+  expect(readout.className).toBe('land-plays');
+});
+
+test('it counts the lands played from hand this turn', () => {
+  const seat = { ...seatWith([FOREST]), landPlays: { turn: 1, active: 0, n: 1 } };
+  useAppStore.setState({ game: cardsGame(seat) });
+  render(<LandsRow playerIdx={0} />);
+  expect(screen.getByLabelText('1 of 1 land plays used')).toHaveTextContent('land 1/1');
+});
+
+test('a land played last turn is not on this turn’s readout', () => {
+  const seat = { ...seatWith([FOREST]), landPlays: { turn: 1, active: 0, n: 1 } };
+  useAppStore.setState({ game: cardsGame(seat, { turnNumber: 2 }) });
+  render(<LandsRow playerIdx={0} />);
+  expect(screen.getByLabelText('0 of 1 land plays used')).toBeInTheDocument();
+});
+
+test('a permanent that grants land drops raises what the readout allows', async () => {
+  const exploration: CardInstance = { iid: 'e1', cardId: 'c-exploration', name: 'Exploration', row: 'front' };
+  useAppStore.setState({ game: cardsGame(seatWith([FOREST, exploration])) });
+  render(<LandsRow playerIdx={0} />);
+  expect(await screen.findByLabelText('0 of 2 land plays used')).toHaveTextContent('land 0/2');
+});
+
+test('so does another seat’s Rites of Flourishing', async () => {
+  const game = cardsGame(seatWith([FOREST]));
+  game.players[1] = {
+    ...game.players[1],
+    cards: seatWith([{ iid: 'r1', cardId: 'c-rites', name: 'Rites of Flourishing', row: 'front' }]),
+  };
+  useAppStore.setState({ game });
+  render(<LandsRow playerIdx={0} />);
+  expect(await screen.findByLabelText('0 of 2 land plays used')).toBeInTheDocument();
+});
+
+test('Fastbond reads as no limit', async () => {
+  const fastbond: CardInstance = { iid: 'x1', cardId: 'c-fastbond', name: 'Fastbond', row: 'front' };
+  const seat = { ...seatWith([FOREST, fastbond]), landPlays: { turn: 1, active: 0, n: 3 } };
+  useAppStore.setState({ game: cardsGame(seat) });
+  render(<LandsRow playerIdx={0} />);
+  expect(await screen.findByLabelText('3 land plays used, no limit')).toHaveTextContent('land 3/∞');
+});
+
+test('the readout belongs to the player whose turn it is: nobody else shows one', () => {
+  useAppStore.setState({ game: cardsGame(seatWith([FOREST]), { activePlayerIndex: 1 }) });
+  render(<LandsRow playerIdx={0} />);
+  expect(screen.queryByLabelText(/land plays used/i)).not.toBeInTheDocument();
+  expect(screen.getByLabelText('1 mana ready')).toBeInTheDocument(); // the mana readout stays
+});
+
+test('tracker seats show no land readout, even on their own turn', () => {
+  const game = createGame(config);
+  game.players[0] = { ...game.players[0], board: [landItem('Forest', '({T}: Add {G}.)', 3)] };
+  useAppStore.setState({ game });
+  render(<LandsRow playerIdx={0} />);
+  expect(screen.queryByLabelText(/land plays used/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/^land \d/)).not.toBeInTheDocument();
+});
+
+test('a mana creature counts as ready mana, but not on the turn it arrives', async () => {
+  const elves = (sick: boolean): CardInstance => ({
+    iid: 'e1',
+    cardId: 'c-elves',
+    name: 'Llanowar Elves',
+    row: 'front',
+    ...(sick ? { sick: true as const } : {}),
+  });
+  // First the elf that has been there a while: once it counts, both records are read.
+  useAppStore.setState({ game: cardsGame(seatWith([FOREST, elves(false)])) });
+  const settled = render(<LandsRow playerIdx={0} />);
+  expect(await screen.findByLabelText('2 mana ready')).toBeInTheDocument();
+  settled.unmount();
+
+  useAppStore.setState({ game: cardsGame(seatWith([FOREST, elves(true)])) });
+  render(<LandsRow playerIdx={0} />);
+  expect(screen.getByLabelText('1 mana ready')).toBeInTheDocument(); // the Forest alone
 });
 
 test('a tapped front-row card surfaces untap-all too', () => {
