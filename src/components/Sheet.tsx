@@ -68,9 +68,28 @@ export default function Sheet({ title, onClose, size = 'regular', children, foot
   // However it closes — a button, ✕, the back button — the board sits out the next
   // moment. (StrictMode's rehearsal unmount raises a shield too; it lifts like any other.)
   useEffect(() => shieldBoard, []);
+  // A tap acts when the finger lifts (useLongPress), so a sheet it opens is on screen
+  // before that same tap's click arrives — and a touch screen aims the click at what
+  // lies under the finger by then: this sheet. On the backdrop it closed the sheet
+  // again at once; on a link or a button it pressed that. (A hold that opens a sheet
+  // ends the same way on a device that still sends a click when the finger lifts.)
+  // So a click counts only once a press has begun on the sheet. A keyboard's click
+  // has no press: it carries detail 0 and always counts.
+  const pressed = useRef(false);
 
   return createPortal(
-    <div className="modal-backdrop" onClick={() => onClose()}>
+    <div
+      className="modal-backdrop"
+      onPointerDownCapture={() => {
+        pressed.current = true;
+      }}
+      onClickCapture={(e) => {
+        if (pressed.current || e.detail === 0) return;
+        e.stopPropagation(); // neither the sheet's buttons nor the backdrop hear it
+        e.preventDefault(); // and a link under the finger is not followed
+      }}
+      onClick={() => onClose()}
+    >
       <div className={`sheet sheet--${size}`} onClick={(e) => e.stopPropagation()}>
         <header className="sheet-header">
           <h2>{title}</h2>

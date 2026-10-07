@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, test, vi } from 'vitest';
 import type { CardRecord, GarageCard } from '../lib/types';
@@ -81,6 +81,20 @@ test('the binder face carries no bare count or delete controls', () => {
   render(<GarageScreen onBack={() => {}} />);
   expect(screen.queryByRole('button', { name: /one fewer/i })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /one more/i })).not.toBeInTheDocument();
+});
+
+test('a finger tap on a card opens its view, and the view stays open', async () => {
+  render(<GarageScreen onBack={() => {}} />);
+  await screen.findByText(/\$9\.00/); // the card data is in
+  const card = screen.getByRole('button', { name: /lightning bolt details/i });
+  fireEvent.pointerDown(card);
+  fireEvent.pointerUp(card); // the view opens as the finger lifts…
+  // …and only then does a touch screen send the tap's click, aimed at what lies under
+  // the finger by now. For a card in an outer column of the tablet that is the dimmed
+  // backdrop of its own view — and a click there closes a sheet.
+  fireEvent.click(document.querySelector('.modal-backdrop')!, { detail: 1 });
+  expect(screen.getByRole('heading', { name: 'Lightning Bolt' })).toBeInTheDocument();
+  await screen.findByText('x'); // the view has looked its card up (this file's stand-in type line)
 });
 
 test('holding a card opens manage, where the stepper adjusts counts', async () => {

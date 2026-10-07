@@ -6,6 +6,7 @@ import { StrictMode, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { _resetBackStack } from '../lib/backstack';
 import Sheet from './Sheet';
+import { useLongPress } from './useLongPress';
 
 beforeEach(() => {
   _resetBackStack();
@@ -65,6 +66,78 @@ test('the tablet back button closes the sheet instead of the app', () => {
     window.dispatchEvent(new PopStateEvent('popstate'));
   });
   expect(onClose).toHaveBeenCalledTimes(1);
+});
+
+// A tap acts when the finger lifts (useLongPress), so a sheet it opens is on screen
+// before that same tap's click arrives — and a touch screen aims the click at what
+// lies under the finger by then: the new sheet. Measured in Chrome with a finger: on
+// the backdrop the click closed the sheet again, on a link or a button it pressed that.
+
+/** A card that opens its sheet on a tap, the way a card in the Curation does. */
+function TapOpens({ onMore = () => {} }: { onMore?: () => void }) {
+  const [open, setOpen] = useState(false);
+  const gesture = useLongPress(
+    () => setOpen(true),
+    () => {},
+  );
+  return (
+    <>
+      <button {...gesture}>card</button>
+      {open && (
+        <Sheet title="Card view" onClose={() => setOpen(false)}>
+          <a href="#edhrec">EDHREC ↗</a>
+          <button onClick={onMore}>Goes well with…</button>
+        </Sheet>
+      )}
+    </>
+  );
+}
+
+/** A finger comes down on `el` and lifts again: all a page hears of it before the click. */
+function press(el: Element) {
+  fireEvent.pointerDown(el);
+  fireEvent.pointerUp(el);
+}
+
+/** The click that ends a press. A finger's or a mouse's counts the taps; a keyboard's carries 0. */
+const pressClick = (el: Element) => fireEvent.click(el, { detail: 1 });
+
+test('the tap that opens a sheet does not close it again when its click lands on the backdrop', () => {
+  render(<TapOpens />);
+  press(screen.getByRole('button', { name: 'card' })); // the sheet is up…
+  pressClick(document.querySelector('.modal-backdrop')!); // …when that same tap's click arrives
+  expect(screen.getByText('Card view')).toBeInTheDocument();
+});
+
+test('nor does that click press a button or follow a link that came up under the finger', () => {
+  const onMore = vi.fn();
+  render(<TapOpens onMore={onMore} />);
+  press(screen.getByRole('button', { name: 'card' }));
+  const more = screen.getByRole('button', { name: 'Goes well with…' });
+  pressClick(more);
+  expect(onMore).not.toHaveBeenCalled();
+  // A link is followed unless its click is cancelled: the page hears "false" back.
+  expect(pressClick(screen.getByRole('link', { name: 'EDHREC ↗' }))).toBe(false);
+  press(more); // the next tap begins on the sheet: this one is meant for it
+  pressClick(more);
+  expect(onMore).toHaveBeenCalledTimes(1);
+});
+
+test('a press on the dimmed backdrop still closes the sheet', () => {
+  render(<TapOpens />);
+  press(screen.getByRole('button', { name: 'card' }));
+  const backdrop = document.querySelector('.modal-backdrop')!;
+  press(backdrop);
+  pressClick(backdrop);
+  expect(screen.queryByText('Card view')).not.toBeInTheDocument();
+});
+
+test('a keyboard click has no press to wait for: it counts on a sheet that has only just opened', () => {
+  const onMore = vi.fn();
+  render(<TapOpens onMore={onMore} />);
+  press(screen.getByRole('button', { name: 'card' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Goes well with…' })); // Enter on the button
+  expect(onMore).toHaveBeenCalledTimes(1);
 });
 
 // A tap that closes a sheet is often the first half of a double tap. The second

@@ -504,12 +504,10 @@ label {
   overflow: hidden;
 }
 
-/* A Legendaries row says its whole type ("Legendary Creature — Elf Druid"):
-   on a narrow screen it runs onto a second line before it is cut short. */
+/* A Legendaries row says its whole type ("Legendary Creature — Elf Druid"), and
+   the subtype comes last: on a narrow screen the line wraps as far as it needs.
+   (Capped at two lines, a phone cut "— Serpent" off every row that carries stars.) */
 .deck-group--legends .deck-row-type {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
   white-space: normal;
 }
 

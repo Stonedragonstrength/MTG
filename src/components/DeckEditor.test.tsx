@@ -1,5 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { addCard, changeCardCount, createDeck, setCommander } from '../lib/deck';
 import type { CardRecord, Deck } from '../lib/types';
@@ -284,6 +286,28 @@ test('a row in Legendaries says its whole type, because that section mixes them'
   expect(typeUnder('Thrasios, Triton Hero')).toBe('Legendary Creature — Merfolk Wizard');
   expect(typeUnder("Gaea's Cradle")).toBe('Legendary Land');
   expect(typeUnder('Llanowar Elves')).toBe('Elf Druid'); // its section header already says Creatures
+});
+
+test('nothing cuts that whole type short: on a narrow screen the line wraps instead', async () => {
+  // jsdom lays nothing out, but it does read the stylesheet. Measured in Chrome on a
+  // phone 390 wide: capped at two lines, 6 of 21 Legendaries rows ended in "Creature —…"
+  // and no longer showed the subtype, which comes last.
+  const css = document.createElement('style');
+  css.textContent = readFileSync(resolve(process.cwd(), 'src/styles/screens.css'), 'utf8');
+  document.head.appendChild(css);
+  try {
+    useAppStore.setState({ decks: [legendDeck()] });
+    render(<DeckEditor deckId="deck-1" onBack={() => {}} />);
+    await screen.findByText('Lands 9/36'); // the card records are in
+    const typeUnder = (name: string) =>
+      getComputedStyle(screen.getByText(name).closest('.deck-row-title')!.querySelector('.deck-row-type')!);
+    const whole = typeUnder('Thrasios, Triton Hero');
+    expect(whole.whiteSpace).toBe('normal'); // it wraps…
+    expect(whole.getPropertyValue('-webkit-line-clamp')).toBe(''); // …as far as it needs
+    expect(typeUnder('Llanowar Elves').whiteSpace).toBe('nowrap'); // a bare subtype keeps its one line
+  } finally {
+    css.remove();
+  }
 });
 
 test('the commander stays in the hero block: with no other legendary card there is no Legendaries section', async () => {
