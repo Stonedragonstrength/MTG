@@ -1,5 +1,6 @@
-import { isSummoningSick, permanentTexts, sickCopies } from './keywords';
+import { isSummoningSick, permanentTexts, sickCopies, tapsAsThoughHasty } from './keywords';
 import { tapManaFromText, type ManaColor } from './mana';
+import { isLandCard } from './turnRules';
 import type { BoardItem, CardInstance, CardRecord } from './types';
 
 /** A cost split for payment: generic count plus one entry per colored
@@ -75,7 +76,8 @@ function parseFace(manaCost: string): PayCost {
 
 /** The cost of each face a cast from this zone could pay: every castable
  * face from hand, the front face with its tax from the command zone. A
- * land is played, not cast, so from hand it has no cost at all — and an
+ * land is played, not cast, so from hand it has no cost at all (a spell
+ * with a land on its back is still a spell: isLandCard) — and an
  * unread card costs nothing, as always. The store and the table both
  * price from here, so they cannot disagree about what a card asks. */
 export function castCosts(
@@ -87,7 +89,7 @@ export function castCosts(
     const cost = parseCost(record?.manaCost ?? '');
     return [{ ...cost, generic: cost.generic + tax }];
   }
-  return /Land/.test(record?.typeLine ?? '') ? [] : parseCosts(record?.manaCost ?? '');
+  return isLandCard(record?.typeLine ?? '') ? [] : parseCosts(record?.manaCost ?? '');
 }
 
 /** Does any of these faces hold an {X}? Then the cast has to ask for it. */
@@ -280,8 +282,9 @@ function grantsFrom(texts: string[]): Grants {
  * spent yet. Board stacks offer their untapped copies. An ability that
  * sacrifices something is never counted (tapManaFromText skips it) — a
  * payment does not eat a permanent — so Treasures stay manual. A creature
- * that arrived this turn is left out unless it has haste: a dork cannot
- * pay the turn it is played. Lands and rocks tap at once. */
+ * that arrived this turn is left out unless it has haste, or the seat may
+ * use its creatures' abilities as though they had: a dork cannot pay the
+ * turn it is played. Lands and rocks tap at once. */
 export function sourcesFrom(
   battlefield: CardInstance[],
   records: Record<string, CardRecord | null | undefined>,
@@ -292,6 +295,8 @@ export function sourcesFrom(
   );
   // Haste can come from any permanent of the seat, a tracked stack included.
   const texts = permanentTexts(battlefield, records, board);
+  // Thousand-Year Elixir: fresh creatures still cannot attack, but they tap.
+  const tapsAtOnce = tapsAsThoughHasty(texts);
   const out: ManaSource[] = [];
   const widen = (produces: Colors, extra: Colors) => {
     for (const g of extra) if (!produces.includes(g)) produces.push(g);
@@ -301,7 +306,7 @@ export function sourcesFrom(
     const record = records[c.cardId];
     if (!record) continue; // unresolved: its text is not readable yet
     // Tapping it by hand stays legal (crew, convoke) — it just floats nothing.
-    if (isSummoningSick(c, record, texts)) continue;
+    if (!tapsAtOnce && isSummoningSick(c, record, texts)) continue;
     const creature = /Creature/.test(record.typeLine);
     const own = tapManaFromText(record.oracleText);
     const produces = [...own.produces];
@@ -334,7 +339,7 @@ export function sourcesFrom(
     if (produces.length === 0) continue;
     // Which copies are tapped and which only just arrived is not tracked:
     // offer as many as could be both untapped and past their first turn.
-    const sick = creature ? sickCopies(item, texts) : 0;
+    const sick = creature && !tapsAtOnce ? sickCopies(item, texts) : 0;
     const ready = Math.min(item.count - (item.tapped ?? 0), item.count - sick);
     for (let i = 0; i < ready; i++) {
       out.push({

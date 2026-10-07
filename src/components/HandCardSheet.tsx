@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { castCosts, hasX } from '../lib/pay';
+import { hasLandBack } from '../lib/turnRules';
 import { useAppStore } from '../state/store';
 import Sheet from './Sheet';
 import { useCardRecords } from './useCardRecords';
@@ -59,6 +60,19 @@ export default function HandCardSheet({ playerIdx, iid, why = null, onClose }: P
             }}
           >
             Play anyway
+          </button>
+        )}
+        {hasLandBack(record?.typeLine ?? '') && (
+          // A tap casts the front face; the land on the back is played from
+          // here, and is counted as the turn's land like any other.
+          <button
+            className="chip"
+            onClick={() => {
+              void playCard(playerIdx, iid, { asLand: true });
+              onClose();
+            }}
+          >
+            Play as land
           </button>
         )}
         <button className="chip" onClick={go('graveyard')}>Discard</button>

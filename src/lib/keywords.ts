@@ -123,6 +123,17 @@ export function grantedKeywords(texts: string[]): Set<string> {
   return out;
 }
 
+/** Thousand-Year Elixir and Tyvar, Jubilant Brawler: "You may activate
+ * abilities of creatures you control as though those creatures had haste."
+ * That frees a fresh creature's tap (its mana above all) but is NOT haste —
+ * it still cannot attack — so it stays out of grantedKeywords, and only
+ * the mana engine asks. */
+export function tapsAsThoughHasty(texts: string[]): boolean {
+  return texts.some((text) =>
+    /activate abilities of creatures you control as though (?:those creatures|they) had haste/i.test(text),
+  );
+}
+
 /** The rules text of everything a seat has on the battlefield: its cards
  * whose records are read, and its board stacks. This is what
  * grantedKeywords and the land rules read. An unread card is simply not

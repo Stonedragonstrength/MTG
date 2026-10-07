@@ -157,8 +157,16 @@ describe('X costs', () => {
     expect(castCosts(card('Sorcery', '{X}{R}'), 'hand')).toEqual([{ generic: 0, pips: [['R']], x: 1 }]);
     expect(castCosts(card('Instant // Instant', '{1}{R} // {1}{U}'), 'hand')).toHaveLength(2);
     expect(castCosts(card('Basic Land — Forest', ''), 'hand')).toEqual([]); // played, not cast
-    // Shatterskull Smashing: the front costs {X}{R}{R}, but from hand the app plays it as the land
-    expect(castCosts(card('Sorcery // Land', '{X}{R}{R}'), 'hand')).toEqual([]);
+    // Shatterskull Smashing: a tap casts the front, which costs {X}{R}{R}. Only a card
+    // whose FRONT is a land is played for nothing; the land on the back is behind the hold.
+    expect(castCosts(card('Sorcery // Land', '{X}{R}{R}'), 'hand')).toEqual([
+      { generic: 0, pips: [['R'], ['R']], x: 1 },
+    ]);
+    // Growing Rites of Itlimoc: an enchantment that only later turns into a land
+    expect(castCosts(card('Legendary Enchantment // Legendary Land', '{2}{G}'), 'hand')).toEqual([
+      { generic: 2, pips: [['G']] },
+    ]);
+    expect(castCosts(card('Land // Sorcery', ''), 'hand')).toEqual([]);
     expect(castCosts(card('Legendary Creature — Hydra', '{X}{G}{U}'), 'command', 4)).toEqual([
       { generic: 4, pips: [['G'], ['U']], x: 1 },
     ]);
@@ -510,6 +518,33 @@ describe('sourcesFrom', () => {
     const fervor: CardInstance[] = [{ iid: 'v1', cardId: 'c-fervor', name: 'Fervor' }];
     expect(sourcesFrom(fervor, SICK, [elves])).toHaveLength(3);
     expect(sourcesFrom([], SICK, [elves])).toHaveLength(0);
+  });
+
+  // Thousand-Year Elixir and Tyvar, Jubilant Brawler: no haste, but the tap is free at once.
+  const AS_THOUGH =
+    'You may activate abilities of creatures you control as though those creatures had haste.';
+  const ELIXIR = {
+    ...SICK,
+    'c-elixir': rec('c-elixir', 'Artifact', `${AS_THOUGH}\n{1}, {T}: Untap target creature.`),
+  };
+
+  test('a dork played this turn taps for mana at once beside Thousand-Year Elixir', () => {
+    const elf: CardInstance = { iid: 'e1', cardId: 'c-elves', name: 'Llanowar Elves', sick: true };
+    const elixir: CardInstance = { iid: 'x1', cardId: 'c-elixir', name: 'Thousand-Year Elixir' };
+    expect(availableMana(sourcesFrom([elf], ELIXIR, []))).toBe(0); // control: sick without it
+    expect(sourcesFrom([elf, elixir], ELIXIR, [])).toEqual([
+      { key: 'e1', kind: 'virtual', produces: ['G'], amount: 1, creature: true },
+    ]);
+    // tapped by hand, its mana now floats like anyone else's
+    expect(availableMana(sourcesFrom([{ ...elf, tapped: true }, elixir], ELIXIR, []))).toBe(1);
+  });
+
+  test('the Elixir readies a fresh stack of dorks too, from the battlefield or as a stack itself', () => {
+    const elves = { ...item('tok-elves', '{T}: Add {G}.', 3), sick: 3 };
+    const elixir: CardInstance[] = [{ iid: 'x1', cardId: 'c-elixir', name: 'Thousand-Year Elixir' }];
+    expect(sourcesFrom(elixir, ELIXIR, [elves])).toHaveLength(3);
+    const tyvar = { ...item('tok-tyvar', AS_THOUGH, 1), typeLine: 'Legendary Planeswalker — Tyvar' };
+    expect(sourcesFrom([], {}, [elves, tyvar])).toHaveLength(3);
   });
 
   test('a stack that is not a creature is never held back', () => {

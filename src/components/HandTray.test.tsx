@@ -59,6 +59,14 @@ const RECORDS: Record<string, CardRecord> = {
     oracleText:
       "At the beginning of each player's draw step, that player draws an additional card.\nEach player may play an additional land on each of their turns.",
   },
+  'c-itlimoc': {
+    ...rec('c-itlimoc', 'Growing Rites of Itlimoc', 'Legendary Enchantment // Legendary Land'),
+    manaCost: '{2}{G}',
+  },
+  'c-awakening': {
+    ...rec('c-awakening', 'Valakut Awakening', 'Instant // Land'),
+    manaCost: '{2}{G}',
+  },
   'c-hydra': {
     ...rec('c-hydra', 'Hungering Hydra', 'Creature — Hydra'),
     manaCost: '{X}{R}',
@@ -482,7 +490,56 @@ test('a card the table would play has no reason to give and no override to offer
   await hold(user, card);
   expect(await screen.findByRole('button', { name: /discard/i })).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /play anyway/i })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /play as land/i })).not.toBeInTheDocument(); // a tap does that
   expect(screen.queryByText(/your turn|already played|not enough mana/i)).not.toBeInTheDocument();
+});
+
+/** Seat 0 holding one card whose BACK face is a land, beside three Forests, the land drop used. */
+function landBackInHand(cardId: string, name: string, forests = 3): GameState {
+  return landInHand(1, {
+    hand: [{ iid: 'h1', cardId, name }],
+    battlefield: Array.from({ length: forests }, (_, k) => ({
+      iid: `f${k + 1}`,
+      cardId: 'c-forest',
+      name: 'Forest',
+      row: 'lands' as const,
+    })),
+  });
+}
+
+test('an enchantment whose BACK face is a land is a spell: a tap casts it after the land drop', async () => {
+  const playCard = vi.fn(async () => {});
+  useAppStore.setState({ game: landBackInHand('c-itlimoc', 'Growing Rites of Itlimoc'), playCard });
+  const user = userEvent.setup();
+  const card = await oneCardHand(user, /play growing rites/i);
+  await lit(card); // {2}{G} on three Forests
+  expect(card.getAttribute('title')).toBe('Tap to play · hold for options');
+  await user.click(card);
+  expect(playCard).toHaveBeenCalledWith(0, 'h1');
+});
+
+test('an instant with a land on the back answers to the mana gate, never to whose turn it is', async () => {
+  const playCard = vi.fn(async () => {});
+  const g = landBackInHand('c-awakening', 'Valakut Awakening');
+  useAppStore.setState({ game: { ...g, activePlayerIndex: 1 }, playCard });
+  const user = userEvent.setup();
+  const card = await oneCardHand(user, /play valakut awakening/i);
+  await lit(card);
+  await user.click(card);
+  expect(playCard).toHaveBeenCalledWith(0, 'h1');
+});
+
+test('hold a spell with a land on the back: Play as land plays that face', async () => {
+  const playCard = vi.fn(async () => {});
+  useAppStore.setState({ game: landBackInHand('c-awakening', 'Valakut Awakening', 0), playCard });
+  const user = userEvent.setup();
+  const card = await oneCardHand(user, /play valakut awakening/i);
+  await dimmed(card); // no mana for the instant
+  await hold(user, card);
+  expect(await screen.findByText('Not enough mana ready.')).toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: /play as land/i }));
+  expect(playCard).toHaveBeenCalledWith(0, 'h1', { asLand: true });
+  expect(screen.queryByRole('button', { name: /play as land/i })).not.toBeInTheDocument(); // sheet closed
 });
 
 /** Seat 0 holding the Hydra ({X}{R}) with `mountains` Mountains on the table. */

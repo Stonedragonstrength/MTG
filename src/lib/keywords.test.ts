@@ -6,6 +6,7 @@ import {
   keywordsOf,
   permanentTexts,
   sickCopies,
+  tapsAsThoughHasty,
   toxicOf,
 } from './keywords';
 import type { BoardItem, CardRecord } from './types';
@@ -370,5 +371,28 @@ describe('permanentTexts', () => {
       FERVOR,
       'Flying',
     ]);
+  });
+});
+
+describe('abilities used as though the creature had haste', () => {
+  // Thousand-Year Elixir and Tyvar, Jubilant Brawler word it the same way.
+  const ELIXIR =
+    'You may activate abilities of creatures you control as though those creatures had haste.\n{1}, {T}: Untap target creature.';
+
+  test('the sentence is read, on any of the seat’s permanents', () => {
+    expect(tapsAsThoughHasty([ELIXIR])).toBe(true);
+    expect(tapsAsThoughHasty(['Flying', ELIXIR])).toBe(true);
+    expect(tapsAsThoughHasty(['You may activate abilities of creatures you control as though they had haste.'])).toBe(true);
+  });
+
+  test('nothing else reads as it', () => {
+    expect(tapsAsThoughHasty([])).toBe(false);
+    expect(tapsAsThoughHasty(['Creatures you control have haste.'])).toBe(false); // that is a grant
+    expect(tapsAsThoughHasty(['Target creature gains haste until end of turn.'])).toBe(false);
+  });
+
+  test('it is no grant of haste: those creatures still cannot attack', () => {
+    expect(grantedKeywords([ELIXIR]).size).toBe(0);
+    expect(isSummoningSick({ sick: true }, { typeLine: 'Creature — Elf Druid', oracleText: '{T}: Add {G}.' }, [ELIXIR])).toBe(true);
   });
 });

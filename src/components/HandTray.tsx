@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { affordable, castCosts, hasX, parseCosts, sourcesFrom } from '../lib/pay';
-import { canPlayLand } from '../lib/turnRules';
+import { canPlayLand, isLandCard } from '../lib/turnRules';
 import type { CardInstance } from '../lib/types';
 import { useAppStore } from '../state/store';
 import HandCardSheet from './HandCardSheet';
@@ -82,7 +82,9 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
   const refusal = (c: CardInstance): string | null => {
     const r = records[c.cardId];
     if (!r) return null;
-    if (/Land/.test(r.typeLine))
+    // A land by its front face only: a spell with a land on the back is a
+    // spell, and answers to the mana gate like any other.
+    if (isLandCard(r.typeLine))
       return canPlayLand(game, playerIdx, texts.own, texts.others).why ?? null;
     // Either face will do: a split card needs one half, an adventure
     // creature its own cost — never the two added together. A card with

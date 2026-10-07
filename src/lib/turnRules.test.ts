@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { buildSeatCards, countLandPlay, seedSeat } from './cards';
 import { addCard, changeCardCount, createDeck } from './deck';
 import { createGame } from './game';
-import { canPlayLand, landAllowance } from './turnRules';
+import { canPlayLand, hasLandBack, isLandCard, landAllowance } from './turnRules';
 import type { CardRecord, GameConfig, GameState } from './types';
 
 // Rules text as Scryfall prints it.
@@ -148,5 +148,32 @@ describe('canPlayLand', () => {
     const g = table();
     expect('landPlays' in g.players[0].cards!).toBe(false);
     expect(canPlayLand(g, 0, [])).toEqual({ ok: true });
+  });
+});
+
+describe('which cards a tap plays as a land', () => {
+  test('a land, whatever else it also is', () => {
+    expect(isLandCard('Basic Land — Forest')).toBe(true);
+    expect(isLandCard('Land')).toBe(true);
+    expect(isLandCard('Artifact Land')).toBe(true);
+    expect(isLandCard('Land Creature — Forest Dryad')).toBe(true); // Dryad Arbor
+    expect(isLandCard('Land // Land')).toBe(true); // Branchloft Pathway
+  });
+
+  test('not a spell whose BACK face is a land: that one is cast', () => {
+    expect(isLandCard('Legendary Enchantment // Legendary Land')).toBe(false); // Growing Rites of Itlimoc
+    expect(isLandCard('Legendary Creature — God // Legendary Land')).toBe(false); // the Ojer gods
+    expect(isLandCard('Instant // Land')).toBe(false); // Valakut Awakening
+    expect(isLandCard('Creature — Bear')).toBe(false);
+    expect(isLandCard('')).toBe(false); // unread
+  });
+
+  test('such a card has a land on the back, for the hold to offer', () => {
+    expect(hasLandBack('Instant // Land')).toBe(true);
+    expect(hasLandBack('Legendary Enchantment // Legendary Land')).toBe(true);
+    expect(hasLandBack('Land // Land')).toBe(false); // a tap already plays it as one
+    expect(hasLandBack('Basic Land — Forest')).toBe(false);
+    expect(hasLandBack('Creature — Giant // Instant — Adventure')).toBe(false);
+    expect(hasLandBack('')).toBe(false);
   });
 });

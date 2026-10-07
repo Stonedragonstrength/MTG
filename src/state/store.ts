@@ -10,6 +10,7 @@ import { DEFAULT_SETTINGS, getSettings, saveSettings, type Settings } from '../d
 import * as boardLib from '../lib/board';
 import * as gameLib from '../lib/game';
 import * as payLib from '../lib/pay';
+import { isLandCard } from '../lib/turnRules';
 import { playDefeat, playLifeTick, playTurnChime } from '../lib/sound';
 import type {
   BoardItem,
@@ -53,8 +54,9 @@ export interface AppStore {
   // ---- cards mode ----
   seedSeatFromDeck(seat: number, deck: Deck, seed?: number): void;
   drawCards(seat: number, n: number): void;
-  /** `x`: the value chosen for a card with {X} in its cost (the X sheet asks). */
-  playCard(seat: number, iid: string, opts?: { x?: number }): Promise<void>;
+  /** `x`: the value chosen for a card with {X} in its cost (the X sheet asks).
+   * `asLand`: play the land on the card's back face instead of casting it. */
+  playCard(seat: number, iid: string, opts?: { x?: number; asLand?: true }): Promise<void>;
   tapVirtualCard(seat: number, iid: string, wantTapped?: boolean): void;
   setVirtualCounter(seat: number, iid: string, name: string, value: number): void;
   moveVirtualCard(
@@ -497,13 +499,16 @@ export function createAppStore() {
           return m.findCardByName(card.name).catch(() => undefined);
         });
         const typeLine = record?.typeLine ?? '';
-        const isLand = /Land/.test(typeLine);
+        // The front face says what a tap plays: a spell with a land on its
+        // back (Growing Rites of Itlimoc, Valakut Awakening) is cast, paid
+        // for and uses no land drop — unless the hold asked for the land.
+        const isLand = opts?.asLand === true || isLandCard(typeLine);
         const row: 'front' | 'lands' = isLand ? 'lands' : 'front';
-        const isSpell = /Instant|Sorcery/.test(typeLine) && !/Land|Creature/.test(typeLine);
+        const isSpell = !isLand && /Instant|Sorcery/.test(typeLine) && !/Creature/.test(typeLine);
         const verb = isSpell ? 'casts' : 'plays';
         // Auto-payment: the table pays the cost as the card lands. No plan
         // (cost-reducers, treasures, bare trust) = play, tap nothing.
-        const costs = payLib.castCosts(record, 'hand'); // a land has none
+        const costs = isLand ? [] : payLib.castCosts(record, 'hand'); // a land has none
         // A card with {X} is paid for the X it was cast for (zero when no
         // one asked), and its feed line says which.
         const asksX = payLib.hasX(costs);

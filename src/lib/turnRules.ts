@@ -6,6 +6,24 @@ import type { GameState } from './types';
  * here stops anything by itself — a refusal is for the table to show, with
  * a way around it behind the hold. */
 
+/** Is this card played as a land from hand? Its FRONT face decides, the
+ * way it does for summoning sickness: Growing Rites of Itlimoc
+ * ("Legendary Enchantment // Legendary Land") is a spell that turns into a
+ * land later, and Valakut Awakening ("Instant // Land") is cast unless the
+ * player says otherwise — see hasLandBack. The hand, the store and the
+ * price of a cast all ask here, so they cannot disagree. */
+export function isLandCard(typeLine: string): boolean {
+  return /\bLand\b/.test(typeLine.split(' // ')[0]);
+}
+
+/** A spell on the front, a land on the back: a tap casts it, and the hold
+ * offers the land. (The type line cannot tell a card that may be played as
+ * its back from one that only turns into it, so both get the offer.) */
+export function hasLandBack(typeLine: string): boolean {
+  const [front, ...backs] = typeLine.split(' // ');
+  return !/\bLand\b/.test(front) && backs.some((face) => /\bLand\b/.test(face));
+}
+
 const COUNT: Record<string, number> = { an: 1, one: 1, two: 2, three: 3 };
 
 // The three sentences that change the land drop, as rules text words them.

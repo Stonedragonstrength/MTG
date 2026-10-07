@@ -732,6 +732,51 @@ describe('cards mode', () => {
     expect('landPlays' in seat0(store)).toBe(false);
   });
 
+  // Cards with a land on the BACK face only: Growing Rites of Itlimoc turns into one
+  // later, Valakut Awakening can be played as either.
+  const RITES = { iid: 'h-rites', cardId: 'c-itlimoc', name: 'Growing Rites of Itlimoc' };
+  const AWAKENING = { iid: 'h-awak', cardId: 'c-awakening', name: 'Valakut Awakening' };
+  async function tableWithLandBacks(hand: { iid: string; cardId: string; name: string }[]) {
+    const store = await tableWith(hand, 3);
+    await getDb().cards.bulkPut([
+      {
+        ...deckRecord('c-itlimoc', 'Growing Rites of Itlimoc', 'Legendary Enchantment // Legendary Land'),
+        manaCost: '{2}{G}',
+      },
+      { ...deckRecord('c-awakening', 'Valakut Awakening', 'Instant // Land'), manaCost: '{2}{G}' },
+    ]);
+    return store;
+  }
+
+  test('casting a spell whose back face is a land pays for it and uses no land drop', async () => {
+    const store = await tableWithLandBacks([RITES, FOREST]);
+    await store.getState().playCard(0, 'h-rites');
+    expect(onField(store, 'h-rites')?.row).toBe('front');
+    expect(await landsThisTurn(store)).toBe(0);
+    expect('landPlays' in seat0(store)).toBe(false);
+    expect(lands(store).filter((c) => c.tapped)).toHaveLength(3); // {2}{G} was paid
+    await store.getState().playCard(0, 'h-forest'); // the real land is still this turn's drop
+    expect(await landsThisTurn(store)).toBe(1);
+  });
+
+  test('an instant with a land on the back is cast: paid for, and off to the graveyard', async () => {
+    const store = await tableWithLandBacks([AWAKENING]);
+    await store.getState().playCard(0, 'h-awak');
+    expect(seat0(store).graveyard.some((c) => c.iid === 'h-awak')).toBe(true);
+    expect(lands(store).filter((c) => c.tapped)).toHaveLength(3);
+    expect(await landsThisTurn(store)).toBe(0);
+    expect(feedOf(store)).toContain('A casts Valakut Awakening');
+  });
+
+  test('played as its land instead, it costs nothing and is the turn’s land drop', async () => {
+    const store = await tableWithLandBacks([AWAKENING]);
+    await store.getState().playCard(0, 'h-awak', { asLand: true });
+    expect(onField(store, 'h-awak')?.row).toBe('lands');
+    expect(lands(store).filter((c) => c.tapped)).toHaveLength(0);
+    expect(await landsThisTurn(store)).toBe(1);
+    expect(feedOf(store)).toContain('A plays Valakut Awakening');
+  });
+
   test('a land that reaches the battlefield any other way was not played', async () => {
     const store = await tableWith([FOREST], 0);
     const fromLibrary = seat0(store).library[0].iid;
