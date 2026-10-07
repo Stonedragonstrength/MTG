@@ -29,6 +29,9 @@ export interface LogEntry {
   text: string;
 }
 
+/** Seats drawn turned around on this device: seat index → true, others left out. */
+export type SeatFlips = Record<number, true>;
+
 export interface AppStore {
   setupDone: boolean;
   game: GameState | null;
@@ -51,6 +54,10 @@ export interface AppStore {
   joinOnlineGame(code: string, stillWanted?: () => boolean): Promise<string | null>;
   leaveOnlineTable(): void;
   setMySeat(seat: number | null): void;
+  /** "Flip this side": where people really sit at THIS screen. It is not part
+   * of the game — never in GameState, never sent to the table. */
+  seatFlips: SeatFlips;
+  setSeatFlip(seat: number, flipped: boolean): void;
   // ---- cards mode ----
   seedSeatFromDeck(seat: number, deck: Deck, seed?: number): void;
   drawCards(seat: number, n: number): void;
@@ -124,6 +131,21 @@ function persistGame(game: GameState | null): void {
 
 export function flushPersistence(): Promise<unknown> {
   return pending;
+}
+
+function persistSeatFlips(flips: SeatFlips): void {
+  pending = pending
+    .then(() => (Object.keys(flips).length > 0 ? kvSet('seatFlips', flips) : kvDelete('seatFlips')))
+    .catch((err) => console.error('Failed to persist seat flips', err));
+}
+
+/** The saved flips, as far as they can be trusted: seat numbers marked true. */
+function readSeatFlips(saved: unknown): SeatFlips {
+  const flips: SeatFlips = {};
+  if (saved && typeof saved === 'object')
+    for (const [seat, on] of Object.entries(saved))
+      if (on === true && /^\d+$/.test(seat)) flips[Number(seat)] = true;
+  return flips;
 }
 
 // isValidGame/migrateGame moved to src/lib/migrate.ts — shared with the
@@ -227,6 +249,13 @@ export function createAppStore() {
       set({ log: [...get().log, ...entries].slice(-LOG_CAP) });
     };
 
+    // Which way a seat faces belongs to one sitting at this screen: a different
+    // game, or the end of this one, puts every zone back where the layout draws it.
+    const resetSeatFlips = () => {
+      if (Object.keys(get().seatFlips).length > 0) set({ seatFlips: {} });
+      persistSeatFlips({});
+    };
+
     // Remote eliminations must announce exactly like local ones.
     const announceDefeats = (prev: GameState, next: GameState) => {
       const lines: string[] = [];
@@ -316,6 +345,7 @@ export function createAppStore() {
       decks: [],
       garage: [],
       online: null,
+      seatFlips: {},
       settings: DEFAULT_SETTINGS,
       log: [],
 
@@ -346,6 +376,8 @@ export function createAppStore() {
           await kvDelete('activeGame').catch(() => {});
         }
         set({ setupDone: imported !== undefined, profiles, decks, garage, game, settings });
+        // A reload keeps the table as it was turned. Only a look: it never stops the app starting.
+        set({ seatFlips: readSeatFlips(await kvGet('seatFlips').catch(() => undefined)) });
         pokeSync(() => void get().refreshGarage());
 
         tableSync.bindTable({
@@ -396,6 +428,7 @@ export function createAppStore() {
       startGame(config) {
         const game = gameLib.createGame(config);
         history = [];
+        resetSeatFlips();
         set({ game, inGame: true, log: [{ t: Date.now(), text: 'Game started' }] });
         persistGame(game);
       },
@@ -419,6 +452,7 @@ export function createAppStore() {
           return null;
         }
         history = [];
+        resetSeatFlips();
         set({
           game,
           inGame: true,
@@ -438,6 +472,7 @@ export function createAppStore() {
         }
         const game = migrateGame(r.state);
         history = [];
+        resetSeatFlips();
         // Not entered yet: the join sheet still asks for a seat (and a deck),
         // and it lives on the home screen. It enters the game when it is done.
         set({
@@ -458,6 +493,16 @@ export function createAppStore() {
         tableSync.setMySeat(seat);
         const o = get().online;
         if (o) set({ online: { ...o, mySeat: seat } });
+      },
+
+      setSeatFlip(seat, flipped) {
+        const flips = get().seatFlips;
+        if ((flips[seat] === true) === flipped) return;
+        const next = { ...flips };
+        if (flipped) next[seat] = true;
+        else delete next[seat]; // left out rather than written as false
+        set({ seatFlips: next });
+        persistSeatFlips(next);
       },
 
       seedSeatFromDeck(seat, deck, seed = Math.floor(Math.random() * 2 ** 31)) {
@@ -809,6 +854,7 @@ export function createAppStore() {
           set({ online: null });
         }
         history = [];
+        resetSeatFlips();
         set({ game: null, inGame: false, log: [] });
         persistGame(null);
       },

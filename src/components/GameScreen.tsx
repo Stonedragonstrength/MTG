@@ -36,6 +36,7 @@ function useNarrow(): boolean {
 export default function GameScreen() {
   const game = useAppStore((s) => s.game);
   const online = useAppStore((s) => s.online);
+  const hubPinned = useAppStore((s) => s.settings.hubPinned);
   const exitToHome = useAppStore((s) => s.exitToHome);
   // auto = phones land on their hand, tablets on the table.
   const [view, setView] = useState<'auto' | 'table' | 'hand'>('auto');
@@ -50,6 +51,10 @@ export default function GameScreen() {
   const table360 = n > 2;
   // Online: rotate the table so YOUR zone sits at your own bottom edge.
   const shift = online?.mySeat ?? 0;
+  // "Turn bar stays put": the hub docks in the zone at this device's bottom
+  // edge instead of travelling with the active player. (Not on a phone-width
+  // 360 board: an edge bar that short cannot hold the hub and the life buttons.)
+  const hubSeat = hubPinned && !(narrow && table360) ? shift % n : activeIdx;
 
   // Your claimed seat plays virtual cards: the hand view exists for you.
   const phoneSeat =
@@ -77,7 +82,7 @@ export default function GameScreen() {
           playerIdx={i}
           edge={edges[(i - shift + n) % n]}
           focused={i === activeIdx}
-          showHub={i === activeIdx}
+          showHub={i === hubSeat}
         />
       ))}
       {online && <TablePill />}

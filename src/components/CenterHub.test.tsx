@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { createGame } from '../lib/game';
@@ -117,4 +117,134 @@ test('dice roller produces a result in range', async () => {
   const result = Number(screen.getByTestId('dice-result').textContent);
   expect(result).toBeGreaterThanOrEqual(1);
   expect(result).toBeLessThanOrEqual(20);
+});
+
+// ---- "Turn bar stays put": the hub docked in a zone that is not the active player's ----
+
+/** Seat `active` is taking turn `turn`. */
+function turnOf(active: number, turn = 5) {
+  useAppStore.setState({
+    game: { ...createGame(config), activePlayerIndex: active, turnNumber: turn },
+  });
+}
+
+const sheetTitles = () => [...document.querySelectorAll('.sheet h2')].map((h) => h.textContent);
+
+test('docked in another player’s zone the hub says whose turn it is', () => {
+  const settings = useAppStore.getState().settings;
+  useAppStore.setState({ settings: { ...settings, turnTimerOn: true } });
+  turnOf(2);
+  const { container } = render(<CenterHub variant="row" seat={0} />);
+  expect(container.querySelector('.hub-turn')!.textContent).toMatch(/^Turn 5 · Player 2 · \d+:\d\d$/);
+});
+
+test('with the clock off it still names the active player', () => {
+  const settings = useAppStore.getState().settings;
+  useAppStore.setState({ settings: { ...settings, turnTimerOn: false } });
+  turnOf(3);
+  const { container } = render(<CenterHub variant="row" seat={0} />);
+  expect(container.querySelector('.hub-turn')!.textContent).toBe('Turn 5 · Player 3');
+});
+
+test('docked in the active player’s own zone it does not repeat their name', () => {
+  turnOf(2);
+  render(<CenterHub variant="row" seat={2} />);
+  expect(screen.getByText(/turn 5/i)).toBeInTheDocument();
+  expect(screen.queryByText('Player 2')).not.toBeInTheDocument();
+});
+
+test('in a collapsed bar "More" opens the options in a sheet instead of unfolding in place', async () => {
+  turnOf(1);
+  const user = userEvent.setup();
+  const { container } = render(<CenterHub variant="row" seat={0} compact />);
+  expect(screen.getByRole('button', { name: /pass turn/i })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /undo/i })).toBeInTheDocument();
+
+  await user.click(screen.getByRole('button', { name: /more options/i }));
+  expect(container.querySelector('.hub-tray')).toBeNull(); // the bar cannot grow: nothing unfolds in it
+  expect(sheetTitles()).toEqual(['More']);
+  const sheet = within(document.querySelector<HTMLElement>('.sheet')!);
+  for (const label of ['Combat', 'Stack', 'Dice', 'Rules', 'Log', 'Settings', 'End']) {
+    expect(sheet.getByText(label)).toBeInTheDocument();
+  }
+});
+
+test('every option in that sheet opens its own sheet, and closing it lands back on the table', async () => {
+  turnOf(1);
+  const user = userEvent.setup();
+  render(<CenterHub variant="row" seat={0} compact />);
+  const options: [RegExp, string][] = [
+    [/combat math/i, 'Combat math'],
+    [/the stack/i, 'The Stack'],
+    [/^dice$/i, 'Dice'],
+    [/^rules$/i, 'Rules & Glossary'],
+    [/game log/i, 'Game log'],
+    [/^settings$/i, 'Settings'],
+    [/end game/i, 'End this game?'],
+  ];
+  for (const [option, title] of options) {
+    await user.click(screen.getByRole('button', { name: /more options/i }));
+    expect(sheetTitles()).toEqual(['More']);
+    await user.click(screen.getByRole('button', { name: option }));
+    expect(sheetTitles()).toEqual([title]); // the chosen sheet alone: the options stepped aside
+    await user.click(screen.getByRole('button', { name: 'close' }));
+    expect(sheetTitles()).toEqual([]); // not back in the options
+  }
+});
+
+test('the compact hub still passes the turn', async () => {
+  turnOf(1);
+  const user = userEvent.setup();
+  render(<CenterHub variant="row" seat={0} compact />);
+  await user.click(screen.getByRole('button', { name: /pass turn/i }));
+  expect(useAppStore.getState().game?.activePlayerIndex).toBe(2);
+});
+
+/** A tap that happens at a moment of our choosing (ms). */
+function tapAt(button: HTMLElement, at: number) {
+  const tap = new MouseEvent('click', { bubbles: true, cancelable: true });
+  Object.defineProperty(tap, 'timeStamp', { value: at });
+  fireEvent(button, tap);
+}
+
+test('a double tap on a Pass turn that stays put passes once, and a deliberate second tap passes again', () => {
+  turnOf(0);
+  render(<CenterHub variant="row" seat={3} compact />);
+  const active = () => useAppStore.getState().game?.activePlayerIndex;
+  tapAt(screen.getByRole('button', { name: /pass turn/i }), 5000);
+  expect(active()).toBe(1);
+  tapAt(screen.getByRole('button', { name: /pass turn/i }), 5150); // the same double tap: nobody is skipped
+  expect(active()).toBe(1);
+  tapAt(screen.getByRole('button', { name: /pass turn/i }), 5900);
+  expect(active()).toBe(2);
+});
+
+test('a stray double tap on End in the options sheet cannot answer "Yes, end it"', () => {
+  const endGame = vi.fn();
+  useAppStore.setState({ endGame });
+  turnOf(1);
+  render(<CenterHub variant="row" seat={0} compact />);
+  fireEvent.click(screen.getByRole('button', { name: /more options/i }));
+  tapAt(screen.getByRole('button', { name: /end game/i }), 5000);
+  // The second half of that double tap lands where the confirm sheet has just opened.
+  tapAt(screen.getByRole('button', { name: /yes, end it/i }), 5150);
+  expect(endGame).not.toHaveBeenCalled();
+  expect(sheetTitles()).toEqual(['End this game?']); // still asking
+  tapAt(screen.getByRole('button', { name: /yes, end it/i }), 6200); // a deliberate answer
+  expect(endGame).toHaveBeenCalledTimes(1);
+});
+
+test('a tray left unfolded folds away when the pinned hub’s zone collapses, and stays folded', async () => {
+  turnOf(0);
+  const user = userEvent.setup();
+  const { container, rerender } = render(<CenterHub variant="row" seat={0} />);
+  await user.click(screen.getByRole('button', { name: /more options/i }));
+  expect(container.querySelector('.hub-tray')).not.toBeNull();
+
+  rerender(<CenterHub variant="row" seat={0} compact />); // the turn passed: the zone is a slim bar now
+  expect(container.querySelector('.hub-tray')).toBeNull();
+  expect(sheetTitles()).toEqual([]); // and it did not turn into a sheet nobody asked for
+
+  rerender(<CenterHub variant="row" seat={0} />); // their turn again
+  expect(container.querySelector('.hub-tray')).toBeNull();
 });

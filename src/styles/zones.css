@@ -42,6 +42,19 @@
 .players-3 .seat-2,
 .players-4 .seat-2,
 .players-4 .seat-3 {
+  transform: rotate(calc(180deg + var(--flip, 0deg)));
+}
+
+/* "Flip this side" (player sheet): a seat whose player sits across from where
+   the layout expects them is drawn half a turn round, on this device only.
+   Only the content turns — the zone's box must stay exactly where it was. So
+   every rule that turns a zone adds --flip to its own angle, AFTER any
+   translate, and every rule that leaves one unturned (transform: none) has a
+   flipped twin right beside it. An unflipped zone computes to the transform it
+   always had: never give an unturned zone a rotate(0deg) (any transform
+   changes what its fixed-position descendants and its stacking do). */
+.zone--flipped {
+  --flip: 180deg;
   transform: rotate(180deg);
 }
 
@@ -501,6 +514,12 @@ button.term {
     transform: none;
   }
 
+  .players-2 .zone--flipped,
+  .players-3 .zone--flipped,
+  .players-4 .zone--flipped {
+    transform: rotate(180deg);
+  }
+
   .game-screen {
     height: auto;
     min-height: 100dvh;
@@ -826,6 +845,15 @@ input[type='range'] {
 .badge-btn.active {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+/* "Flip this side" in the player sheet: its hint wraps, the button never does. */
+.flip-row .stepper {
+  flex: 0 0 auto;
+}
+
+.flip-row .badge-btn {
+  white-space: nowrap;
 }
 
 /* ---- mana tapper ---- */
@@ -1362,8 +1390,9 @@ input[type='checkbox'] {
    Everywhere else edge classes ride .table-360; for two players the
    seat-indexed defaults above must yield to the edge the shift assigned
    (three class names outweigh two, so these win without !important). */
-.players-2 .zone.edge-top { grid-area: seat1; transform: rotate(180deg); }
+.players-2 .zone.edge-top { grid-area: seat1; transform: rotate(calc(180deg + var(--flip, 0deg))); }
 .players-2 .zone.edge-bottom { grid-area: seat0; transform: none; }
+.players-2 .zone.edge-bottom.zone--flipped { transform: rotate(180deg); }
 .players-2.focus-mode .zone.edge-top { order: 1; }
 .players-2.focus-mode .zone.edge-bottom { order: 2; }
 
@@ -1433,6 +1462,34 @@ input[type='checkbox'] {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   padding-top: 2px;
   gap: 2px;
+}
+
+/* The same options opened as a sheet (the hub pinned in a slim bar has no room
+   to unfold them): finger-sized tiles, four across. */
+.hub-tray--sheet {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  border-top: none;
+  padding-top: 0;
+}
+
+.hub-tray--sheet button {
+  min-width: 0;
+  min-height: 68px;
+  gap: 6px;
+  padding: 10px 4px;
+  background: #1d1d24;
+  border: 1px solid #33333d;
+}
+
+.hub-tray--sheet .hub-icon {
+  font-size: 1.5rem;
+}
+
+.hub-tray--sheet .hub-label {
+  font-size: 0.78rem;
+  opacity: 0.9;
 }
 
 /* Docked hub lives inside the focused zone's header line. */
@@ -2121,12 +2178,16 @@ input[type='checkbox'] {
   transform: none;
 }
 
+.table-360 .edge-bottom.zone--flipped:not(.zone--focused) {
+  transform: rotate(180deg);
+}
+
 .table-360 .edge-top:not(.zone--focused) {
   left: 62px;
   right: 62px;
   top: 4px;
   height: 54px;
-  transform: rotate(180deg);
+  transform: rotate(calc(180deg + var(--flip, 0deg)));
 }
 
 .table-360 .edge-left:not(.zone--focused) {
@@ -2134,7 +2195,7 @@ input[type='checkbox'] {
   left: 29px;
   width: calc(100dvh - 128px);
   height: 54px;
-  transform: translate(-50%, -50%) rotate(90deg);
+  transform: translate(-50%, -50%) rotate(calc(90deg + var(--flip, 0deg)));
 }
 
 .table-360 .edge-right:not(.zone--focused) {
@@ -2142,7 +2203,7 @@ input[type='checkbox'] {
   left: calc(100% - 29px);
   width: calc(100dvh - 128px);
   height: 54px;
-  transform: translate(-50%, -50%) rotate(-90deg);
+  transform: translate(-50%, -50%) rotate(calc(-90deg + var(--flip, 0deg)));
 }
 
 /* Edge bars never wrap; they scroll sideways instead. */
@@ -2161,9 +2222,13 @@ input[type='checkbox'] {
   transform: none;
 }
 
+.table-360 .zone--focused.edge-bottom.zone--flipped {
+  transform: rotate(180deg);
+}
+
 .table-360 .zone--focused.edge-top {
   inset: 62px 62px 62px 62px;
-  transform: rotate(180deg);
+  transform: rotate(calc(180deg + var(--flip, 0deg)));
 }
 
 .table-360 .zone--focused.edge-left {
@@ -2171,7 +2236,7 @@ input[type='checkbox'] {
   left: 50%;
   width: calc(100dvh - 124px);
   height: calc(100dvw - 124px);
-  transform: translate(-50%, -50%) rotate(90deg);
+  transform: translate(-50%, -50%) rotate(calc(90deg + var(--flip, 0deg)));
 }
 
 .table-360 .zone--focused.edge-right {
@@ -2179,7 +2244,7 @@ input[type='checkbox'] {
   left: 50%;
   width: calc(100dvh - 124px);
   height: calc(100dvw - 124px);
-  transform: translate(-50%, -50%) rotate(-90deg);
+  transform: translate(-50%, -50%) rotate(calc(-90deg + var(--flip, 0deg)));
 }
 
 /* The focused zone claims its own (empty) edge strip. */
@@ -2239,7 +2304,7 @@ input[type='checkbox'] {
   height: calc(100dvw - 66px);
   top: 50%;
   left: calc(50% - 29px);
-  transform: translate(-50%, -50%) rotate(90deg);
+  transform: translate(-50%, -50%) rotate(calc(90deg + var(--flip, 0deg)));
 }
 
 .table-360 .zone--focused.edge-right {
@@ -2248,7 +2313,7 @@ input[type='checkbox'] {
   height: calc(100dvw - 66px);
   top: 50%;
   left: calc(50% + 29px);
-  transform: translate(-50%, -50%) rotate(-90deg);
+  transform: translate(-50%, -50%) rotate(calc(-90deg + var(--flip, 0deg)));
 }
 
 .players-3.table-360 .zone--focused.edge-left {
@@ -2257,7 +2322,7 @@ input[type='checkbox'] {
   height: calc(100dvw - 66px);
   top: calc(50% - 29px);
   left: calc(50% - 29px);
-  transform: translate(-50%, -50%) rotate(90deg);
+  transform: translate(-50%, -50%) rotate(calc(90deg + var(--flip, 0deg)));
 }
 
 .players-3.table-360 .zone--focused.edge-right {
@@ -2266,7 +2331,7 @@ input[type='checkbox'] {
   height: calc(100dvw - 66px);
   top: calc(50% - 29px);
   left: calc(50% + 29px);
-  transform: translate(-50%, -50%) rotate(-90deg);
+  transform: translate(-50%, -50%) rotate(calc(-90deg + var(--flip, 0deg)));
 }
 
 /* Collapsed bars: damage gauges compress to one line with initials,
@@ -2860,6 +2925,315 @@ input[type='checkbox'] {
   font-weight: 700;
   opacity: 0.65;
   background: #22222a;
+}
+
+/* ---- "Turn bar stays put": the hub pinned in a collapsed zone ----
+   With that setting on, the hub does not travel with the active player: it
+   stays in the zone at this device's near edge, and whenever someone else is
+   playing, that zone is a slim bar. A bar cannot grow (54px on the 360 board),
+   so the hub becomes a compact cluster there — whose turn, Pass turn, Undo,
+   More — and CenterHub opens More's options in a sheet. The bar keeps its own
+   essentials within reach: the name, the life total with both buttons, the
+   hand pill. What gives way, in this order: the card / token minis (down to a
+   floor), the lands readout (one whole item at a time), and only when the
+   header itself is too long for the bar, the name (ellipsis) and the chips. */
+
+/* Whose turn it is, in the accent: the one thing the hub's own zone used to say. */
+.hub-whose-name {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* The cluster. Two short lines for the turn — "Turn 5 · 0:42" over the name —
+   cost half the width of one long one. */
+.center-hub--compact .hub-main {
+  width: auto;
+  gap: 8px;
+  justify-content: flex-start;
+}
+
+.center-hub--compact .hub-turn-number {
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  justify-content: start;
+  align-items: baseline;
+  column-gap: 0.35em;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  line-height: 1.25;
+  opacity: 1; /* the name below must not be dimmed with the label */
+  color: #a3a19c;
+}
+
+/* The name takes the second line, under "Turn 5 · 0:42". */
+.center-hub--compact .hub-whose {
+  order: 1;
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.center-hub--compact .hub-sep {
+  display: none;
+}
+
+.center-hub--compact .hub-whose-name {
+  display: block;
+  max-width: 112px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8rem;
+}
+
+.center-hub--compact .hub-pass {
+  flex: 0 0 auto;
+  min-height: 36px;
+  padding: 6px 12px;
+  white-space: nowrap;
+}
+
+.zone--hub .center-hub--compact .hub-actions button {
+  flex-direction: row;
+  justify-content: center;
+  gap: 5px;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 4px 8px;
+}
+
+/* The bar. One that carries the hub is a short bar at any width: it drops what
+   the side bars drop (the hand pill still counts the hand). */
+.focus-mode .zone--cards.zone--hub:not(.zone--focused) .zone-dock,
+.focus-mode .zone--cards.zone--hub:not(.zone--focused) .mana-ready,
+.focus-mode .zone--cards.zone--hub:not(.zone--focused) .chip-cards {
+  display: none;
+}
+
+/* The header: name, hub, life. The hub and the life total never shrink — the
+   hub must not be the one flexible thing on the line, or it is the thing that
+   collapses. The name gives, down to a floor; so do the counter chips, one
+   whole chip at a time (the last one first: poison holds out longest). */
+.zone--hub .header-hub {
+  flex: 0 0 auto;
+  order: 0;
+}
+
+.zone--hub .header-hub .center-hub--row {
+  padding: 0;
+}
+
+/* Avatar, ☰ and the name's floor: never less than that, and what does not fit
+   after them (a badge, a pip) is cut off cleanly instead of sliding over the
+   chips beside it. */
+.zone--hub .zone-id {
+  min-width: 122px;
+  overflow: hidden;
+}
+
+.zone--hub .zone-id > * {
+  flex: 0 0 auto;
+}
+
+.zone--hub .zone-id > .zone-name {
+  flex: 0 1 auto;
+  min-width: 3em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zone--hub .zone-chips {
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  row-gap: 24px; /* the wrapped chips land well below the one line that shows */
+  min-width: 0;
+  max-height: 24px;
+  overflow: hidden;
+}
+
+.zone--hub .zone-chips::before {
+  content: '';
+  flex: 0 0 0px;
+  margin-right: -4px; /* anchors the first line, so even the first chip can drop */
+}
+
+/* And they give only when they have to: the header keeps its natural width
+   until that would push the bar's last essentials off the end. On one line
+   with everything else (the 360 board; two players in landscape) it stops
+   short of the room the minis' floor and the hand pill need. */
+.focus-mode .zone--hub:not(.zone--focused) .zone-header {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.table-360 .zone--hub:not(.zone--focused) .zone-header {
+  max-width: calc(100% - 96px);
+}
+
+.table-360 .zone--cards.zone--hub:not(.zone--focused) .zone-header {
+  max-width: calc(100% - 172px);
+}
+
+@media (orientation: landscape) {
+  .focus-mode .zone--hub:not(.zone--focused) .zone-header {
+    max-width: calc(100% - 96px);
+  }
+
+  .focus-mode .zone--cards.zone--hub:not(.zone--focused) .zone-header {
+    max-width: calc(100% - 172px);
+  }
+
+  /* Two players: a tracker seat's 38vw floor for its minis would push the
+     lands readout off a bar that also carries the hub. */
+  .focus-mode .zone--hub:not(.zone--cards):not(.zone--focused) .board-strip {
+    min-width: 60px;
+  }
+}
+
+/* Two players in portrait: that bar may grow, so its header wraps rather than
+   squeezes, and on a screen too narrow for one line the hub takes a line of
+   its own under the name and the life total, as it does in a focused zone. */
+@media (orientation: portrait) {
+  .focus-mode:not(.table-360) .zone--hub:not(.zone--focused) .zone-header {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+}
+
+@media (orientation: portrait) and (max-width: 700px) {
+  .focus-mode:not(.table-360) .zone--hub .header-hub {
+    order: 10;
+    flex-basis: 100%;
+  }
+
+  /* The identity pips step out so the name and the life total share that first line. */
+  .focus-mode:not(.table-360) .zone--hub:not(.zone--focused) .zone-id .mana-pip--mini {
+    display: none;
+  }
+}
+
+/* What is left of the line goes to the minis, which keep a floor and scroll.
+   When the line runs short the lands readout gives way one whole item at a
+   time — pips, then the count — instead of being cut mid-word: its line wraps
+   and only the first line shows. (The zero-width ::before anchors that first
+   line: with it there, even the count can drop to the hidden second one.) */
+.focus-mode .zone--hub:not(.zone--focused) .board-strip {
+  flex-shrink: 1000; /* a cards seat's token minis go before the lands readout */
+}
+
+.focus-mode .zone--hub:not(.zone--focused) .lands-row {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: none;
+  overflow: hidden;
+}
+
+.focus-mode .zone--hub:not(.zone--focused) .mana-summary {
+  flex-wrap: wrap;
+  height: 26px;
+  overflow: hidden;
+}
+
+.focus-mode .zone--hub:not(.zone--focused) .mana-summary::before {
+  content: '';
+  flex: 0 0 0px;
+  height: 26px;
+  margin-right: -8px; /* takes back the gap it would add before the count */
+}
+
+/* Portrait tablets: the bar is a third shorter. Undo and More go down to their
+   icons; where the bar cannot wrap (the 360 board) the avatar and the identity
+   pips make room, as they do on the side bars, and the lands readout is its
+   count alone so the minis get what the color pips would take. */
+@media (max-width: 1100px) {
+  .zone--hub .center-hub--compact .hub-label {
+    display: none;
+  }
+
+  .zone--hub .center-hub--compact .hub-actions button {
+    padding: 4px;
+  }
+
+  .focus-mode .zone--hub:not(.zone--focused) {
+    column-gap: 10px;
+  }
+
+  .table-360 .zone--hub:not(.zone--focused) .avatar,
+  .table-360 .zone--hub:not(.zone--focused) .zone-id .mana-pip--mini,
+  .table-360 .zone--hub:not(.zone--focused) .lands-row .mana-pip {
+    display: none;
+  }
+
+  .table-360 .zone--hub:not(.zone--focused) .zone-id {
+    min-width: 88px; /* ☰ and the name's floor, now that the avatar is gone */
+  }
+
+  .table-360 .zone--hub:not(.zone--focused) .lands-total {
+    font-size: 0.82rem;
+    letter-spacing: 0.04em;
+  }
+
+  /* One mini and the edge of the next: enough to say "there is more, scroll". */
+  .table-360 .zone--cards.zone--hub:not(.zone--focused) .bf-row {
+    min-width: 44px;
+  }
+
+  /* With smaller gaps and that smaller floor the header may reach further. */
+  .table-360 .zone--hub:not(.zone--focused) .zone-header {
+    max-width: calc(100% - 84px);
+  }
+
+  .table-360 .zone--cards.zone--hub:not(.zone--focused) .zone-header {
+    max-width: calc(100% - 140px);
+  }
+}
+
+/* A 768px tablet and narrower: the count would no longer fit beside two
+   minis, so it goes too and the minis have the room; narrower still, a 360
+   bar holds the hub and the essentials and nothing else. (Phones never get
+   here: GameScreen leaves the hub with the active player on a phone-width
+   360 board.) */
+@media (max-width: 790px) {
+  .table-360 .zone--hub:not(.zone--focused) .lands-row {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .table-360 .zone--hub:not(.zone--focused) .bf-row,
+  .table-360 .zone--hub:not(.zone--focused) .board-strip {
+    display: none;
+  }
+
+  .table-360 .zone--hub:not(.zone--focused) .zone-header {
+    max-width: 100%;
+  }
+
+  .table-360 .zone--cards.zone--hub:not(.zone--focused) .zone-header {
+    max-width: calc(100% - 76px); /* the hand pill is all that follows it now */
+  }
+}
+
+/* The near seat is out of the game and still carries the turn bar: the hub
+   has to stay readable, so the grey-out moves from the whole bar to the
+   player's own things and the DEFEATED banner makes way. */
+.focus-mode .zone--dead.zone--hub:not(.zone--focused) {
+  filter: none;
+}
+
+.focus-mode .zone--dead.zone--hub:not(.zone--focused) .dead-overlay {
+  display: none;
+}
+
+.focus-mode .zone--dead.zone--hub:not(.zone--focused) .zone-id,
+.focus-mode .zone--dead.zone--hub:not(.zone--focused) .zone-chips,
+.focus-mode .zone--dead.zone--hub:not(.zone--focused) .lifewrap,
+.focus-mode .zone--dead.zone--hub:not(.zone--focused) > :not(.zone-header) {
+  filter: grayscale(0.9) brightness(0.55);
+}
+
+.focus-mode .zone--dead.zone--hub:not(.zone--focused) .zone-name {
+  text-decoration: line-through;
 }
 
 /* ---- phone-as-hand screen ---- */

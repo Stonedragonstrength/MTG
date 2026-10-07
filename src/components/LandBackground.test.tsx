@@ -34,6 +34,7 @@ const baseSettings = {
   turnTimerOn: true,
   autoFocusOn: false,
   deckArtOn: true,
+  hubPinned: false,
 };
 
 beforeEach(async () => {

@@ -1614,6 +1614,125 @@ describe('settings', () => {
     expect(settings.turnTimerOn).toBe(true);
     expect(settings.autoFocusOn).toBe(false);
   });
+
+  test('the turn bar follows the active player until asked to stay put, also for settings saved before the choice existed', async () => {
+    expect(createAppStore().getState().settings.hubPinned).toBe(false);
+    await kvSet('settings', { backgroundMode: 'swamp', soundOn: true }); // an older build's save
+    const store = createAppStore();
+    await store.getState().init();
+    expect(store.getState().settings.hubPinned).toBe(false);
+    expect(store.getState().settings.backgroundMode).toBe('swamp');
+  });
+});
+
+describe('seat flips: which way a zone faces on this device', () => {
+  test('flipping a seat is this device’s business: the game is untouched and nothing goes to the table', async () => {
+    const store = createAppStore();
+    store.getState().startGame(config);
+    await flushPersistence();
+    const before = store.getState().game;
+    vi.mocked(tableSync.onLocalMutation).mockClear();
+
+    store.getState().setSeatFlip(1, true);
+
+    expect(store.getState().seatFlips).toEqual({ 1: true });
+    expect(store.getState().game).toBe(before); // not a game change…
+    expect(store.getState().canUndo()).toBe(false); // …so not an undo step either
+    expect(tableSync.onLocalMutation).not.toHaveBeenCalled();
+    await flushPersistence();
+    expect(await kvGet('activeGame')).toEqual(before); // the saved game knows nothing of it
+  });
+
+  test('a flip is taken back with the same call, and asking twice changes nothing', () => {
+    const store = createAppStore();
+    store.getState().setSeatFlip(2, true);
+    const flipped = store.getState().seatFlips;
+    store.getState().setSeatFlip(2, true);
+    expect(store.getState().seatFlips).toBe(flipped);
+
+    store.getState().setSeatFlip(2, false);
+    expect(store.getState().seatFlips).toEqual({}); // left out, not written as false
+    const none = store.getState().seatFlips;
+    store.getState().setSeatFlip(2, false);
+    expect(store.getState().seatFlips).toBe(none);
+  });
+
+  test('flips survive a reload, seat by seat', async () => {
+    const storeA = createAppStore();
+    storeA.getState().startGame(config);
+    storeA.getState().setSeatFlip(0, true);
+    storeA.getState().setSeatFlip(1, true);
+    storeA.getState().setSeatFlip(0, false);
+    await flushPersistence();
+
+    const storeB = createAppStore();
+    await storeB.getState().init();
+    expect(storeB.getState().seatFlips).toEqual({ 1: true });
+  });
+
+  test('a new game on this tablet starts with every seat facing its own edge', async () => {
+    const store = createAppStore();
+    store.getState().startGame(config);
+    store.getState().setSeatFlip(0, true);
+    store.getState().startGame(config);
+    expect(store.getState().seatFlips).toEqual({});
+
+    await flushPersistence();
+    const reloaded = createAppStore();
+    await reloaded.getState().init();
+    expect(reloaded.getState().seatFlips).toEqual({}); // gone from the device, not just the screen
+  });
+
+  test('hosting a table and joining one both start with nobody flipped', async () => {
+    const host = createAppStore();
+    host.getState().startGame(config);
+    host.getState().setSeatFlip(1, true);
+    expect(await host.getState().hostOnlineGame(config)).toBeNull();
+    expect(host.getState().seatFlips).toEqual({});
+
+    vi.mocked(tableSync.joinTable).mockResolvedValueOnce({ state: createGame(config) });
+    const guest = createAppStore();
+    guest.getState().startGame(config);
+    guest.getState().setSeatFlip(1, true);
+    expect(await guest.getState().joinOnlineGame('KQ7M2X')).toBeNull();
+    expect(guest.getState().seatFlips).toEqual({});
+  });
+
+  test('a join or a host the player backed out of leaves the saved game’s flips alone', async () => {
+    const store = createAppStore();
+    store.getState().startGame(config);
+    store.getState().setSeatFlip(1, true);
+    store.getState().exitToHome();
+
+    vi.mocked(tableSync.joinTable).mockResolvedValueOnce({ state: createGame(config) });
+    await store.getState().joinOnlineGame('KQ7M2X', () => false);
+    expect(store.getState().seatFlips).toEqual({ 1: true });
+    await store.getState().hostOnlineGame(config, () => false);
+    expect(store.getState().seatFlips).toEqual({ 1: true });
+  });
+
+  test('ending the game forgets who was flipped', async () => {
+    const store = createAppStore();
+    store.getState().startGame(config);
+    store.getState().setSeatFlip(1, true);
+    store.getState().endGame();
+    expect(store.getState().seatFlips).toEqual({});
+
+    await flushPersistence();
+    expect(await kvGet('seatFlips')).toBeUndefined();
+  });
+
+  test('a damaged save of the flips restores what it can and never stops the app starting', async () => {
+    await kvSet('seatFlips', { 1: true, 2: false, 3: 'yes', x: true, '-1': true });
+    const store = createAppStore();
+    await store.getState().init();
+    expect(store.getState().seatFlips).toEqual({ 1: true });
+
+    await kvSet('seatFlips', 'sideways');
+    const other = createAppStore();
+    await other.getState().init();
+    expect(other.getState().seatFlips).toEqual({});
+  });
 });
 
 describe('board actions wire through to game state', () => {

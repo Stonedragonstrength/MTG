@@ -21,6 +21,8 @@ export default function PlayerSheet({ playerIdx, onClose }: Props) {
   const applyCommanderDamage = useAppStore((s) => s.applyCommanderDamage);
   const claimMonarch = useAppStore((s) => s.claimMonarch);
   const claimInitiative = useAppStore((s) => s.claimInitiative);
+  const flipped = useAppStore((s) => s.seatFlips[playerIdx] === true);
+  const setSeatFlip = useAppStore((s) => s.setSeatFlip);
 
   if (!game) return null;
   const player = game.players[playerIdx];
@@ -124,6 +126,24 @@ export default function PlayerSheet({ playerIdx, onClose }: Props) {
             onClick={() => claimInitiative(playerIdx)}
           >
             🗡 Initiative
+          </button>
+        </div>
+      </div>
+
+      {/* Where this player really sits at this screen: local, never part of the game. */}
+      <div className="detail-row flip-row">
+        <span className="settings-row-text">
+          <span>Flip this side</span>
+          <small>Turns this player's side of the table around on this device.</small>
+        </span>
+        <div className="stepper">
+          <button
+            className={flipped ? 'badge-btn active' : 'badge-btn'}
+            aria-label="flip this side"
+            aria-pressed={flipped}
+            onClick={() => setSeatFlip(playerIdx, !flipped)}
+          >
+            {flipped ? '⇅ Flipped' : '⇅ Flip'}
           </button>
         </div>
       </div>

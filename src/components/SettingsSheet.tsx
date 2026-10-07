@@ -194,6 +194,19 @@ export default function SettingsSheet({ onClose }: Props) {
         />
       </div>
 
+      <div className="settings-row">
+        <div className="settings-row-text">
+          <span>Turn bar stays put</span>
+          <small>Keeps Pass turn at the near edge instead of following the active player</small>
+        </div>
+        <input
+          type="checkbox"
+          aria-label="pin turn bar"
+          checked={settings.hubPinned}
+          onChange={(e) => updateSettings({ ...settings, hubPinned: e.target.checked })}
+        />
+      </div>
+
 
       <div className="settings-row">
         <div className="settings-row-text">

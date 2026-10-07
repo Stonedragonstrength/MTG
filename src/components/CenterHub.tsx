@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAppStore } from '../state/store';
 import CombatSheet from './CombatSheet';
 import DiceRoller from './DiceRoller';
@@ -8,7 +8,22 @@ import SettingsSheet from './SettingsSheet';
 import Sheet from './Sheet';
 import StackSheet from './StackSheet';
 
-type SheetName = 'dice' | 'rules' | 'settings' | 'end' | 'log' | 'combat' | 'stack' | null;
+type SheetName =
+  | 'dice'
+  | 'rules'
+  | 'settings'
+  | 'end'
+  | 'log'
+  | 'combat'
+  | 'stack'
+  | 'more'
+  | null;
+
+/** A tap this soon after the one before is the second half of a double tap, not
+ * a second decision. It matters where the hub stays put under the finger: Pass
+ * turn does not move away after a pass ("Turn bar stays put"), and "End" picked
+ * in the options sheet opens its question right where that sheet was. */
+const STRAY_TAP_MS = 600;
 
 function TurnClock({ since }: { since: number }) {
   const [, force] = useState(0);
@@ -29,9 +44,15 @@ function TurnClock({ since }: { since: number }) {
 interface Props {
   /** 'overlay' floats centered over the table; 'row' docks inside a zone. */
   variant?: 'overlay' | 'row';
+  /** The seat whose zone the hub is docked in. With "Turn bar stays put" that
+   * is not always the active player's, and then the hub says whose turn it is. */
+  seat?: number;
+  /** Docked in a collapsed bar, which cannot grow: "More" opens the options in
+   * a sheet instead of unfolding them in place. */
+  compact?: boolean;
 }
 
-export default function CenterHub({ variant = 'overlay' }: Props) {
+export default function CenterHub({ variant = 'overlay', seat, compact = false }: Props) {
   const game = useAppStore((s) => s.game);
   const passTurn = useAppStore((s) => s.passTurn);
   const endGame = useAppStore((s) => s.endGame);
@@ -40,6 +61,11 @@ export default function CenterHub({ variant = 'overlay' }: Props) {
   const turnTimerOn = useAppStore((s) => s.settings.turnTimerOn);
   const [sheet, setSheet] = useState<SheetName>(null);
   const [trayOpen, setTrayOpen] = useState(false);
+  const passedAt = useRef<number | null>(null);
+  const endPickedAt = useRef<number | null>(null);
+  // A pinned hub stays mounted while its zone collapses and grows back with the
+  // turn: a tray left unfolded must not sit there waiting to reappear.
+  useEffect(() => setTrayOpen(false), [compact]);
 
   if (!game) return null;
 
@@ -48,12 +74,78 @@ export default function CenterHub({ variant = 'overlay' }: Props) {
     setSheet(name);
   }
 
+  // A double tap passes once: the second half would skip the next player.
+  function pass(tap: { timeStamp: number }) {
+    if (passedAt.current !== null && tap.timeStamp - passedAt.current < STRAY_TAP_MS) return;
+    passedAt.current = tap.timeStamp;
+    passTurn();
+  }
+
+  function askToEnd(tap: { timeStamp: number }) {
+    endPickedAt.current = sheet === 'more' ? tap.timeStamp : null;
+    openSheet('end');
+  }
+
+  function confirmEnd(tap: { timeStamp: number }) {
+    const picked = endPickedAt.current;
+    if (picked !== null && tap.timeStamp - picked < STRAY_TAP_MS) return;
+    endGame();
+  }
+
+  const whose =
+    seat !== undefined && seat !== game.activePlayerIndex
+      ? game.config.profiles[game.activePlayerIndex]?.name
+      : undefined;
+  const unfolded = trayOpen && !compact;
+
+  // The same options either way: unfolded under the hub, or in a sheet of their own.
+  const options = (
+    <>
+      <button aria-label="combat math" onClick={() => openSheet('combat')}>
+        <span className="hub-icon">⚔️</span>
+        <span className="hub-label">Combat</span>
+      </button>
+      <button aria-label="the stack" onClick={() => openSheet('stack')}>
+        <span className="hub-icon">🌀</span>
+        <span className="hub-label">Stack</span>
+      </button>
+      <button aria-label="dice" onClick={() => openSheet('dice')}>
+        <span className="hub-icon">🎲</span>
+        <span className="hub-label">Dice</span>
+      </button>
+      <button aria-label="rules" onClick={() => openSheet('rules')}>
+        <span className="hub-icon">📖</span>
+        <span className="hub-label">Rules</span>
+      </button>
+      <button aria-label="game log" onClick={() => openSheet('log')}>
+        <span className="hub-icon">📜</span>
+        <span className="hub-label">Log</span>
+      </button>
+      <button aria-label="settings" onClick={() => openSheet('settings')}>
+        <span className="hub-icon">⚙️</span>
+        <span className="hub-label">Settings</span>
+      </button>
+      <button aria-label="end game" onClick={askToEnd}>
+        <span className="hub-icon">🏳️</span>
+        <span className="hub-label">End</span>
+      </button>
+    </>
+  );
+
   return (
-    <div className={`center-hub${variant === 'row' ? ' center-hub--row' : ''}`}>
+    <div
+      className={`center-hub${variant === 'row' ? ' center-hub--row' : ''}${compact ? ' center-hub--compact' : ''}`}
+    >
       <div className="hub-main">
         <div className="hub-turn">
           <span className="hub-turn-number">
             Turn {game.turnNumber}
+            {whose && (
+              <span className="hub-whose">
+                <span className="hub-sep">{' · '}</span>
+                <span className="hub-whose-name">{whose}</span>
+              </span>
+            )}
             {turnTimerOn && (
               <>
                 {' · '}
@@ -62,7 +154,7 @@ export default function CenterHub({ variant = 'overlay' }: Props) {
             )}
           </span>
         </div>
-        <button className="hub-pass" onClick={passTurn}>
+        <button className="hub-pass" onClick={pass}>
           Pass turn
         </button>
         <div className="hub-actions">
@@ -72,48 +164,22 @@ export default function CenterHub({ variant = 'overlay' }: Props) {
           </button>
           <button
             aria-label="more options"
-            aria-expanded={trayOpen}
-            onClick={() => setTrayOpen((o) => !o)}
+            aria-expanded={compact ? sheet === 'more' : trayOpen}
+            onClick={() => (compact ? setSheet('more') : setTrayOpen((o) => !o))}
           >
-            <span className="hub-icon">{trayOpen ? '✕' : '⋯'}</span>
-            <span className="hub-label">{trayOpen ? 'Close' : 'More'}</span>
+            <span className="hub-icon">{unfolded ? '✕' : '⋯'}</span>
+            <span className="hub-label">{unfolded ? 'Close' : 'More'}</span>
           </button>
         </div>
       </div>
 
-      {trayOpen && (
-        <div className="hub-tray">
-          <button aria-label="combat math" onClick={() => openSheet('combat')}>
-            <span className="hub-icon">⚔️</span>
-            <span className="hub-label">Combat</span>
-          </button>
-          <button aria-label="the stack" onClick={() => openSheet('stack')}>
-            <span className="hub-icon">🌀</span>
-            <span className="hub-label">Stack</span>
-          </button>
-          <button aria-label="dice" onClick={() => openSheet('dice')}>
-            <span className="hub-icon">🎲</span>
-            <span className="hub-label">Dice</span>
-          </button>
-          <button aria-label="rules" onClick={() => openSheet('rules')}>
-            <span className="hub-icon">📖</span>
-            <span className="hub-label">Rules</span>
-          </button>
-          <button aria-label="game log" onClick={() => openSheet('log')}>
-            <span className="hub-icon">📜</span>
-            <span className="hub-label">Log</span>
-          </button>
-          <button aria-label="settings" onClick={() => openSheet('settings')}>
-            <span className="hub-icon">⚙️</span>
-            <span className="hub-label">Settings</span>
-          </button>
-          <button aria-label="end game" onClick={() => openSheet('end')}>
-            <span className="hub-icon">🏳️</span>
-            <span className="hub-label">End</span>
-          </button>
-        </div>
-      )}
+      {unfolded && <div className="hub-tray">{options}</div>}
 
+      {sheet === 'more' && (
+        <Sheet title="More" onClose={() => setSheet(null)}>
+          <div className="hub-tray hub-tray--sheet">{options}</div>
+        </Sheet>
+      )}
       {sheet === 'dice' && <DiceRoller onClose={() => setSheet(null)} />}
       {sheet === 'rules' && <RulesViewer onClose={() => setSheet(null)} />}
       {sheet === 'settings' && <SettingsSheet onClose={() => setSheet(null)} />}
@@ -126,7 +192,7 @@ export default function CenterHub({ variant = 'overlay' }: Props) {
           onClose={() => setSheet(null)}
           footer={
             <>
-              <button className="danger" onClick={endGame}>
+              <button className="danger" onClick={confirmEnd}>
                 Yes, end it
               </button>
               <button className="ghost" onClick={() => setSheet(null)}>

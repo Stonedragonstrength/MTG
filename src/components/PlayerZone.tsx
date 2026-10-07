@@ -33,6 +33,7 @@ export default function PlayerZone({
 }: Props) {
   const game = useAppStore((s) => s.game);
   const adjustLife = useAppStore((s) => s.adjustLife);
+  const flipped = useAppStore((s) => s.seatFlips[playerIdx] === true);
   const [sheetOpen, setSheetOpen] = useState(false);
   if (!game) return null;
 
@@ -50,6 +51,8 @@ export default function PlayerZone({
     isActive && !player.eliminated ? 'zone--active' : '',
     focused ? 'zone--focused' : '',
     player.cards ? 'zone--cards' : '', // compact chrome: the cards need the room
+    flipped ? 'zone--flipped' : '', // drawn turned around on this device ("Flip this side")
+    showHub && !focused ? 'zone--hub' : '', // a slim bar carrying the pinned turn bar
   ]
     .filter(Boolean)
     .join(' ');
@@ -121,7 +124,7 @@ export default function PlayerZone({
         )}
         {showHub && (
           <span className="header-hub" onClick={(e) => e.stopPropagation()}>
-            <CenterHub variant="row" />
+            <CenterHub variant="row" seat={playerIdx} compact={!focused} />
           </span>
         )}
         <span className="lifewrap" onClick={(e) => e.stopPropagation()}>

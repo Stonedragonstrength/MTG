@@ -18,6 +18,7 @@ export interface Settings {
   turnTimerOn: boolean;
   autoFocusOn: boolean; // active player's zone takes the screen each turn
   deckArtOn: boolean; // thumbnails on deck-builder rows
+  hubPinned: boolean; // the turn bar stays at the near edge instead of following the turn
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -29,6 +30,7 @@ export const DEFAULT_SETTINGS: Settings = {
   turnTimerOn: true,
   autoFocusOn: false,
   deckArtOn: true,
+  hubPinned: false,
 };
 
 export async function getSettings(): Promise<Settings> {

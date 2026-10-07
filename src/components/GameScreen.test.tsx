@@ -1,6 +1,6 @@
-import { render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { createGame } from '../lib/game';
 import type { GameConfig } from '../lib/types';
 import { useAppStore } from '../state/store';
@@ -276,6 +276,135 @@ test('the hub always rides inside the active zone', () => {
   const docked = container.querySelector('.zone--focused .center-hub');
   expect(docked).not.toBeNull();
   expect(docked!.className).toContain('center-hub--row');
+});
+
+describe('seat orientation', () => {
+  afterEach(() => {
+    cleanup(); // the screen first: nothing should re-render for the reset below
+    vi.unstubAllGlobals();
+    useAppStore.setState({
+      seatFlips: {},
+      online: null,
+      settings: { ...useAppStore.getState().settings, hubPinned: false },
+    });
+  });
+
+  const pinTurnBar = () =>
+    useAppStore.setState({ settings: { ...useAppStore.getState().settings, hubPinned: true } });
+  const takeTurn = (activePlayerIndex: number) =>
+    useAppStore.setState({ game: { ...useAppStore.getState().game!, activePlayerIndex } });
+  /** The seats whose zone carries the hub, e.g. ['seat-0']. */
+  const hubSeats = (container: HTMLElement) =>
+    [...container.querySelectorAll('.zone')]
+      .filter((zone) => zone.querySelector('.center-hub'))
+      .map((zone) => /seat-\d/.exec(zone.className)![0]);
+
+  test('a seat flipped on this device wears the flipped class; the others do not', () => {
+    useAppStore.setState({ seatFlips: { 2: true } });
+    const { container } = render(<GameScreen />);
+    expect(container.querySelector('.zone.seat-2')!.className).toContain('zone--flipped');
+    for (const seat of [0, 1, 3]) {
+      expect(container.querySelector(`.zone.seat-${seat}`)!.className).not.toContain('zone--flipped');
+    }
+  });
+
+  test('a flipped seat stays flipped when it takes the big board', () => {
+    useAppStore.setState({ seatFlips: { 2: true } });
+    takeTurn(2);
+    const { container } = render(<GameScreen />);
+    const zone = container.querySelector('.zone.seat-2')!;
+    expect(zone.className).toContain('zone--focused');
+    expect(zone.className).toContain('zone--flipped');
+  });
+
+  test('with "Turn bar stays put" the hub docks at the near edge, whoever is active', () => {
+    pinTurnBar();
+    const { container } = render(<GameScreen />);
+    expect(hubSeats(container)).toEqual(['seat-0']); // their own turn: where it always was
+    for (const active of [1, 2, 3]) {
+      act(() => takeTurn(active));
+      expect(container.querySelector(`.zone.seat-${active}`)!.className).toContain('zone--focused');
+      expect(hubSeats(container)).toEqual(['seat-0']); // the board moved on, the turn bar did not
+    }
+    expect(container.querySelector('.zone.seat-0')!.className).toContain('edge-bottom');
+  });
+
+  test('online, the near edge is your own seat', () => {
+    pinTurnBar();
+    useAppStore.setState({
+      online: { code: 'KQ7M2X', status: { kind: 'live', peers: 2 }, mySeat: 2 },
+    });
+    const { container } = render(<GameScreen />); // seat 0 is active
+    expect(container.querySelector('.zone.seat-2')!.className).toContain('edge-bottom');
+    expect(hubSeats(container)).toEqual(['seat-2']);
+  });
+
+  test('two players online: the pinned hub follows the seat the table turned to the bottom', () => {
+    pinTurnBar();
+    useAppStore.setState({
+      game: createGame(config(2)),
+      online: { code: 'KQ7M2X', status: { kind: 'live', peers: 2 }, mySeat: 1 },
+    });
+    const { container } = render(<GameScreen />);
+    expect(container.querySelector('.zone.seat-1')!.className).toContain('edge-bottom');
+    expect(hubSeats(container)).toEqual(['seat-1']);
+  });
+
+  test('pinned in a collapsed zone the hub turns compact and says whose turn it is', () => {
+    pinTurnBar();
+    takeTurn(3);
+    const { container } = render(<GameScreen />);
+    const bar = container.querySelector('.zone.seat-0')!;
+    expect(bar.className).not.toContain('zone--focused');
+    expect(bar.className).toContain('zone--hub'); // the bar makes room for it
+    const hub = bar.querySelector('.center-hub')!;
+    expect(hub.className).toContain('center-hub--compact');
+    expect(hub.querySelector('.hub-turn')!.textContent).toContain('Player 3');
+  });
+
+  test('pinned on the near seat’s own turn the hub is the ordinary docked one', () => {
+    pinTurnBar();
+    const { container } = render(<GameScreen />); // seat 0 is active
+    const zone = container.querySelector('.zone.seat-0')!;
+    expect(zone.className).not.toContain('zone--hub');
+    const hub = zone.querySelector('.center-hub')!;
+    expect(hub.className).toContain('center-hub--row');
+    expect(hub.className).not.toContain('center-hub--compact');
+    expect(hub.querySelector('.hub-turn')!.textContent).not.toContain('Player 0');
+  });
+
+  /** jsdom has no matchMedia: this makes the screen a phone-width one. */
+  const onAPhone = () =>
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    );
+
+  test('on a phone-width screen a 3–4 player edge bar is too short for the hub: it keeps following the active player', () => {
+    onAPhone();
+    pinTurnBar();
+    takeTurn(2);
+    const { container } = render(<GameScreen />);
+    expect(hubSeats(container)).toEqual(['seat-2']);
+    expect(container.querySelector('.zone--hub')).toBeNull();
+  });
+
+  test('two players on a phone keep it pinned: their bars can grow', () => {
+    onAPhone();
+    pinTurnBar();
+    useAppStore.setState({ game: { ...createGame(config(2)), activePlayerIndex: 1 } });
+    const { container } = render(<GameScreen />);
+    expect(hubSeats(container)).toEqual(['seat-0']);
+  });
+
+  test('left unpinned, no zone is marked as carrying the hub and nothing is flipped', () => {
+    takeTurn(1);
+    const { container } = render(<GameScreen />);
+    expect(hubSeats(container)).toEqual(['seat-1']);
+    expect(container.querySelector('.zone--hub')).toBeNull();
+    expect(container.querySelector('.zone--flipped')).toBeNull();
+    expect(container.querySelector('.center-hub--compact')).toBeNull();
+  });
 });
 
 test('every player has their own dice button beneath their life counter', async () => {

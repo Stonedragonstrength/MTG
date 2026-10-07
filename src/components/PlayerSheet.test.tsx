@@ -80,3 +80,25 @@ test('a partner pair gets a commander-damage row per commander', async () => {
   await user.click(screen.getByRole('button', { name: /more commander damage from Sam — Tymna/i }));
   expect(spy).toHaveBeenCalledWith(0, 'p1#2', 1);
 });
+
+test('"Flip this side" turns that player’s side around on this device, and back again', async () => {
+  useAppStore.setState({ seatFlips: {} });
+  const game = useAppStore.getState().game;
+  const user = userEvent.setup();
+  render(<PlayerSheet playerIdx={1} onClose={() => {}} />);
+  expect(screen.getByText('Flip this side')).toBeInTheDocument();
+  expect(
+    screen.getByText("Turns this player's side of the table around on this device."),
+  ).toBeInTheDocument();
+  const flip = screen.getByRole('button', { name: /flip this side/i });
+  expect(flip).toHaveAttribute('aria-pressed', 'false');
+
+  await user.click(flip);
+  expect(useAppStore.getState().seatFlips).toEqual({ 1: true }); // this seat and no other
+  expect(flip).toHaveAttribute('aria-pressed', 'true');
+
+  await user.click(flip);
+  expect(useAppStore.getState().seatFlips).toEqual({});
+  expect(flip).toHaveAttribute('aria-pressed', 'false');
+  expect(useAppStore.getState().game).toBe(game); // the game itself never heard of it
+});
