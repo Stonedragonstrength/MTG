@@ -165,6 +165,11 @@ let pushing = false;
 let wantPush = false;
 let opId: string | null = null;
 let payloadRebuilt = true;
+/** The last save that went out and was never answered. It may have landed,
+ * so it goes out again VERBATIM (same op id, state and base) before
+ * anything newer does: the table then answers "duplicate" instead of a
+ * miss that would replay, on top of themselves, changes it already holds. */
+let unanswered: { base: number; snapshot: GameState; ops: PendingOp[] } | null = null;
 let rebaseRetries = 0;
 let backoffMs = 1000;
 let debounceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -210,6 +215,7 @@ async function startSession(code: string, version: number, mySeat: number | null
   pendingOps = [];
   opId = null;
   payloadRebuilt = true;
+  unanswered = null;
   rebaseRetries = 0;
   backoffMs = 1000;
   deviceId = crypto.randomUUID();
@@ -241,6 +247,7 @@ async function teardown() {
   session = null;
   pendingOps = [];
   opId = null;
+  unanswered = null;
   await kvDelete('tableSession').catch(() => {});
 }
 
@@ -436,17 +443,27 @@ async function push(): Promise<void> {
     for (;;) {
       if (!session) return;
       if (pendingOps.length === 0) return;
-      const snapshot = hooks.getGame();
+      // Only while this device still stands where that save left from: a
+      // remote state applied since makes its base meaningless.
+      const again = unanswered && unanswered.base === appliedVersion && opId ? unanswered : null;
+      unanswered = null;
+      const snapshot = again ? again.snapshot : hooks.getGame();
       if (!snapshot) return;
-      const opsSent = pendingOps.length;
-      if (payloadRebuilt || !opId) {
+      const sent = again ? again.ops : pendingOps.slice();
+      const sentBase = appliedVersion;
+      // By identity, not by count: an undo may have reshaped the queue meanwhile.
+      const landed = () => {
+        pendingOps = pendingOps.filter((op) => !sent.includes(op));
+      };
+      if (!again && (payloadRebuilt || !opId)) {
         opId = crypto.randomUUID();
         payloadRebuilt = false;
       }
       let r: SaveResult;
       try {
-        r = await deps.rpcSave(session.code, appliedVersion, snapshot, opId, GAME_SCHEMA);
+        r = await deps.rpcSave(session.code, sentBase, snapshot, opId!, GAME_SCHEMA);
       } catch {
+        unanswered = { base: sentBase, snapshot, ops: sent };
         hooks.setStatus({ kind: 'offline' });
         retryTimer = setTimeout(() => void push(), backoffMs);
         backoffMs = Math.min(backoffMs * 2, 15_000);
@@ -463,7 +480,7 @@ async function push(): Promise<void> {
       }
       if (r.ok && !r.duplicate) {
         appliedVersion = r.version ?? appliedVersion + 1;
-        pendingOps.splice(0, opsSent);
+        landed();
         payloadRebuilt = true;
         rebaseRetries = 0;
         try {
@@ -479,9 +496,13 @@ async function push(): Promise<void> {
         continue;
       }
       if (r.ok && r.duplicate) {
-        pendingOps.splice(0, opsSent);
+        landed();
         payloadRebuilt = true;
-        if ((r.version ?? 0) > appliedVersion && r.state && isValidGame(r.state)) {
+        if (r.version === sentBase + 1) {
+          // The table moved by this very save and nothing else, so what is
+          // queued behind it (an undo, say) still stands on what it saw.
+          appliedVersion = r.version;
+        } else if ((r.version ?? 0) > appliedVersion && r.state && isValidGame(r.state)) {
           const base = migrateGame(r.state);
           appliedVersion = r.version!;
           const rb = rebaseQueue(base); // guards apply here too

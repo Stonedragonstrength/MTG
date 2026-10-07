@@ -8,6 +8,7 @@ import {
   bindTable,
   deps,
   hostTable,
+  leaveTable,
   onLocalMutation,
   onLocalUndo,
   type TableHooks,
@@ -435,5 +436,184 @@ describe('doorbell + reconcile', () => {
     await vi.advanceTimersByTimeAsync(10);
     expect(f.hooks.onEnded).toHaveBeenCalled();
     expect(await getDb().kv.get('tableSession')).toBeUndefined();
+  });
+});
+
+describe('a save whose answer never came back', () => {
+  /** The online_games row as online-table-setup.sql keeps it: a save is a
+   * duplicate if its op is in the ring, a miss if the version moved, and
+   * otherwise it lands. */
+  function table(initial: GameState) {
+    const row = { state: initial, version: 1, recent: [] as string[] };
+    let lose = false;
+    let drop = false;
+    const save = vi.fn(async (_code: string, base: number, state: GameState, op: string) => {
+      if (drop) {
+        drop = false;
+        throw new Error('the request never reached the table');
+      }
+      let answer;
+      if (row.recent.includes(op)) {
+        answer = { ok: true, duplicate: true, version: row.version, state: row.state, app_schema: GAME_SCHEMA };
+      } else if (row.version !== base) {
+        answer = { ok: false, gone: false, ended: false, version: row.version, state: row.state, app_schema: GAME_SCHEMA };
+      } else {
+        row.state = state;
+        row.version += 1;
+        row.recent = [op, ...row.recent].slice(0, 8);
+        answer = { ok: true, version: row.version };
+      }
+      if (lose) {
+        lose = false;
+        throw new Error('the answer never came back');
+      }
+      return answer;
+    });
+    deps.rpcSave = save as typeof deps.rpcSave;
+    deps.rpcGet = vi.fn(async (_code: string, known: number) => ({
+      state: row.version > known ? row.state : null,
+      version: row.version,
+      ended: false,
+      app_schema: GAME_SCHEMA,
+    })) as typeof deps.rpcGet;
+    return {
+      row,
+      save,
+      /** The next save lands, but this device never hears so. */
+      loseNextAnswer: () => (lose = true),
+      /** The next save does not even reach the table. */
+      dropNextRequest: () => (drop = true),
+      /** Another device writes on top of whatever the table holds. */
+      someoneElse(change: (s: GameState) => GameState) {
+        row.state = change(row.state);
+        row.version += 1;
+        row.recent = [crypto.randomUUID(), ...row.recent].slice(0, 8);
+      },
+    };
+  }
+
+  /** One tap on this device: the store applies it, then tells the module. */
+  function tap(f: Fake, change: (s: GameState) => GameState) {
+    const before = f.game.current;
+    f.game.current = change(before);
+    onLocalMutation(change, before);
+  }
+  const hit = (seat: number) => (s: GameState) => adjustLife(s, seat, -1);
+  const settle = async () => {
+    await vi.advanceTimersByTimeAsync(2500);
+    await drain();
+  };
+
+  test('is not applied a second time when another change follows before the retry', async () => {
+    const g = freshGame();
+    const f = setup(g);
+    await hostTable(g);
+    const t = table(g);
+    t.loseNextAnswer();
+    tap(f, hit(0));
+    await flushDebounce(); // landed as v2; this device does not know
+    expect(t.row.state.players[0].life).toBe(39);
+    tap(f, hit(0)); // a second tap before the retry
+    await settle();
+    expect(t.row.state.players[0].life).toBe(38); // two taps, two points: not three
+    expect(f.game.current.players[0].life).toBe(38);
+    expect(f.hooks.notice).not.toHaveBeenCalled();
+  });
+
+  test('goes out again exactly as it was, so the table can recognise it', async () => {
+    const g = freshGame();
+    const f = setup(g);
+    await hostTable(g);
+    const t = table(g);
+    t.loseNextAnswer();
+    tap(f, hit(0));
+    await flushDebounce();
+    tap(f, hit(0));
+    await settle();
+    const [first, again, next] = t.save.mock.calls;
+    expect(again.slice(1)).toEqual(first.slice(1)); // same base, same state, same op id
+    expect(next[3]).not.toBe(first[3]); // what was queued behind it is a save of its own
+    expect((next[2] as GameState).players[0].life).toBe(38);
+    expect(t.save).toHaveBeenCalledTimes(3);
+  });
+
+  test('simply lands on the retry when it had not reached the table, and what was queued behind it follows once', async () => {
+    const g = freshGame();
+    const f = setup(g);
+    await hostTable(g);
+    const t = table(g);
+    t.dropNextRequest();
+    tap(f, hit(0));
+    await flushDebounce();
+    expect(t.row.version).toBe(1); // nothing landed
+    tap(f, hit(1));
+    await settle();
+    expect(t.row.state.players.map((p) => p.life)).toEqual([39, 39]);
+    expect(f.game.current.players.map((p) => p.life)).toEqual([39, 39]);
+    expect(f.hooks.notice).not.toHaveBeenCalled();
+  });
+
+  test('is recognised even after someone else wrote, and only the newer change is replayed on top', async () => {
+    const g = freshGame();
+    const f = setup(g);
+    await hostTable(g);
+    const t = table(g);
+    t.loseNextAnswer();
+    tap(f, hit(0));
+    await flushDebounce(); // ours landed as v2
+    t.someoneElse((s) => adjustLife(s, 1, -5)); // v3, on top of ours
+    tap(f, hit(0));
+    await settle();
+    expect(t.row.state.players.map((p) => p.life)).toEqual([38, 35]);
+    expect(f.game.current.players.map((p) => p.life)).toEqual([38, 35]);
+  });
+
+  test('is not replayed by a doorbell that arrives before the retry', async () => {
+    const g = freshGame();
+    const f = setup(g);
+    await hostTable(g);
+    const t = table(g);
+    t.loseNextAnswer();
+    tap(f, hit(0));
+    await flushDebounce(); // ours landed as v2
+    t.someoneElse((s) => adjustLife(s, 1, -5)); // v3
+    f.fireBump({ v: 3, by: 'someone-else' }); // reconcile runs with our save still unanswered
+    await settle();
+    expect(t.row.state.players.map((p) => p.life)).toEqual([39, 35]); // our tap counted once
+    expect(f.game.current.players.map((p) => p.life)).toEqual([39, 35]);
+  });
+
+  test('does not cost an undo made meanwhile: the table had only moved by that very save', async () => {
+    const g = freshGame();
+    const f = setup(g);
+    await hostTable(g);
+    const t = table(g);
+    t.loseNextAnswer();
+    tap(f, hit(0));
+    await flushDebounce(); // landed as v2 (life 39)
+    f.game.current = g; // the player undoes it
+    onLocalUndo(g);
+    await settle();
+    expect(t.row.state.players[0].life).toBe(40); // the undo reached the table
+    expect(f.game.current.players[0].life).toBe(40);
+    expect(f.hooks.notice).not.toHaveBeenCalledWith(expect.stringMatching(/undo skipped/i));
+  });
+
+  test('is forgotten when the table is left: a new table never receives it', async () => {
+    const g = freshGame();
+    const f = setup(g);
+    await hostTable(g);
+    const t = table(g);
+    t.dropNextRequest();
+    tap(f, hit(0));
+    await flushDebounce(); // unanswered, and still queued
+    await leaveTable();
+    await hostTable(g); // a fresh table, version 1 again
+    const fresh = table(g);
+    f.game.current = g;
+    tap(f, hit(1));
+    await settle();
+    expect(fresh.save).toHaveBeenCalledTimes(1);
+    expect(fresh.row.state.players.map((p) => p.life)).toEqual([40, 39]); // only the new table's own tap
   });
 });
