@@ -166,6 +166,52 @@ describe('importBulkData', () => {
     expect(await getDb().kv.get('cardsImportedAt')).toBeDefined();
   });
 
+  test('the progress bar only ever moves forward, however storing and downloading interleave', async () => {
+    const many = Array.from({ length: 5000 }, (_, i) => ({
+      ...creatureRaw,
+      id: `bulk-${i}`,
+      name: `Bear ${i}`,
+    }));
+    const gz = gzipSync(Buffer.from(many.map((c) => JSON.stringify(c)).join('\n') + '\n'));
+    const size = Math.ceil(gz.byteLength / 40); // many small packets: batches get stored mid-download
+    let sent = 0;
+    const body = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        await new Promise((resolve) => setTimeout(resolve, 5)); // the network trails the parser
+        if (sent >= gz.byteLength) {
+          controller.close();
+          return;
+        }
+        controller.enqueue(new Uint8Array(gz.subarray(sent, sent + size)));
+        sent += size;
+      },
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL) =>
+        String(url).includes('bulk-data')
+          ? new Response(
+              JSON.stringify({
+                data: [
+                  {
+                    type: 'oracle_cards',
+                    jsonl_download_uri: 'https://data.example/oracle.jsonl.gz',
+                    compressed_size: gz.byteLength,
+                  },
+                ],
+              }),
+            )
+          : new Response(body),
+      ),
+    );
+    const progress: number[] = [];
+    await importBulkData((pct) => progress.push(pct));
+
+    expect(await getDb().cards.count()).toBe(5000);
+    expect(progress[progress.length - 1]).toBe(100);
+    expect(progress).toEqual([...progress].sort((a, b) => a - b));
+  });
+
   test('getCardById and loadNameIndex read back imported data', async () => {
     stubScryfall([creatureRaw, tokenRaw]);
     await importBulkData(() => {});

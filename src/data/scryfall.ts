@@ -56,9 +56,18 @@ interface BulkEntry {
 }
 
 export async function importBulkData(
-  onProgress: (pct: number, msg: string) => void,
+  report: (pct: number, msg: string) => void,
 ): Promise<number> {
-  onProgress(0, 'Contacting Scryfall…');
+  // Downloading and storing interleave (cards are stored while later
+  // packets are still arriving), so the bar keeps a high-water mark and
+  // one running label: it only ever moves forward.
+  let shown = 0;
+  let stage = 'Contacting Scryfall…';
+  const onProgress = (pct: number, msg: string) => {
+    shown = Math.max(shown, pct);
+    report(shown, msg);
+  };
+  onProgress(0, stage);
   const indexResp = await fetch(BULK_INDEX_URL, { headers: { Accept: 'application/json' } });
   if (!indexResp.ok) throw new Error(`Scryfall bulk index failed: ${indexResp.status}`);
   const index = (await indexResp.json()) as { data: BulkEntry[] };
@@ -78,7 +87,7 @@ export async function importBulkData(
     await db.cards.bulkPut(batch);
     imported += batch.length;
     batch = [];
-    onProgress(Math.min(99, 80), `Storing cards… ${imported}`);
+    onProgress(shown, `${stage} ${imported.toLocaleString()} cards`);
     // Yield a macrotask so the UI can paint progress between batches.
     await new Promise((resolve) => setTimeout(resolve, 0));
   };
@@ -94,7 +103,8 @@ export async function importBulkData(
   if (typeof oracle.jsonl_download_uri === 'string') {
     // Current API: gzipped JSON Lines, streamed and parsed line by line
     // (~25MB over the wire, no giant JSON.parse blocking the UI).
-    onProgress(5, 'Downloading card database…');
+    stage = 'Downloading card database…';
+    onProgress(5, stage);
     const resp = await fetch(oracle.jsonl_download_uri);
     if (!resp.ok || !resp.body) throw new Error(`Card download failed: ${resp.status}`);
 
@@ -110,8 +120,8 @@ export async function importBulkData(
         }
         received += value.byteLength;
         if (total > 0) {
-          const pct = 5 + Math.min(70, Math.round((received / total) * 70));
-          onProgress(pct, 'Downloading card database…');
+          const pct = 5 + Math.min(90, Math.round((received / total) * 90));
+          onProgress(pct, imported > 0 ? `${stage} ${imported.toLocaleString()} cards` : stage);
         }
         controller.enqueue(value);
       },
@@ -146,14 +156,19 @@ export async function importBulkData(
     if (tail) addRaw(JSON.parse(tail) as Raw);
   } else if (typeof oracle.download_uri === 'string') {
     // Legacy API: one large JSON array.
-    onProgress(5, 'Downloading card database…');
+    stage = 'Downloading card database…';
+    onProgress(5, stage);
     const resp = await fetch(oracle.download_uri);
     if (!resp.ok) throw new Error(`Card download failed: ${resp.status}`);
     const rawCards = (await resp.json()) as Raw[];
-    onProgress(75, 'Processing cards…');
-    for (const raw of rawCards) {
+    stage = 'Storing cards…';
+    onProgress(75, stage);
+    for (const [i, raw] of rawCards.entries()) {
       addRaw(raw);
-      if (batch.length >= CHUNK_SIZE) await flush();
+      if (batch.length >= CHUNK_SIZE) {
+        shown = Math.max(shown, 75 + Math.round((i / rawCards.length) * 20));
+        await flush();
+      }
     }
   } else {
     throw new Error('No usable bulk download URI in Scryfall response');
