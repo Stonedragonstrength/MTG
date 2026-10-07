@@ -2520,7 +2520,7 @@ input[type='checkbox'] {
    --card-h); the hand reads at double size. */
 .zone--cards.zone--focused {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) fit-content(45%);
+  grid-template-columns: minmax(0, 1fr) fit-content(40%);
   grid-template-rows: auto minmax(0, 1fr) auto auto;
   grid-template-areas:
     'header header'
@@ -2575,12 +2575,16 @@ input[type='checkbox'] {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-/* Lands on a single line: count, pips, ready and untap lead; the stacks
-   take the rest; the dice still rides the end of the row. */
+/* Lands on a single line when there is room: count, pips, ready and
+   untap lead; the stacks take the rest; the dice still rides the end.
+   The stacks keep a floor of three and WRAP beneath the readout rather
+   than shrink — as the only flexible item they used to collapse to
+   nothing on a side seat once tokens and an untap button shared the line. */
 .zone--cards.zone--focused .lands-row {
   flex-direction: row;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 4px 8px;
   min-width: 0;
 }
 
@@ -2597,7 +2601,7 @@ input[type='checkbox'] {
 
 .zone--cards.zone--focused .lands-stacks {
   order: 1;
-  flex: 1 1 0;
+  flex: 1 1 204px;
   min-width: 0;
   min-height: 90px;
 }
@@ -2685,9 +2689,17 @@ input[type='checkbox'] {
    get the stretch; the token minis only take what they need. */
 .focus-mode .zone--cards:not(.zone--focused) .bf-row {
   flex: 1 1 0;
-  min-width: 0;
+  min-width: 64px; /* two minis at least: the strip scrolls, it never vanishes */
   padding: 0;
   align-items: center;
+}
+
+/* When a bar runs short the lands readout gives way first, so the hand
+   pill at the end is never pushed out of reach. */
+.focus-mode .zone--cards:not(.zone--focused) .lands-row {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .focus-mode .zone--cards:not(.zone--focused) .board-strip {
@@ -2699,13 +2711,29 @@ input[type='checkbox'] {
   flex: 0 0 auto;
 }
 
-/* Side bars are short: the dock and the ready count give their room to
-   the creatures (the header chips already count hand and library). */
+/* Side bars are short: the dock, the ready count, the avatar, the
+   identity pips and the hand/library chips give their room to the
+   creatures (the hand pill at the bar's end still counts the hand). */
 .table-360 .zone--cards.edge-left:not(.zone--focused) .zone-dock,
 .table-360 .zone--cards.edge-right:not(.zone--focused) .zone-dock,
 .table-360 .zone--cards.edge-left:not(.zone--focused) .mana-ready,
-.table-360 .zone--cards.edge-right:not(.zone--focused) .mana-ready {
+.table-360 .zone--cards.edge-right:not(.zone--focused) .mana-ready,
+.table-360 .zone--cards.edge-left:not(.zone--focused) .avatar,
+.table-360 .zone--cards.edge-right:not(.zone--focused) .avatar,
+.table-360 .zone--cards.edge-left:not(.zone--focused) .zone-id .mana-pip--mini,
+.table-360 .zone--cards.edge-right:not(.zone--focused) .zone-id .mana-pip--mini,
+.table-360 .zone--cards.edge-left:not(.zone--focused) .chip-cards,
+.table-360 .zone--cards.edge-right:not(.zone--focused) .chip-cards {
   display: none;
+}
+
+/* Narrow screens: the top and bottom bars are short too. */
+@media (max-width: 1100px) {
+  .focus-mode .zone--cards:not(.zone--focused) .zone-dock,
+  .focus-mode .zone--cards:not(.zone--focused) .mana-ready,
+  .focus-mode .zone--cards:not(.zone--focused) .chip-cards {
+    display: none;
+  }
 }
 
 .focus-mode .zone--cards:not(.zone--focused) .bf-cards {
@@ -2716,6 +2744,7 @@ input[type='checkbox'] {
 
 .focus-mode .zone--cards:not(.zone--focused) .vcard,
 .focus-mode .zone--cards:not(.zone--focused) .dock-pile {
+  flex: 0 0 auto; /* scroll, never crush */
   width: 30px;
   height: 42px;
 }

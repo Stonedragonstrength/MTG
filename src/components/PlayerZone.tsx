@@ -57,8 +57,13 @@ export default function PlayerZone({
   const chips: { key: string; label: string; className?: string }[] = [];
   // Virtual seats wear their card counts up top — table-glance info.
   if (player.cards) {
-    chips.push({ key: 'hand', label: `✋${player.cards.hand.length}` });
-    chips.push({ key: 'library', label: `📚${player.cards.library.length}` });
+    // chip-cards: collapsed side bars drop these two for room.
+    chips.push({ key: 'hand', label: `✋${player.cards.hand.length}`, className: 'chip-cards' });
+    chips.push({
+      key: 'library',
+      label: `📚${player.cards.library.length}`,
+      className: 'chip-cards',
+    });
   }
   const poison = player.counters['poison'] ?? 0;
   const energy = player.counters['energy'] ?? 0;
