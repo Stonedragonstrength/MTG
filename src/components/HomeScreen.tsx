@@ -22,6 +22,7 @@ export default function HomeScreen() {
   const enterGame = useAppStore((s) => s.enterGame);
   const saveProfile = useAppStore((s) => s.saveProfile);
   const [view, setView] = useState<'home' | 'newgame' | 'decks' | 'garage'>('home');
+  const [openDeck, setOpenDeck] = useState<string | null>(null);
   const decks = useAppStore((s) => s.decks);
   const garage = useAppStore((s) => s.garage);
   const [editing, setEditing] = useState<PlayerProfile | null>(null);
@@ -63,8 +64,27 @@ export default function HomeScreen() {
   }, [profiles, saveProfile]);
 
   if (view === 'newgame') return <NewGameScreen onBack={() => setView('home')} />;
-  if (view === 'decks') return <DecksScreen onBack={() => setView('home')} />;
-  if (view === 'garage') return <GarageScreen onBack={() => setView('home')} />;
+  if (view === 'decks')
+    return (
+      <DecksScreen
+        initialOpenId={openDeck ?? undefined}
+        onBack={() => {
+          setOpenDeck(null);
+          setView('home');
+        }}
+      />
+    );
+  if (view === 'garage')
+    return (
+      <GarageScreen
+        onBack={() => setView('home')}
+        // A deck started from a Curation suggestion opens in its editor.
+        onOpenDeck={(deckId) => {
+          setOpenDeck(deckId);
+          setView('decks');
+        }}
+      />
+    );
 
   const savedNames = game?.config.profiles.map((p) => p.name).join(' · ');
 

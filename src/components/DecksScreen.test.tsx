@@ -115,3 +115,10 @@ test('a partner deck shows both commanders on its tile and counts them both', as
   expect(arts).toEqual(['https://img.example/ashaya.jpg', 'https://img.example/tymna.jpg']);
   expect(screen.getByText('3 cards')).toBeInTheDocument(); // forest + two commanders
 });
+
+test('opens straight into a deck when told which one', () => {
+  const deck = { ...sampleDeck(), id: 'deck-direct' };
+  useAppStore.setState({ decks: [deck] });
+  render(<DecksScreen onBack={() => {}} initialOpenId="deck-direct" />);
+  expect(screen.getByLabelText('deck name')).toHaveValue('Stompy'); // the editor, not the list
+});

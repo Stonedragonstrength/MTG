@@ -505,6 +505,23 @@ label {
 
 .curation-value-note { color: #8c8c99; }
 
+.curation-build-btn {
+  align-self: flex-start;
+  margin-top: 6px;
+}
+
+.build-owned {
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.build-coverage {
+  font-size: 0.74rem;
+  color: #a8a8b4;
+}
+
 .deck-row-cost {
   font-size: 0.7rem;
   color: #8c8c99;

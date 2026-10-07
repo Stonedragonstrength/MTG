@@ -5,6 +5,7 @@ import { normalize } from '../lib/fuzzy';
 import { COLOR_NAMES, MANA_COLORS, type ManaColor } from '../lib/mana';
 import type { GarageCard } from '../lib/types';
 import { useAppStore } from '../state/store';
+import CurationBuildSheet from './CurationBuildSheet';
 import DeckCardSheet from './DeckCardSheet';
 import Sheet from './Sheet';
 import { useLongPress } from './useLongPress';
@@ -97,7 +98,14 @@ function typeBucket(typeLine: string): string {
 /** The curation binder: the whole collection in full card art, sliceable
  * by type, color, cost, or alphabet — the battlefield's visual language
  * (thumbs, count controls, pips) applied to a collector's shelf. */
-export default function GarageScreen({ onBack }: { onBack: () => void }) {
+interface Props {
+  onBack: () => void;
+  /** A deck was started from a "What can I build?" suggestion. */
+  onOpenDeck?: (deckId: string) => void;
+}
+
+export default function GarageScreen({ onBack, onOpenDeck }: Props) {
+  const [building, setBuilding] = useState(false);
   const garage = useAppStore((s) => s.garage);
   const setGarageCount = useAppStore((s) => s.setGarageCount);
   const removedGarage = useAppStore((s) => s.removedGarage);
@@ -233,6 +241,12 @@ export default function GarageScreen({ onBack }: { onBack: () => void }) {
           {total} cards · {garage.length} unique
         </span>
       </header>
+
+      {garage.length > 0 && (
+        <button className="ghost curation-build-btn" onClick={() => setBuilding(true)}>
+          ✦ What can I build?
+        </button>
+      )}
 
       {garage.length > 0 && (
         <p className="curation-value">
@@ -372,6 +386,10 @@ export default function GarageScreen({ onBack }: { onBack: () => void }) {
           }}
           onClose={() => setViewing(null)}
         />
+      )}
+
+      {building && (
+        <CurationBuildSheet onClose={() => setBuilding(false)} onStarted={onOpenDeck} />
       )}
 
       {managing &&

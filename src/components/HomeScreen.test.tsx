@@ -12,6 +12,33 @@ vi.mock('../data/scryfall', () => ({
   importBulkData: vi.fn(async () => 0),
 }));
 
+vi.mock('../data/synergy', () => ({
+  findCommandersFor: vi.fn(async () => [
+    {
+      card: {
+        id: 'ashaya',
+        name: 'Ashaya, Soul of the Wild',
+        nameLower: 'ashaya, soul of the wild',
+        typeLine: 'Legendary Creature — Elemental',
+        oracleText: '',
+        manaCost: '{3}{G}{G}',
+        power: null,
+        toughness: null,
+        colors: ['G'],
+        colorIdentity: ['G'],
+        imageNormal: null,
+        imageArtCrop: null,
+        isToken: false,
+        isBasicLand: false,
+      },
+      score: 9,
+      shared: ['ramp'],
+    },
+  ]),
+  findSynergiesFor: vi.fn(async () => []),
+  findPartnersFor: vi.fn(async () => []),
+}));
+
 vi.mock('../data/cloud', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../data/cloud')>()),
   getCloudConfig: vi.fn(async () => ({ url: 'https://x.supabase.co', anonKey: 'k' })),
@@ -53,4 +80,30 @@ test('a player tile shows their chosen commander card', () => {
   const img = screen.getByAltText('Magda, Brazen Outlaw');
   expect(img).toHaveAttribute('src', 'https://img.example/magda.jpg');
   expect(screen.getByText('Cinco')).toBeInTheDocument();
+});
+
+test('Curation → What can I build? → a pick lands in the new deck’s editor', async () => {
+  useAppStore.setState({
+    decks: [],
+    garage: [
+      {
+        cardId: 'elves',
+        name: 'Llanowar Elves',
+        typeLine: 'Creature — Elf Druid',
+        imageNormal: null,
+        count: 2,
+        updatedAt: 1,
+        deleted: false,
+        dirty: 0,
+      },
+    ],
+  });
+  const user = userEvent.setup();
+  render(<HomeScreen />);
+  await user.click(screen.getByRole('button', { name: /curation/i }));
+  await user.click(await screen.findByRole('button', { name: /what can i build/i }));
+  await user.click(await screen.findByRole('button', { name: /start a deck with Ashaya/i }));
+  // straight into the editor for the deck that was just started
+  expect(await screen.findByLabelText('deck name')).toHaveValue('Ashaya, Soul of the Wild');
+  expect(useAppStore.getState().decks[0].commander?.name).toBe('Ashaya, Soul of the Wild');
 });

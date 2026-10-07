@@ -14,12 +14,15 @@ function deckAccent(deck: Deck): string {
 
 interface Props {
   onBack: () => void;
+  /** Open this deck's editor straight away (e.g. one just started from a
+   * Curation suggestion). */
+  initialOpenId?: string;
 }
 
-export default function DecksScreen({ onBack }: Props) {
+export default function DecksScreen({ onBack, initialOpenId }: Props) {
   const decks = useAppStore((s) => s.decks);
   const saveDeck = useAppStore((s) => s.saveDeck);
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(initialOpenId ?? null);
   const [picking, setPicking] = useState(false);
 
   // Back from inside a deck returns to the deck list, not out of the app.
