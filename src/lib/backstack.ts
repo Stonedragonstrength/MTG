@@ -3,16 +3,20 @@
  * one history entry; the hardware back pops the top layer instead of
  * closing the PWA, and a layer closed by its own UI gives its entry back.
  *
- * The bookkeeping is a depth count, because the browser cannot be asked
- * where it is: `depth` is how many of our entries lie at or below the
- * current position, and each live layer remembers which one is its own.
- * Two rules keep that honest in Chrome, both learned the hard way:
- *  - a traversal and a pushState must never race. Chrome resolves them in
- *    an order that leaves the page one entry lower than it looks, and the
- *    next close then walks OUT of the app. So entries are trimmed in a
- *    later task (a layer opening in the same breath adopts the entry
- *    instead), and a layer that opens mid-traversal waits for it to land;
- *  - the popstate that answers our own traversal is not a back press. */
+ * Each entry is labelled with its place (`layer`) and the page load that
+ * made it (`run`), and every popstate hands that label back — so the
+ * stack never guesses where the browser is: it reads it. `depth` is the
+ * browser's position among our entries; each live layer remembers which
+ * entry is its own; a pop closes every live layer above the new position.
+ * That one rule covers a back press, the Forward button, a jump over
+ * several entries, our own trimming, and entries left by an earlier load.
+ *
+ * One Chrome fact still shapes the writes, learned the hard way: a
+ * traversal and a pushState must never race. Chrome resolves the pair so
+ * the page sits one entry lower than it looks, and the next close then
+ * walks OUT of the app. So entries are trimmed in a later task (a layer
+ * opening in the same breath adopts the ownerless entry instead of
+ * pushing), and a layer that opens mid-traversal waits for it to land. */
 
 interface Entry {
   handler: () => void;
@@ -22,11 +26,15 @@ interface Entry {
   done: boolean;
 }
 
+/** One id per page load: labels that outlive a reload read as not ours. */
+const RUN = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+
 let stack: Entry[] = [];
 let depth = 0;
 let listening = false;
-/** Expiry of the traversal we started ourselves, or null when none is out.
- * The expiry stops an answer that never arrives from eating a real press. */
+/** Deadline of the trim we started, or null when none is out. Its only
+ * job is to stop a traversal that never answers from stranding the layers
+ * waiting on it. */
 let inFlight: number | null = null;
 let settleTimer: ReturnType<typeof setTimeout> | undefined;
 const LAND_MS = 1000;
@@ -37,18 +45,26 @@ function topAt(): number {
   return top;
 }
 
+/** Where a history entry sits among ours: its label, or 0 for the page's
+ * own entry and for anything this page load did not write. */
+function placeOf(state: unknown): number {
+  const s = state as { layer?: unknown; run?: unknown } | null;
+  return s && s.run === RUN && typeof s.layer === 'number' ? s.layer : 0;
+}
+
 function giveEntry(entry: Entry): void {
   depth += 1;
   entry.at = depth;
   try {
-    history.pushState({ layer: depth }, '');
+    history.pushState({ layer: depth, run: RUN }, '');
   } catch {
     // History can be unavailable (odd embeds); back just won't intercept.
   }
 }
 
-/** Our traversal is over (answered, or given up on): layers that opened
- * while it was out get their entries now. */
+/** The browser has come to rest: layers that opened while our trim was
+ * out get their entries now, and anything ownerless above the top layer
+ * is queued for trimming. */
 function landed(): void {
   inFlight = null;
   for (const e of stack) if (e.at === null) giveEntry(e);
@@ -56,7 +72,10 @@ function landed(): void {
 }
 
 function flying(): boolean {
-  if (inFlight !== null && Date.now() > inFlight) landed();
+  if (inFlight !== null && Date.now() > inFlight) {
+    depth = topAt(); // no answer came: take the trim as done
+    landed();
+  }
   return inFlight !== null;
 }
 
@@ -64,14 +83,13 @@ function flying(): boolean {
  * ownerless entry above it (closed layers, buried ones included) at once. */
 function settle(): void {
   settleTimer = undefined;
-  if (flying()) return; // one traversal at a time; landed() comes back here
+  if (flying()) return; // one traversal at a time; landing comes back here
   const excess = depth - topAt();
   if (excess <= 0) return;
-  depth -= excess;
   inFlight = Date.now() + LAND_MS;
   try {
     history.go(-excess);
-    setTimeout(flying, LAND_MS + 20); // an unanswered traversal still lands
+    setTimeout(flying, LAND_MS + 20);
   } catch {
     inFlight = null; // nothing moved, so no answer is coming
   }
@@ -81,23 +99,17 @@ function scheduleSettle(): void {
   settleTimer ??= setTimeout(settle, 0);
 }
 
-function onPop(): void {
-  if (inFlight !== null) {
-    const ours = Date.now() <= inFlight;
-    landed();
-    if (ours) return;
-  }
-  if (depth === 0) return; // below our entries: nothing of ours to close
-  depth -= 1;
-  // Whatever sat above the new position closes — normally the top layer,
-  // nothing at all when the press landed on an entry no layer owns.
+function onPop(event: PopStateEvent): void {
+  depth = placeOf(event.state); // the browser says where it landed
+  // Whatever sat above that closes — the top layer on a back press, several
+  // on a jump, nothing at all for our own trim or the Forward button.
   const closing = stack.filter((e) => e.at !== null && e.at > depth);
   stack = stack.filter((e) => !closing.includes(e));
   for (const entry of closing.reverse()) {
     entry.done = true;
     entry.handler();
   }
-  scheduleSettle();
+  landed();
 }
 
 /** Registers a back handler and gives it a history entry. Returns a
@@ -134,4 +146,14 @@ export function _resetBackStack(): void {
   inFlight = null;
   clearTimeout(settleTimer);
   settleTimer = undefined;
+}
+
+/** Test hook: the stack's beliefs, for checking them against a real browser. */
+export function _debugBackStack() {
+  return {
+    depth,
+    ats: stack.map((e) => e.at),
+    inFlight: inFlight !== null,
+    settlePending: settleTimer !== undefined,
+  };
 }
