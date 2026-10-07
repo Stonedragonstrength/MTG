@@ -16,7 +16,7 @@ const PER_ROW = 5;
 /** Reveals this device has put away, by id. Kept in the browser session as
  * well as in memory, so a reload does not show a young one a second time.
  * Where the session cannot store (or is a new one) only that is lost: the
- * two-minute limit still keeps old reveals from coming back. */
+ * two-minute limit (see `isYoung`) still keeps old reveals from coming back. */
 const SESSION_KEY = 'reveals-put-away';
 const putAway = new Set<string>(rememberedInSession());
 
@@ -39,10 +39,49 @@ function putReveal(id: string): void {
   }
 }
 
-/** Test hook: a fresh page load — memory gone, the session's storage still there. */
+/** When this device first saw the latest reveal, by its own clock. A stamp
+ * from a device whose clock runs ahead never looks old here, so the stamp
+ * alone would bring such a reveal back on every reopening of the app. This
+ * outlives the session for exactly that reason; only the latest reveal can
+ * come back, so one entry is all it takes. */
+const SEEN_KEY = 'reveal-first-seen';
+let seen = rememberedSeen();
+
+function rememberedSeen(): { id: string; at: number } | null {
+  try {
+    const kept: unknown = JSON.parse(localStorage.getItem(SEEN_KEY) ?? 'null');
+    if (typeof kept !== 'object' || kept === null) return null;
+    const { id, at } = kept as { id?: unknown; at?: unknown };
+    return typeof id === 'string' && typeof at === 'number' && Number.isFinite(at) ? { id, at } : null;
+  } catch {
+    return null;
+  }
+}
+
+function firstSeen(id: string): number {
+  if (seen?.id !== id) {
+    seen = { id, at: Date.now() };
+    try {
+      localStorage.setItem(SEEN_KEY, JSON.stringify(seen));
+    } catch {
+      // Memory alone will do until the app is closed.
+    }
+  }
+  return seen.at;
+}
+
+/** Young enough to be news: by its stamp, and by how long this device has
+ * known of it (either way round, should this device's own clock be put back). */
+function isYoung(reveal: Reveal): boolean {
+  const now = Date.now();
+  return now - reveal.t < REVEAL_FRESH_MS && Math.abs(now - firstSeen(reveal.id)) < REVEAL_FRESH_MS;
+}
+
+/** Test hook: a fresh page load — memory gone, the browser's storage still there. */
 export function _reloadRevealMemory(): void {
   putAway.clear();
   for (const id of rememberedInSession()) putAway.add(id);
+  seen = rememberedSeen();
 }
 
 interface PanelProps {
@@ -70,7 +109,7 @@ function RevealPanel({ reveal, who, onDone }: PanelProps) {
     let inView = 0;
     let wasCovered = covered();
     const timer = window.setInterval(() => {
-      if (Date.now() - reveal.t >= REVEAL_FRESH_MS) {
+      if (!isYoung(reveal)) {
         doneRef.current(); // went stale while it waited
         return;
       }
@@ -141,7 +180,7 @@ export default function RevealBanner() {
   if (!reveal) return null;
   // By this device's clock, read at render: a reveal first seen long after it
   // was made (a reload, a saved game picked up, a table rejoined) never shows.
-  const fresh = !putAway.has(reveal.id) && Date.now() - reveal.t < REVEAL_FRESH_MS;
+  const fresh = !putAway.has(reveal.id) && isYoung(reveal);
   if (!fresh) return null;
   return (
     <RevealPanel

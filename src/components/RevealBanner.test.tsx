@@ -326,6 +326,41 @@ test('a reveal stamped by a clock that runs ahead of this one still shows', asyn
   expect(banner()).not.toBeNull();
 });
 
+// A stamp from a clock that runs ahead never looks old to this device, so its
+// age is also counted from the moment this device first saw it.
+
+test('a reveal stamped by a clock an hour fast does not come back when the app is reopened half an hour later', async () => {
+  fakeClock(true);
+  vi.setSystemTime(new Date('2026-10-06T20:00:00Z'));
+  const shown = reveal({ seat: 1, cards: [{ cardId: 'c-none', name: 'Secret Plan' }] }, -60 * MINUTE);
+  tableShows(shown);
+  render(<RevealBanner />);
+  await settle();
+  expect(banner()).not.toBeNull(); // seen once
+  pass(14_000);
+  expect(banner()).toBeNull(); // put away
+  pass(30 * MINUTE);
+  cleanup();
+  sessionStorage.clear(); // the app was closed and opened again
+  _reloadRevealMemory();
+  tableShows(shown); // nobody has revealed anything since
+  render(<RevealBanner />);
+  await settle();
+  expect(banner()).toBeNull();
+});
+
+test('a reveal stamped by a fast clock still goes stale while it waits under a sheet', async () => {
+  fakeClock(true);
+  vi.setSystemTime(new Date('2026-10-06T20:00:00Z'));
+  tableShows(reveal({}, -60 * MINUTE));
+  const { rerender } = render(<Table sheet />);
+  await settle();
+  pass(2 * MINUTE + 2_000);
+  expect(banner()).toBeNull();
+  rerender(<Table sheet={false} />);
+  expect(banner()).toBeNull();
+});
+
 test('it never touches the back stack', async () => {
   fakeClock();
   const entries = history.length;
