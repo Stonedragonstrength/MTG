@@ -21,20 +21,33 @@ export default function LandBackground() {
   const keyRef = useRef(0);
 
   useEffect(() => {
-    kvGet<LandArtPack>('landArtPack').then(async (stored) => {
-      const total = stored ? Object.values(stored).flat().length : 0;
-      if (stored && total >= TARGET_PACK_SIZE) {
-        setPack(stored);
-        return;
-      }
-      // Older installs have a smaller pack; regrow it from the card db.
-      try {
-        const fresh = await pickLandArtPack();
-        setPack(Object.values(fresh).flat().length > 0 ? fresh : (stored ?? null));
-      } catch {
-        setPack(stored ?? null);
-      }
-    });
+    // The table can be left before the saved art answers: an answer that
+    // arrives after that has nowhere to go, and must not go on to scan the
+    // card db for a pack nobody will see.
+    let gone = false;
+    const show = (art: LandArtPack | null) => {
+      if (!gone) setPack(art);
+    };
+    kvGet<LandArtPack>('landArtPack')
+      .then(async (stored) => {
+        if (gone) return;
+        const total = stored ? Object.values(stored).flat().length : 0;
+        if (stored && total >= TARGET_PACK_SIZE) {
+          show(stored);
+          return;
+        }
+        // Older installs have a smaller pack; regrow it from the card db.
+        try {
+          const fresh = await pickLandArtPack();
+          show(Object.values(fresh).flat().length > 0 ? fresh : (stored ?? null));
+        } catch {
+          show(stored ?? null);
+        }
+      })
+      .catch(() => {}); // no saved art to read: the table simply stays plain
+    return () => {
+      gone = true;
+    };
   }, []);
 
   // Timed loop mode: advance on an interval instead of turn passes.
