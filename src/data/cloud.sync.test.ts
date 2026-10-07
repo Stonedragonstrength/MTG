@@ -17,7 +17,7 @@ import {
   syncGarage,
   syncProfiles,
 } from './cloud';
-import { _useDbForTests, getDb } from './db';
+import { _useDbForTests, getDb, kvGet } from './db';
 
 // Decks and players between two devices, with the REAL stores and the real
 // sync on both: only the network is stood in for, by a project that keeps
@@ -996,6 +996,57 @@ describe('when the background sync runs', () => {
     await show('visible');
     await vi.waitFor(() => expect(done).toHaveBeenCalledTimes(2));
     expect(garagePulls(cloud)).toBe(2);
+  });
+});
+
+describe('the copy put aside before the first sync', () => {
+  type Copy<T> = { at: number; rows: T[] };
+
+  test('a device keeps one copy of its decks and players as they were before syncing touched them', async () => {
+    project();
+    const desk = await device('desk');
+    await desk.store.getState().saveDeck(stompy());
+    await desk.store.getState().saveProfile(sam);
+    await sync(desk);
+
+    await on(desk);
+    const decks = await kvGet<Copy<Deck>>('decksBeforeSync');
+    const players = await kvGet<Copy<PlayerProfile>>('playersBeforeSync');
+    expect(decks?.rows.map((d) => d.name)).toEqual(['Stompy']);
+    expect(decks?.rows[0].cards.map((c) => c.name)).toEqual(['Forest']);
+    expect(players?.rows.map((p) => p.name)).toEqual(['Sam']);
+
+    // Taken once: whatever syncs later, the copy stays as it was.
+    const d = await on(desk);
+    await d.saveDeck(addCard(d.decks[0], bolt));
+    await sync(desk);
+    await on(desk);
+    expect(await kvGet('decksBeforeSync')).toEqual(decks);
+  });
+
+  test('a device with nothing of its own notes an empty copy, and what it downloads later is not mistaken for one', async () => {
+    const cloud = project();
+    const desk = await device('desk');
+    await desk.store.getState().saveDeck(stompy());
+    await sync(desk);
+
+    const tablet = await device('tablet');
+    await sync(tablet);
+    await sync(tablet);
+    await on(tablet);
+    expect((await kvGet<Copy<Deck>>('decksBeforeSync'))?.rows).toEqual([]);
+    // The copy is this device's own business: nothing of it goes up.
+    expect(JSON.stringify(cloud.rows('decks'))).not.toContain('BeforeSync');
+  });
+
+  test('a sync that cannot reach the tables puts nothing aside yet', async () => {
+    const cloud = project();
+    const desk = await device('desk');
+    await desk.store.getState().saveDeck(stompy());
+    cloud.offline(true);
+    await sync(desk);
+    await on(desk);
+    expect(await kvGet('decksBeforeSync')).toBeUndefined();
   });
 });
 

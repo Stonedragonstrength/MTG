@@ -331,6 +331,20 @@ async function pushRows<T extends Stored>(
   return null;
 }
 
+/** The first time a sync reaches the cloud's table, this device's own rows
+ * are put aside once, exactly as they were before any sync touched them.
+ * Nothing in the app reads the copy and it never leaves the device: it is
+ * there so that hand-typed decks can be brought back by hand if a first
+ * sync ever goes wrong. A device with nothing yet notes an empty copy, so
+ * what it downloads later is not mistaken for its own. */
+async function keepCopyOnce(key: string, rows: unknown[]): Promise<void> {
+  try {
+    if ((await kvGet(key)) === undefined) await kvSet(key, { at: deps.now(), rows });
+  } catch {
+    // A safety copy is never worth failing a sync over.
+  }
+}
+
 /** Decks are heavy and a sync runs seconds after every edit, so they are
  * pulled in two steps: the light index first, then whole rows only for
  * the decks the cloud holds newer than this device does. */
@@ -339,7 +353,9 @@ async function decksSync(): Promise<Outcome> {
   const index = await deps.select('decks', 'deck_id,updated_at,deleted');
   if ('error' in index) return refused('Sync', index.error);
   const heads = index.rows.flatMap((row) => toHead(row, 'deck_id'));
-  const local = (await db.decks.toArray()).map(waiting);
+  const stored = await db.decks.toArray();
+  await keepCopyOnce('decksBeforeSync', stored);
+  const local = stored.map(waiting);
 
   const pulled: DeckRow[] = [];
   const wanted = keysToPull(local, heads, (d) => d.id);
@@ -370,7 +386,9 @@ async function profilesSync(): Promise<Outcome> {
   const remote = reply.rows.flatMap(
     (row) => fromWire<ProfileRow>(row, 'profile_id', soundProfile) ?? [],
   );
-  const local = (await db.profiles.toArray()).map(waiting);
+  const stored = await db.profiles.toArray();
+  await keepCopyOnce('playersBeforeSync', stored);
+  const local = stored.map(waiting);
 
   const { merged, toPush, dropped } = mergeProfiles(local, remote, deps.now());
   await applyMerged(db.profiles, local, merged, dropped);
