@@ -70,4 +70,33 @@ describe('searchNames', () => {
     const results = searchNames('bone s', names);
     expect(results[0].name).toBe('Bone Saw');
   });
+
+  test('searching one index never answers for another', () => {
+    const a = [{ id: 'a1', name: 'Sol Ring' }];
+    const b = [{ id: 'b1', name: 'Solemn Simulacrum' }];
+    expect(searchNames('sol', a).map((r) => r.id)).toEqual(['a1']);
+    expect(searchNames('sol', b).map((r) => r.id)).toEqual(['b1']);
+    expect(searchNames('sol', a).map((r) => r.id)).toEqual(['a1']);
+  });
+
+  test('an index that changed since the last search is read afresh', () => {
+    const index = [{ id: '1', name: 'Sol Ring' }];
+    expect(searchNames('sol', index)).toHaveLength(1);
+    index.push({ id: '2', name: 'Solemn Simulacrum' });
+    expect(searchNames('sol', index).map((r) => r.id)).toEqual(['1', '2']);
+    index[1] = { id: '3', name: 'Forest' }; // same length, different card
+    expect(searchNames('sol', index).map((r) => r.id)).toEqual(['1']);
+    expect(searchNames('for', index).map((r) => r.id)).toEqual(['3']);
+  });
+
+  test('a match equals its score from fuzzyScore, so ranking is unchanged', () => {
+    for (const q of ['s', 'sol', 'bone wall', 'lim dul', 'wl bn', 'soldier']) {
+      const ranked = [...names]
+        .map((entry) => ({ entry, score: fuzzyScore(q, entry.name) }))
+        .filter((r) => r.score > 0)
+        .sort((x, y) => y.score - x.score || x.entry.name.localeCompare(y.entry.name))
+        .map((r) => r.entry);
+      expect(searchNames(q, names, 100)).toEqual(ranked);
+    }
+  });
 });
