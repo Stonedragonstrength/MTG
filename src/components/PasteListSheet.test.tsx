@@ -63,8 +63,33 @@ test('importing applies cards and commander, and reports misses', async () => {
   const deck = useAppStore.getState().decks[0];
   expect(deck.commander?.name).toBe('Lathril, Blade of the Elves');
   expect(deck.cards.find((c) => c.name === 'Sol Ring')?.count).toBe(1);
-  // Pasted cards are owned cards: they land in the garage too.
-  expect(useAppStore.getState().garage.some((g) => g.name === 'Sol Ring')).toBe(true);
+});
+
+test('a pasted list stays out of the Curation: imported cards are not owned cards', async () => {
+  const addToGarage = vi.fn(async () => {});
+  useAppStore.setState({ addToGarage });
+  const user = userEvent.setup();
+  render(<PasteListSheet deckId="deck-1" onClose={() => {}} />);
+  expect(screen.getByRole('checkbox', { name: /i own these/i })).not.toBeChecked();
+  await user.type(screen.getByRole('textbox'), '1 Lathril *CMDR*{enter}1 Sol Ring');
+  await user.click(screen.getByRole('button', { name: /import/i }));
+  expect(await screen.findByText(/added 2/i)).toBeInTheDocument();
+  expect(addToGarage).not.toHaveBeenCalled(); // neither the cards nor the commander
+});
+
+test('ticking "I own these" before importing logs the pasted cards and the commander', async () => {
+  const addToGarage = vi.fn(async () => {});
+  useAppStore.setState({ addToGarage });
+  const user = userEvent.setup();
+  render(<PasteListSheet deckId="deck-1" onClose={() => {}} />);
+  await user.click(screen.getByRole('checkbox', { name: /i own these/i }));
+  await user.type(screen.getByRole('textbox'), '1 Lathril *CMDR*{enter}1 Sol Ring');
+  await user.click(screen.getByRole('button', { name: /import/i }));
+  expect(await screen.findByText(/added 2/i)).toBeInTheDocument();
+  expect(addToGarage.mock.calls.map((c) => (c as unknown as [{ name: string }])[0].name)).toEqual([
+    'Lathril, Blade of the Elves',
+    'Sol Ring',
+  ]);
 });
 
 test('a list with two commanders seats the pair instead of dropping one', async () => {

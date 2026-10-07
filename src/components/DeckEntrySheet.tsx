@@ -7,6 +7,7 @@ import type { CardRecord } from '../lib/types';
 import { useAppStore } from '../state/store';
 import CameraScanSheet from './CameraScanSheet';
 import { getNameIndex } from './nameIndexCache';
+import OwnedSwitch from './OwnedSwitch';
 import PasteListSheet from './PasteListSheet';
 import Sheet from './Sheet';
 
@@ -156,7 +157,8 @@ export default function DeckEntrySheet({ deckId, onClose }: Props) {
     }
     setLastAdded(`Added ${card.name}`);
     await saveDeck(next);
-    await addToGarage(card); // anything that enters a deck is a card you own
+    // Only a deck marked as owned feeds the Curation — a list is not a collection.
+    if (deck.owned) await addToGarage(card);
   }
 
   // Hold-to-repeat fires faster than React re-renders, so basics must read
@@ -166,7 +168,7 @@ export default function DeckEntrySheet({ deckId, onClose }: Props) {
     const fresh = useAppStore.getState().decks.find((d) => d.id === deckId);
     if (!card || !fresh) return;
     await saveDeck(addCard(fresh, card));
-    await addToGarage(card);
+    if (fresh.owned) await addToGarage(card);
     setLastAdded(`Added ${name}`);
   }
 
@@ -188,6 +190,7 @@ export default function DeckEntrySheet({ deckId, onClose }: Props) {
           </button>
         </span>
       </div>
+      <OwnedSwitch deckId={deck.id} />
       <input
         ref={inputRef}
         autoFocus

@@ -130,6 +130,9 @@ export interface Deck {
   partner?: DeckCard | null;
   colors: string[]; // combined color identity of the commander(s)
   cards: DeckCard[]; // everything except the commander(s)
+  /** The player physically has these cards, so adding to the deck also
+   * logs to the Curation. Absent or false: a planned list. */
+  owned?: boolean;
   updatedAt: number;
 }
 

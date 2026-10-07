@@ -191,13 +191,41 @@ test('a non-basic already in the deck is refused with a message, not stacked', a
   expect(screen.getByText('2 / 100')).toBeInTheDocument(); // not stacked
 });
 
-test('deck entry feeds the curation', async () => {
+test('cards put in a deck stay out of the Curation: a list is not a collection', async () => {
+  const addToGarage = vi.fn(async () => {});
+  useAppStore.setState({ addToGarage });
   const user = userEvent.setup();
   render(<DeckEntrySheet deckId="deck-1" onClose={() => {}} />);
+  expect(screen.getByRole('checkbox', { name: /i own these/i })).not.toBeChecked();
+  await user.type(screen.getByRole('searchbox'), 'culti');
+  await user.click(await screen.findByRole('button', { name: /cultivate/i })); // typed
+  expect(await screen.findByText('2 / 100')).toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: /mana rocks/i }));
+  await user.click(await screen.findByRole('button', { name: /sol ring/i })); // a staple
+  await user.click(screen.getByRole('button', { name: /add forest/i })); // a basic
+  expect(await screen.findByText('4 / 100')).toBeInTheDocument();
+  expect(addToGarage).not.toHaveBeenCalled();
+});
+
+test('ticking "I own these" logs what is added from then on, and the deck remembers it', async () => {
+  const addToGarage = vi.fn(async () => {});
+  useAppStore.setState({ addToGarage });
+  const user = userEvent.setup();
+  const { unmount } = render(<DeckEntrySheet deckId="deck-1" onClose={() => {}} />);
+  await user.click(screen.getByRole('checkbox', { name: /i own these/i }));
+  expect(useAppStore.getState().decks[0].owned).toBe(true);
   await user.type(screen.getByRole('searchbox'), 'culti');
   await user.click(await screen.findByRole('button', { name: /cultivate/i }));
-  expect(await screen.findByText('2 / 100')).toBeInTheDocument();
-  expect(useAppStore.getState().garage.some((g) => g.name === 'Cultivate')).toBe(true);
+  await user.click(await screen.findByRole('button', { name: /add forest/i }));
+  expect(await screen.findByText('3 / 100')).toBeInTheDocument();
+  expect(addToGarage.mock.calls.map((c) => (c as unknown as [{ name: string }])[0].name)).toEqual([
+    'Cultivate',
+    'Forest',
+  ]);
+
+  unmount(); // come back to the deck later: still marked as owned
+  render(<DeckEntrySheet deckId="deck-1" onClose={() => {}} />);
+  expect(screen.getByRole('checkbox', { name: /i own these/i })).toBeChecked();
 });
 
 test('enter adds the top match', async () => {

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { resolveDeckList } from '../data/import';
 import { importLines } from '../lib/deck';
 import { useAppStore } from '../state/store';
+import OwnedSwitch from './OwnedSwitch';
 import Sheet from './Sheet';
 
 interface Props {
@@ -16,7 +17,9 @@ export default function PasteListSheet({ deckId, onClose }: Props) {
   const addToGarage = useAppStore((s) => s.addToGarage);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
-  const [report, setReport] = useState<{ added: number; misses: string[] } | null>(null);
+  const [report, setReport] = useState<{ added: number; misses: string[]; owned: boolean } | null>(
+    null,
+  );
 
   async function doImport() {
     setBusy(true);
@@ -25,10 +28,12 @@ export default function PasteListSheet({ deckId, onClose }: Props) {
     if (!deck) return;
     const { deck: next, added } = importLines(deck, hits);
     await saveDeck(next);
-    // Pasted lists are cards you physically have — they join the garage.
-    for (const hit of hits) await addToGarage(hit.card, hit.count);
+    // A list brought in from elsewhere is a plan, not a collection: it only
+    // joins the Curation when the deck is marked as cards you own.
+    const owned = !!next.owned;
+    if (owned) for (const hit of hits) await addToGarage(hit.card, hit.count);
     setBusy(false);
-    setReport({ added, misses });
+    setReport({ added, misses, owned });
   }
 
   return (
@@ -46,6 +51,7 @@ export default function PasteListSheet({ deckId, onClose }: Props) {
             value={text}
             onChange={(e) => setText(e.target.value)}
           />
+          <OwnedSwitch deckId={deckId} />
           <div className="modal-actions">
             <button className="primary" disabled={!text.trim() || busy} onClick={doImport}>
               {busy ? 'Matching…' : 'Import'}
@@ -56,6 +62,11 @@ export default function PasteListSheet({ deckId, onClose }: Props) {
         <>
           <p className="import-done">
             Added {report.added} card{report.added === 1 ? '' : 's'}.
+          </p>
+          <p className="hint">
+            {report.owned
+              ? 'Logged in your Curation too.'
+              : 'Your Curation is untouched. Once you own this deck, “Send to Curation” on the deck logs it all.'}
           </p>
           {report.misses.length > 0 && (
             <>

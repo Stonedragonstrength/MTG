@@ -639,6 +639,12 @@ label {
   transform: translateY(8px);
 }
 
+/* Phones: two commander cards must leave the names and buttons some room. */
+@media (max-width: 480px) {
+  .deck-commander-img { width: 84px; }
+  .deck-commander-img--partner { margin-left: -50px; }
+}
+
 .deck-partner-line {
   display: flex;
   align-items: center;
@@ -813,6 +819,25 @@ label {
 .entry-tool {
   padding: 4px 10px;
   font-size: 0.8rem;
+}
+
+/* "I own these": the one switch that lets a deck feed the Curation. */
+.owned-switch {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  opacity: 0.85;
+  cursor: pointer;
+}
+
+.owned-switch input {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  accent-color: var(--accent);
 }
 
 .paste-box {
