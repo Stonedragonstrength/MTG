@@ -9,6 +9,7 @@ import {
   deckSize,
   deckStats,
   groupCards,
+  isLegendary,
   manaCurve,
   offColorCards,
   setPartner,
@@ -69,6 +70,7 @@ export default function DeckEditor({ deckId, onBack }: Props) {
   const settings = useAppStore((s) => s.settings);
   const updateSettings = useAppStore((s) => s.updateSettings);
   const [finding, setFinding] = useState('');
+  const [legendOnly, setLegendOnly] = useState(false);
   const [adding, setAdding] = useState(false);
   const [viewing, setViewing] = useState<DeckCard | null>(null);
   const addToGarage = useAppStore((s) => s.addToGarage);
@@ -200,11 +202,15 @@ export default function DeckEditor({ deckId, onBack }: Props) {
   const found = q ? deck.cards.filter((c) => c.name.toLowerCase().includes(q)) : [];
   const foundCopies = found.reduce((sum, c) => sum + c.count, 0);
   const commanderMatch = q !== '' && (deck.commander?.name.toLowerCase().includes(q) ?? false);
-  const visibleGroups = q
-    ? groups
-        .map((g) => ({ ...g, cards: g.cards.filter((c) => c.name.toLowerCase().includes(q)) }))
-        .filter((g) => g.cards.length > 0)
-    : groups;
+  const legendCount = deck.cards.filter((c) => isLegendary(c.typeLine)).length;
+  const showing = (c: DeckCard) =>
+    (q === '' || c.name.toLowerCase().includes(q)) && (!legendOnly || isLegendary(c.typeLine));
+  const visibleGroups =
+    q !== '' || legendOnly
+      ? groups
+          .map((g) => ({ ...g, cards: g.cards.filter(showing) }))
+          .filter((g) => g.cards.length > 0)
+      : groups;
 
   return (
     <div className="screen deck-editor">
@@ -343,6 +349,16 @@ export default function DeckEditor({ deckId, onBack }: Props) {
           onClick={() => updateSettings({ ...settings, deckArtOn: !settings.deckArtOn })}
         >
           🖼 {settings.deckArtOn ? 'Art on' : 'Art off'}
+        </button>
+        <button
+          className={`ghost deck-art-toggle${legendOnly ? ' deck-legend-on' : ''}`}
+          aria-label="only legendary cards"
+          aria-pressed={legendOnly}
+          disabled={legendCount === 0}
+          title={legendCount === 0 ? 'No legendary cards in the 99 yet' : 'Show only legendary cards'}
+          onClick={() => setLegendOnly((on) => !on)}
+        >
+          ★ Legendary {legendCount}
         </button>
       </div>
       {q !== '' && (

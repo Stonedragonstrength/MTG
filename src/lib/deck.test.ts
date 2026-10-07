@@ -11,6 +11,7 @@ import {
   deckStats,
   groupCards,
   importLines,
+  isLegendary,
   manaCurve,
   manaValue,
   offColorCards,
@@ -34,6 +35,22 @@ describe('shortType', () => {
 
   test('double-faced cards read their front face', () => {
     expect(shortType('Creature — Human Wizard // Creature — Human Insect')).toBe('Human Wizard');
+  });
+});
+
+describe('isLegendary', () => {
+  test('reads the supertype off the type line, whatever kind of card it is', () => {
+    expect(isLegendary('Legendary Creature — Elf Noble')).toBe(true);
+    expect(isLegendary('Legendary Enchantment — Background')).toBe(true);
+    expect(isLegendary('Legendary Land')).toBe(true);
+    expect(isLegendary('Legendary Planeswalker — Jace')).toBe(true);
+    expect(isLegendary('Creature — Elf Druid')).toBe(false);
+    expect(isLegendary('Basic Land — Forest')).toBe(false);
+  });
+
+  test('a two-faced card is what its front face says', () => {
+    expect(isLegendary('Legendary Creature — Human Wizard // Legendary Creature — Insect')).toBe(true);
+    expect(isLegendary('Creature — Horror // Legendary Creature — Horror')).toBe(false); // legendary only once flipped
   });
 });
 

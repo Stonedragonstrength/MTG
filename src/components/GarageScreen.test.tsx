@@ -188,3 +188,36 @@ test('the manage stepper never drops below one — removal is its own gesture', 
   await user.click(screen.getByRole('button', { name: /one more llanowar elves/i }));
   expect(useAppStore.getState().setGarageCount).toHaveBeenCalledWith('elves', 2);
 });
+
+test('legendary cards are their own choice: one tap shows only them, in every grouping', async () => {
+  useAppStore.setState({
+    garage: [
+      ...useAppStore.getState().garage,
+      row('lathril', 'Lathril, Blade of the Elves', 'Legendary Creature — Elf Noble', 1),
+      row('cradle', "Gaea's Cradle", 'Legendary Land', 2),
+    ],
+  });
+  const user = userEvent.setup();
+  render(<GarageScreen onBack={() => {}} />);
+  const chip = screen.getByRole('button', { name: /only legendary cards/i });
+  expect(chip).toHaveTextContent('2'); // two legendary cards in the collection
+  expect(chip).toHaveAttribute('aria-pressed', 'false');
+
+  await user.click(chip);
+  expect(chip).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByRole('img', { name: 'Lathril, Blade of the Elves' })).toBeInTheDocument();
+  expect(screen.getByRole('img', { name: "Gaea's Cradle" })).toBeInTheDocument();
+  expect(screen.queryByRole('img', { name: 'Llanowar Elves' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('img', { name: 'Lightning Bolt' })).not.toBeInTheDocument();
+  // still grouped the way the binder is set: a legendary land is a land
+  expect(screen.getByRole('heading', { name: /^Creatures/ })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: /^Lands/ })).toBeInTheDocument();
+
+  await user.click(chip); // and off again
+  expect(screen.getByRole('img', { name: 'Lightning Bolt' })).toBeInTheDocument();
+});
+
+test('a collection with no legendary cards says so instead of offering an empty choice', () => {
+  render(<GarageScreen onBack={() => {}} />);
+  expect(screen.getByRole('button', { name: /only legendary cards/i })).toBeDisabled();
+});

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getCardById } from '../data/scryfall';
-import { manaValue } from '../lib/deck';
+import { isLegendary, manaValue } from '../lib/deck';
 import { normalize } from '../lib/fuzzy';
 import { COLOR_NAMES, MANA_COLORS, type ManaColor } from '../lib/mana';
 import type { GarageCard } from '../lib/types';
@@ -114,6 +114,7 @@ export default function GarageScreen({ onBack, onOpenDeck }: Props) {
   const [groupBy, setGroupBy] = useState<GroupBy>('type');
   const [sortBy, setSortBy] = useState<'az' | 'cost'>('az');
   const [colorSel, setColorSel] = useState<ManaColor | null>(null);
+  const [legendOnly, setLegendOnly] = useState(false);
   const [viewing, setViewing] = useState<GarageCard | null>(null);
   const [managing, setManaging] = useState<string | null>(null); // cardId
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -158,6 +159,7 @@ export default function GarageScreen({ onBack, onOpenDeck }: Props) {
   }, [idsKey]);
 
   const total = garage.reduce((sum, g) => sum + g.count, 0);
+  const legendCount = garage.filter((g) => isLegendary(g.typeLine)).length;
 
   // Collection value over whatever the card database can price — the
   // bulk data carries one representative printing's USD price per card.
@@ -173,6 +175,7 @@ export default function GarageScreen({ onBack, onOpenDeck }: Props) {
   const shown = useMemo(() => {
     let rows = garage;
     if (filter.trim()) rows = rows.filter((g) => normalize(g.name).includes(normalize(filter)));
+    if (legendOnly) rows = rows.filter((g) => isLegendary(g.typeLine));
     if (colorSel) {
       rows = rows.filter((g) => {
         const identity = enriched[g.cardId]?.identity;
@@ -181,7 +184,7 @@ export default function GarageScreen({ onBack, onOpenDeck }: Props) {
       });
     }
     return rows;
-  }, [garage, filter, colorSel, enriched]);
+  }, [garage, filter, colorSel, legendOnly, enriched]);
 
   const sections = useMemo(() => {
     const buckets = new Map<string, GarageCard[]>();
@@ -305,6 +308,17 @@ export default function GarageScreen({ onBack, onOpenDeck }: Props) {
             By cost
           </button>
         </div>
+        {/* A choice of its own, on top of any grouping: the commander pool. */}
+        <button
+          className={`chip legend-chip${legendOnly ? ' chip--recent' : ''}`}
+          aria-label="only legendary cards"
+          aria-pressed={legendOnly}
+          disabled={legendCount === 0}
+          title={legendCount === 0 ? 'No legendary cards here yet' : 'Show only legendary cards'}
+          onClick={() => setLegendOnly((on) => !on)}
+        >
+          ★ Legendary {legendCount}
+        </button>
         <div className="mana-pick" aria-label="filter by color">
           {MANA_COLORS.map((c) => (
             <button

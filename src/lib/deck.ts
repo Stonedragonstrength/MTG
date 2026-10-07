@@ -203,6 +203,12 @@ export function shortType(typeLine: string): string {
   return dash === -1 ? '' : face.slice(dash + 1).trim();
 }
 
+/** Legendary by its front face — the side a card is while it sits in a
+ * deck or a binder. Any card type: creatures, lands, Backgrounds… */
+export function isLegendary(typeLine: string): boolean {
+  return /\bLegendary\b/.test(typeLine.split(' // ')[0]);
+}
+
 export function groupCards(cards: DeckCard[]): { label: string; cards: DeckCard[] }[] {
   const order = [...GROUPS.map((g) => g.label).filter((l) => l !== 'Lands'), 'Other', 'Lands'];
   const buckets = new Map<string, DeckCard[]>();

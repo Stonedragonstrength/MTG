@@ -218,6 +218,27 @@ test('an ordinary commander shows no partner slot', async () => {
   expect(screen.queryByRole('button', { name: /add partner/i })).not.toBeInTheDocument();
 });
 
+test('legendary cards are their own choice in a deck: one tap shows only them', async () => {
+  const deck = addCard(sampleDeck(), thrasios); // a legendary creature among the 99
+  useAppStore.setState({ decks: [deck] });
+  const user = userEvent.setup();
+  render(<DeckEditor deckId="deck-1" onBack={() => {}} />);
+  const chip = screen.getByRole('button', { name: /only legendary cards/i });
+  expect(chip).toHaveTextContent('1');
+  await user.click(chip);
+  expect(chip).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByText('Thrasios, Triton Hero')).toBeInTheDocument();
+  expect(screen.queryByText('Llanowar Elves')).not.toBeInTheDocument();
+  expect(screen.queryByText('Forest')).not.toBeInTheDocument();
+  expect(screen.getByText('11 / 100')).toBeInTheDocument(); // the deck itself is untouched
+  await user.click(chip);
+  expect(screen.getByText('Llanowar Elves')).toBeInTheDocument();
+});
+
+test('a deck with no legendary cards among the 99 has nothing to choose', () => {
+  render(<DeckEditor deckId="deck-1" onBack={() => {}} />);
+  expect(screen.getByRole('button', { name: /only legendary cards/i })).toBeDisabled();
+});
 test('each mana-curve bar says how many cards sit at that cost', () => {
   render(<DeckEditor deckId="deck-1" onBack={() => {}} />);
   const curve = screen.getByLabelText('mana curve');
