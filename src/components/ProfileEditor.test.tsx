@@ -138,3 +138,23 @@ test('with no saved decks there is no deck to choose', () => {
   render(<ProfileEditor profile={profile} onDone={() => {}} />);
   expect(screen.queryByLabelText('Deck')).not.toBeInTheDocument();
 });
+
+test('editing a player keeps the second commander of their pair; picking another commander lets it go', async () => {
+  const paired: PlayerProfile = { ...profile, partnerName: 'Tana, the Bloodsower' };
+  const user = userEvent.setup();
+  const first = render(<ProfileEditor profile={paired} onDone={() => {}} />);
+  await user.clear(screen.getByPlaceholderText('Player name'));
+  await user.type(screen.getByPlaceholderText('Player name'), 'Cinco B');
+  await user.click(screen.getByRole('button', { name: 'Save' }));
+  await waitFor(() => expect(saved).not.toBeNull());
+  expect(saved).toMatchObject({ name: 'Cinco B', partnerName: 'Tana, the Bloodsower' });
+  first.unmount();
+
+  saved = null;
+  render(<ProfileEditor profile={paired} onDone={() => {}} />);
+  await user.click(screen.getByRole('button', { name: /switch commander to atraxa/i }));
+  await user.click(screen.getByRole('button', { name: 'Save' }));
+  await waitFor(() => expect(saved).not.toBeNull());
+  expect(saved!.commanderName).toBe('Atraxa, Praetors’ Voice');
+  expect(saved!.partnerName).toBeUndefined(); // Tana was Magda's partner, not Atraxa's
+});

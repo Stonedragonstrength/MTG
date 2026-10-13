@@ -18,6 +18,7 @@ import { isLandCard } from '../lib/turnRules';
 import { playDefeat, playLifeTick, playTurnChime } from '../lib/sound';
 import type {
   BoardItem,
+  CardInstance,
   CardRecord,
   CardZone,
   CombatUnit,
@@ -76,7 +77,7 @@ export interface AppStore {
     iid: string,
     from: CardZone,
     to: CardZone,
-    opts?: { pos?: 'top' | 'bottom'; row?: 'front' | 'lands' },
+    opts?: { pos?: 'top' | 'bottom'; row?: CardInstance['row'] },
   ): void;
   millCards(seat: number, n: number): void;
   exileCards(seat: number, n: number): void;
@@ -618,8 +619,18 @@ export function createAppStore() {
           actor === owner
             ? `${owner} draws ${iids.length}`
             : `${actor} drew ${iids.length} for ${owner}`;
+        // "Has drawn this turn" is stamped in the same op as the draw, and
+        // only for the turn the draw was made in: one that arrives a turn
+        // late (a rebase past a Pass turn) is not that later turn's draw.
+        const drawnIn = { turn: g.turnNumber, active: g.activePlayerIndex };
         cardMutate(
-          (base) => cardsLib.draw(base, seat, iids),
+          (base) => {
+            const drawn = cardsLib.draw(base, seat, iids);
+            if (drawn === base) return base;
+            return seat === drawnIn.active && isTurn(base, drawnIn)
+              ? cardsLib.markDrew(drawn, seat)
+              : drawn;
+          },
           text,
           takeGuard(seat, iids, knownMarks(g.players[seat]?.cards?.stacked)),
         );

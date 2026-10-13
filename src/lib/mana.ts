@@ -129,6 +129,9 @@ export interface LandSummary {
  * resolved, null while the card DB lookup is still in flight. */
 export interface VirtualManaSource {
   oracleText: string | null;
+  /** false for a mana rock sharing the shelf: it feeds the color pips but
+   * is not one of the seat's lands. Left out = a land. */
+  land?: boolean;
 }
 
 /** Capability tally over the whole board: how many sources can make each
@@ -150,7 +153,7 @@ export function landSummary(
     else for (const color of produced) colors[color as ManaColor] += item.count;
   }
   for (const v of virtualLands) {
-    total += 1;
+    if (v.land !== false) total += 1;
     if (v.oracleText === null) continue;
     const produced = manaColorsFromText(v.oracleText);
     if (produced[0] === 'any') any += 1;

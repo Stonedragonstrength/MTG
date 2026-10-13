@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { actingSeat, liveCombat } from '../lib/combat';
 import { attackersAt } from '../lib/combatView';
 import type { ManaColor } from '../lib/mana';
@@ -12,6 +12,7 @@ import HandTray from './HandTray';
 import LandsRow from './LandsRow';
 import LifeCounter from './LifeCounter';
 import PlayerSheet from './PlayerSheet';
+import SideShelf from './SideShelf';
 
 const ACCENTS: Record<string, string> = {
   W: '#e8e3d0',
@@ -20,6 +21,28 @@ const ACCENTS: Record<string, string> = {
   R: '#d4705a',
   G: '#6aa877',
 };
+
+/** A deck seat's big board narrower than this cannot hold its lands, its
+ * other permanents, its tokens and its piles on one shelf line: a tablet
+ * held upright, or a side seat (the board turns to face it). */
+const ONE_SHELF_LINE_PX = 1000;
+
+/** Is the element laid out narrower than `limit`? Its own width, before
+ * any turn the table gives it — which a media query cannot know. False
+ * where the box cannot be measured. */
+function useNarrowerThan(ref: RefObject<HTMLElement | null>, limit: number): boolean {
+  const [narrow, setNarrow] = useState(false);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const apply = () => setNarrow(el.clientWidth > 0 && el.clientWidth < limit);
+    apply();
+    const observer = new ResizeObserver(apply);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [ref, limit]);
+  return narrow;
+}
 
 interface Props {
   playerIdx: number;
@@ -38,6 +61,8 @@ export default function PlayerZone({
   const adjustLife = useAppStore((s) => s.adjustLife);
   const flipped = useAppStore((s) => s.seatFlips[playerIdx] === true);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const zoneRef = useRef<HTMLElement>(null);
+  const narrow = useNarrowerThan(zoneRef, ONE_SHELF_LINE_PX);
   if (!game) return null;
 
   const player = game.players[playerIdx];
@@ -58,6 +83,7 @@ export default function PlayerZone({
     player.eliminated ? 'zone--dead' : '',
     isActive && !player.eliminated ? 'zone--active' : '',
     focused ? 'zone--focused' : '',
+    narrow ? 'zone--narrow' : '', // a deck seat's big board then gives its lands a line of their own
     player.cards ? 'zone--cards' : '', // compact chrome: the cards need the room
     flipped ? 'zone--flipped' : '', // drawn turned around on this device ("Flip this side")
     showHub && !focused ? 'zone--hub' : '', // a slim bar carrying the pinned turn bar
@@ -93,48 +119,53 @@ export default function PlayerZone({
     chips.push({ key: 'tax', label: `tax +${player.commanderDeaths * 2}` });
 
   return (
-    <section className={classes} style={accent ? { borderColor: accent } : undefined}>
+    <section ref={zoneRef} className={classes} style={accent ? { borderColor: accent } : undefined}>
       <header className="zone-header">
-        <span className="zone-id">
-          {profile.avatarUrl ? (
-            <img className="avatar avatar--small" src={profile.avatarUrl} alt="" />
-          ) : (
-            <div className="avatar avatar--small avatar--empty" />
-          )}
-          <button
-            className="player-more"
-            aria-label={`${profile.name} counters and badges`}
-            onClick={(e) => {
-              e.stopPropagation();
-              setSheetOpen(true);
-            }}
-          >
-            ☰
-          </button>
-          <span className="zone-name">{profile.name}</span>
-          {game.monarchIdx === playerIdx && (
-            <span className="badge-monarch" title="The Monarch">
-              👑
-            </span>
-          )}
-          {game.initiativeIdx === playerIdx && (
-            <span className="badge-initiative" title="Has the Initiative">
-              🗡
-            </span>
-          )}
-          {identity.map((c) => (
-            <span key={c} className={`mana-pip mana-pip--mini mana-${c as ManaColor}`} />
-          ))}
-        </span>
-        {chips.length > 0 && (
-          <span className="zone-chips" onClick={(e) => e.stopPropagation()}>
-            {chips.map((chip) => (
-              <span key={chip.key} className={`player-chip ${chip.className ?? ''}`}>
-                {chip.label}
+        {/* A group only on a wide big board, which sets it against the life
+            total so the hub between them sits in the middle (zones.css);
+            everywhere else it dissolves and its two parts lay out alone. */}
+        <span className="zone-lead">
+          <span className="zone-id">
+            {profile.avatarUrl ? (
+              <img className="avatar avatar--small" src={profile.avatarUrl} alt="" />
+            ) : (
+              <div className="avatar avatar--small avatar--empty" />
+            )}
+            <button
+              className="player-more"
+              aria-label={`${profile.name} counters and badges`}
+              onClick={(e) => {
+                e.stopPropagation();
+                setSheetOpen(true);
+              }}
+            >
+              ☰
+            </button>
+            <span className="zone-name">{profile.name}</span>
+            {game.monarchIdx === playerIdx && (
+              <span className="badge-monarch" title="The Monarch">
+                👑
               </span>
+            )}
+            {game.initiativeIdx === playerIdx && (
+              <span className="badge-initiative" title="Has the Initiative">
+                🗡
+              </span>
+            )}
+            {identity.map((c) => (
+              <span key={c} className={`mana-pip mana-pip--mini mana-${c as ManaColor}`} />
             ))}
           </span>
-        )}
+          {chips.length > 0 && (
+            <span className="zone-chips" onClick={(e) => e.stopPropagation()}>
+              {chips.map((chip) => (
+                <span key={chip.key} className={`player-chip ${chip.className ?? ''}`}>
+                  {chip.label}
+                </span>
+              ))}
+            </span>
+          )}
+        </span>
         {showHub && (
           <span className="header-hub" onClick={(e) => e.stopPropagation()}>
             <CenterHub variant="row" seat={playerIdx} compact={!focused} />
@@ -147,10 +178,27 @@ export default function PlayerZone({
       </header>
       {/* Keyed by the fight: a bar that failed on one fight is tried afresh on the next. */}
       {acting && <CombatBar key={fight.id} playerIdx={playerIdx} />}
-      {player.cards && <BattlefieldRow playerIdx={playerIdx} />}
-      <BoardStrip playerIdx={playerIdx} />
-      <LandsRow playerIdx={playerIdx} />
-      {player.cards && <HandTray playerIdx={playerIdx} />}
+      {player.cards ? (
+        // A seat playing a deck: the creatures and the piles; a status
+        // line; one shelf for everything else it has on the table (lands
+        // and mana rocks, the other permanents, tokens); the hand. On a
+        // collapsed bar the shelf is no box at all, only its parts.
+        <>
+          <BattlefieldRow playerIdx={playerIdx} />
+          <LandsRow playerIdx={playerIdx} part="status" />
+          <div className="zone-shelf">
+            <LandsRow playerIdx={playerIdx} part="stacks" />
+            <SideShelf playerIdx={playerIdx} />
+            <BoardStrip playerIdx={playerIdx} />
+          </div>
+          <HandTray playerIdx={playerIdx} />
+        </>
+      ) : (
+        <>
+          <BoardStrip playerIdx={playerIdx} />
+          <LandsRow playerIdx={playerIdx} />
+        </>
+      )}
       {player.eliminated && <div className="dead-overlay">DEFEATED</div>}
       {sheetOpen && <PlayerSheet playerIdx={playerIdx} onClose={() => setSheetOpen(false)} />}
     </section>

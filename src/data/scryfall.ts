@@ -190,6 +190,12 @@ export async function findCardByName(name: string): Promise<CardRecord | undefin
   return matches.find((c) => c.imageNormal) ?? matches[0];
 }
 
+/** Every card of this exact name: a token name ("Soldier") is shared by
+ * several different tokens, and sometimes by a real card as well. */
+export async function findCardsNamed(name: string): Promise<CardRecord[]> {
+  return getDb().cards.where('nameLower').equals(name.toLowerCase()).toArray();
+}
+
 export async function findBasicLand(name: string): Promise<CardRecord | undefined> {
   const matches = await getDb().cards.where('nameLower').equals(name.toLowerCase()).toArray();
   const basics = matches.filter((c) => c.isBasicLand);

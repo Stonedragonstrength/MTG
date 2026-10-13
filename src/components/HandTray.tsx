@@ -28,14 +28,18 @@ function HandCard({
 }) {
   const press = useLongPress(onPlay, onDetail);
   return (
-    <button
-      className={`hand-card${selected ? ' hand-card--selected' : ''}${why ? ' hand-card--poor' : ''}`}
-      aria-label={`play ${name}`}
-      title={why ? `${why.replace(/\.$/, '')} · hold for options` : 'Tap to play · hold for options'}
-      {...press}
-    >
-      {art ? <img src={art} alt="" loading="lazy" /> : <span className="vcard-placeholder">{name}</span>}
-    </button>
+    // The slot is the card's place in the fan: on the big board the cards
+    // overlap, and the slot is the part of this one that shows.
+    <span className="hand-slot">
+      <button
+        className={`hand-card${selected ? ' hand-card--selected' : ''}${why ? ' hand-card--poor' : ''}`}
+        aria-label={`play ${name}`}
+        title={why ? `${why.replace(/\.$/, '')} · hold for options` : 'Tap to play · hold for options'}
+        {...press}
+      >
+        {art ? <img src={art} alt="" loading="lazy" /> : <span className="vcard-placeholder">{name}</span>}
+      </button>
+    </span>
   );
 }
 
@@ -54,7 +58,9 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
   const playCard = useAppStore((s) => s.playCard);
   const mulliganSeat = useAppStore((s) => s.mulliganSeat);
   const keepHand = useAppStore((s) => s.keepHand);
-  const [fanned, setFanned] = useState(forceFanned);
+  // What the player last did with the tray, until the big board changes
+  // hands: null = as the table has it (open on the big board, a pill on a bar).
+  const [folded, setFolded] = useState<boolean | null>(null);
   const [detail, setDetail] = useState<string | null>(null);
   const [bottoming, setBottoming] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
@@ -66,12 +72,20 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
   // defender takes it to choose blockers and when it goes back.
   const boardIdx = game ? boardSeat(game) : undefined;
   useEffect(() => {
-    // Trays fold whenever the big board changes seat (table manners): a hand
-    // left fanned would lie open in front of whoever the table turns to next.
-    if (!forceFanned) setFanned(false);
+    // Whenever the big board changes seat every tray goes back to where the
+    // table has it: the player whose turn it is finds their hand open on
+    // the big board (nobody should have to look for their cards), and a
+    // hand somebody opened elsewhere folds again instead of lying open
+    // beside the next player.
+    setFolded(null);
     setBottoming(false);
     setSelected([]);
   }, [activeIdx, boardIdx, forceFanned]);
+  // Open by default only for the active player on the big board. A defender
+  // who holds the board to choose blockers needs the room for creatures:
+  // their hand stays a pill, one tap away.
+  const openByDefault = boardIdx === playerIdx && activeIdx === playerIdx;
+  const fanned = forceFanned || (folded === null ? openByDefault : !folded);
 
   const seat = game?.players[playerIdx]?.cards;
   const records = useCardRecords(seat?.hand ?? []);
@@ -144,7 +158,7 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
         <button
           className="hand-pill"
           aria-label={`hand, ${seat.hand.length} cards`}
-          onClick={() => setFanned(true)}
+          onClick={() => setFolded(false)}
         >
           ✋ {seat.hand.length}
         </button>
@@ -168,8 +182,14 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
           </div>
           <div className="hand-tools">
             {!forceFanned && (
-              <button className="ghost" aria-label="collapse hand" onClick={() => setFanned(false)}>
-                ▾
+              // The count stays in sight while the cards are up: the same
+              // "✋ 7" the folded pill shows, on the button that folds them.
+              <button
+                className="ghost hand-fold"
+                aria-label={`collapse hand, ${seat.hand.length} cards`}
+                onClick={() => setFolded(true)}
+              >
+                ✋ {seat.hand.length} ▾
               </button>
             )}
             {(canMulligan || keepWindow) && !bottoming && (

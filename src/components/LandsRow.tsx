@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { randomBasicArt } from '../data/images';
 import { findBasicLand } from '../data/scryfall';
 import { createBoardItem } from '../lib/board';
@@ -7,7 +7,8 @@ import { liveCombat } from '../lib/combat';
 import { readUnits } from '../lib/combatEngine';
 import { COLOR_NAMES, isOneShotSource, landSummary, MANA_COLORS, type ManaColor } from '../lib/mana';
 import { availableMana, sourcesFrom } from '../lib/pay';
-import { landAllowance } from '../lib/turnRules';
+import { shelfOf } from '../lib/shelf';
+import { isLandCard, landAllowance } from '../lib/turnRules';
 import type { BoardItem, CardInstance } from '../lib/types';
 import { useAppStore } from '../state/store';
 import BattlefieldCardSheet from './BattlefieldCardSheet';
@@ -26,23 +27,55 @@ const BASICS: { name: string; color: ManaColor }[] = [
   { name: 'Forest', color: 'G' },
 ];
 
-/** Tap = use one mana source (one-shots get spent); hold = card details. */
+/** The "2⤵" on a stack that has copies in use. It is also the way back: a
+ * tap on it stands one of them up again. */
+function TappedBadge({
+  tapped,
+  name,
+  onUntap,
+}: {
+  tapped: number;
+  name: string;
+  onUntap: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="tapped-badge tapped-badge--undo"
+      aria-label={`untap one ${name}`}
+      title="Tap to untap one"
+      onClick={(e) => {
+        e.stopPropagation();
+        onUntap();
+      }}
+    >
+      {tapped}⤵
+    </button>
+  );
+}
+
+/** Tap = use one mana source (one-shots get spent); hold = card details.
+ * A stack with nothing left to use takes a tap the other way: it stands
+ * one copy back up. */
 function LandStack({
   item,
   onTap,
+  onUntap,
   onDetail,
 }: {
   item: BoardItem;
   onTap: () => void;
+  onUntap: () => void;
   onDetail: () => void;
 }) {
-  const press = useLongPress(onTap, onDetail);
   const tapped = item.tapped ?? 0;
   const oneShot = isOneShotSource(item);
+  const full = !oneShot && tapped >= item.count;
+  const press = useLongPress(full ? onUntap : onTap, onDetail);
   const label =
     `${item.name}` + (tapped > 0 ? `, ${tapped} of ${item.count} tapped` : '');
   return (
-    <button
+    <span
       className={[
         'land-stack',
         tapped >= item.count ? 'land-stack--tapped' : tapped > 0 ? 'land-stack--partial' : '',
@@ -50,18 +83,28 @@ function LandStack({
       ]
         .filter(Boolean)
         .join(' ')}
-      aria-label={label}
-      title={oneShot ? 'Tap to spend one' : 'Tap to use one · hold for details'}
-      {...press}
     >
-      {item.imageNormal ? (
-        <img src={item.imageNormal} alt="" loading="lazy" />
-      ) : (
-        <span className="land-stack-name">{item.name}</span>
-      )}
-      <span className="count-badge">×{item.count}</span>
-      {tapped > 0 && <span className="tapped-badge">{tapped}⤵</span>}
-    </button>
+      <button
+        className="land-face"
+        aria-label={label}
+        title={
+          oneShot
+            ? 'Tap to spend one'
+            : full
+              ? 'Tap to untap one · hold for details'
+              : 'Tap to use one · hold for details'
+        }
+        {...press}
+      >
+        {item.imageNormal ? (
+          <img src={item.imageNormal} alt="" loading="lazy" />
+        ) : (
+          <span className="land-stack-name">{item.name}</span>
+        )}
+        <span className="count-badge">×{item.count}</span>
+      </button>
+      {tapped > 0 && <TappedBadge tapped={tapped} name={item.name} onUntap={onUntap} />}
+    </span>
   );
 }
 
@@ -92,45 +135,53 @@ function stackVirtualLands(cards: CardInstance[]): VirtualStack[] {
   return out;
 }
 
-/** A stack of identical virtual lands: tap = use one (tap the first
- * untapped copy), hold = full card sheet. Fully tapped stacks wait for
- * untap-all, same as tracker stacks. */
+/** A stack of identical virtual lands (or one mana rock): tap = use one
+ * (tap the first untapped copy), hold = full card sheet. A stack with
+ * nothing left to use takes a tap the other way and stands one copy back
+ * up; so does a tap on its "2⤵" count at any time. */
 function VirtualLandStack({
   stack,
   art,
   onTap,
+  onUntap,
   onDetail,
 }: {
   stack: VirtualStack;
   art: string | null;
   onTap: () => void;
+  onUntap: () => void;
   onDetail: () => void;
 }) {
-  const press = useLongPress(onTap, onDetail);
   const n = stack.cards.length;
   const tapped = stack.cards.filter((c) => c.tapped).length;
+  const full = tapped >= n;
+  const press = useLongPress(full ? onUntap : onTap, onDetail);
   const name = stack.cards[0].name;
   const label = name + (tapped > 0 ? `, ${tapped} of ${n} tapped` : '');
   return (
-    <button
+    <span
       className={[
         'land-stack',
-        tapped >= n ? 'land-stack--tapped' : tapped > 0 ? 'land-stack--partial' : '',
+        full ? 'land-stack--tapped' : tapped > 0 ? 'land-stack--partial' : '',
       ]
         .filter(Boolean)
         .join(' ')}
-      aria-label={label}
-      title="Tap to use one · hold for options"
-      {...press}
     >
-      {art ? (
-        <img src={art} alt="" loading="lazy" />
-      ) : (
-        <span className="land-stack-name">{name}</span>
-      )}
-      {n > 1 && <span className="count-badge">×{n}</span>}
-      {tapped > 0 && <span className="tapped-badge">{tapped}⤵</span>}
-    </button>
+      <button
+        className="land-face"
+        aria-label={label}
+        title={full ? 'Tap to untap one · hold for options' : 'Tap to use one · hold for options'}
+        {...press}
+      >
+        {art ? (
+          <img src={art} alt="" loading="lazy" />
+        ) : (
+          <span className="land-stack-name">{name}</span>
+        )}
+        {n > 1 && <span className="count-badge">×{n}</span>}
+      </button>
+      {tapped > 0 && <TappedBadge tapped={tapped} name={name} onUntap={onUntap} />}
+    </span>
   );
 }
 
@@ -138,9 +189,13 @@ interface Props {
   playerIdx: number;
   /** false on the phone's hand view: a fight is declared on the table. */
   attackButton?: boolean;
+  /** A deck seat draws the two halves apart, so its big board can lay each
+   * out on its own: 'status' is the summary line alone, 'stacks' the lands
+   * (and mana rocks) alone. Left out, the row is whole. */
+  part?: 'status' | 'stacks';
 }
 
-export default function LandsRow({ playerIdx, attackButton = true }: Props) {
+export default function LandsRow({ playerIdx, attackButton = true, part }: Props) {
   const game = useAppStore((s) => s.game);
   const startCombat = useAppStore((s) => s.startCombat);
   const addItem = useAppStore((s) => s.addItem);
@@ -153,12 +208,18 @@ export default function LandsRow({ playerIdx, attackButton = true }: Props) {
   const [vcardSheet, setVcardSheet] = useState<string | null>(null);
   const [diceOpen, setDiceOpen] = useState(false);
 
-  // Virtual deck lands live on the battlefield's lands shelf (cards mode).
+  // Every battlefield card is read, not just the shelf: a dork up front is
+  // mana too, and the ready count has to see it.
   const seat = game?.players[playerIdx]?.cards;
-  const vLands = seat ? seat.battlefield.filter((c) => c.row === 'lands') : [];
-  // Every battlefield card, not just the shelf: rocks and dorks up front
-  // are mana too, and the ready count has to see them.
   const records = useCardRecords(seat?.battlefield ?? []);
+  // The lands shelf (cards mode): the seat's lands, and beside them
+  // whatever else is on the table just to make mana — Sol Ring, a Signet.
+  const isLand = (c: CardInstance) => {
+    const record = records[c.cardId];
+    return record ? isLandCard(record.typeLine) : c.row === 'lands';
+  };
+  const shelf = (seat?.battlefield ?? []).filter((c) => shelfOf(c, records[c.cardId]) === 'lands');
+  const vLands = [...shelf.filter(isLand), ...shelf.filter((c) => !isLand(c))]; // rocks after the lands
   const texts = useSeatTexts(playerIdx);
 
   if (!game) return null;
@@ -168,7 +229,8 @@ export default function LandsRow({ playerIdx, attackButton = true }: Props) {
   // lands count fully once their records resolve.
   const summary = landSummary(
     game.players[playerIdx].board,
-    vLands.map((c) => ({ oracleText: records[c.cardId]?.oracleText ?? null })),
+    // A rock adds to the color pips, never to the land count.
+    vLands.map((c) => ({ oracleText: records[c.cardId]?.oracleText ?? null, land: isLand(c) })),
   );
   // Untap-all readies the whole board now, so any tapped permanent surfaces it.
   const anyTapped =
@@ -225,8 +287,9 @@ export default function LandsRow({ playerIdx, attackButton = true }: Props) {
     );
   }
 
-  return (
-    <div className="lands-row">
+  const virtualStacks = stackVirtualLands(vLands);
+
+  const summaryLine = (
       <div className="mana-summary">
         <span className="lands-total">{summary.total} lands</span>
         {MANA_COLORS.filter((c) => summary.colors[c] > 0).map((c) => (
@@ -292,16 +355,26 @@ export default function LandsRow({ playerIdx, attackButton = true }: Props) {
           🎲
         </button>
       </div>
+  );
 
-      <div className="lands-stacks">
-        {stackVirtualLands(vLands).map((s) => {
+  const stacks = (
+      <div
+        className="lands-stacks"
+        // How many stacks: the big board shares a crowded shelf line by it.
+        style={{ '--n': virtualStacks.length + lands.length } as CSSProperties}
+      >
+        {virtualStacks.map((s) => {
           const untapped = s.cards.find((c) => !c.tapped);
+          // The way back takes the copy that was tapped last (they tap in order).
+          const tapped = [...s.cards].reverse().find((c) => c.tapped);
           return (
             <VirtualLandStack
               key={s.key}
               stack={s}
               art={records[s.cards[0].cardId]?.imageNormal ?? null}
+              // Each way is said outright: a stale tile must never flip a card back.
               onTap={() => untapped && tapVirtualCard(playerIdx, untapped.iid, true)}
+              onUntap={() => tapped && tapVirtualCard(playerIdx, tapped.iid, false)}
               onDetail={() => setVcardSheet(s.cards[0].iid)}
             />
           );
@@ -315,6 +388,7 @@ export default function LandsRow({ playerIdx, attackButton = true }: Props) {
                 ? changeCount(playerIdx, item.id, -1)
                 : tapItem(playerIdx, item.id, 1)
             }
+            onUntap={() => (item.tapped ?? 0) > 0 && tapItem(playerIdx, item.id, -1)}
             onDetail={() => setDetailId(item.id)}
           />
         ))}
@@ -341,7 +415,11 @@ export default function LandsRow({ playerIdx, attackButton = true }: Props) {
           </span>
         )}
       </div>
+  );
 
+  // Every sheet is a portal: where it is listed changes nothing on screen.
+  const sheets = (
+    <>
       {searchOpen && (
         <CardSearch playerIdx={playerIdx} zone="lands" onClose={() => setSearchOpen(false)} />
       )}
@@ -356,6 +434,21 @@ export default function LandsRow({ playerIdx, attackButton = true }: Props) {
         />
       )}
       {diceOpen && <DiceRoller onClose={() => setDiceOpen(false)} />}
+    </>
+  );
+
+  if (part === 'stacks')
+    return (
+      <>
+        {stacks}
+        {sheets}
+      </>
+    );
+  return (
+    <div className="lands-row">
+      {summaryLine}
+      {part !== 'status' && stacks}
+      {sheets}
     </div>
   );
 }

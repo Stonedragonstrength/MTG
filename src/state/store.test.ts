@@ -327,6 +327,24 @@ describe('cards mode', () => {
     expect(store.getState().log.some((l) => l.text === `A plays ${name}`)).toBe(true); // feed reaches the log
   });
 
+  test('a draw on your own turn marks the turn as drawn; one for a seat whose turn it is not does not', async () => {
+    const store = await cardsStore();
+    const drew = () => store.getState().game!.players[0].cards!.drew;
+    expect(drew()).toBeUndefined();
+    store.getState().drawCards(0, 1);
+    const g = store.getState().game!;
+    expect(drew()).toEqual({ turn: g.turnNumber, active: 0 });
+    // One undo takes the card and the mark back together.
+    store.getState().undo();
+    expect(drew()).toBeUndefined();
+    expect(store.getState().game!.players[0].cards!.hand).toHaveLength(7);
+
+    store.getState().passTurn(); // seat 1's turn now
+    store.getState().drawCards(0, 1); // a card drawn for seat 0 out of turn (an opponent's Howling Mine)
+    expect(drew()).toBeUndefined();
+    expect(store.getState().game!.players[0].cards!.hand).toHaveLength(8);
+  });
+
   test('a basic land routes to the lands shelf on play', async () => {
     const store = await cardsStore();
     const forest = store

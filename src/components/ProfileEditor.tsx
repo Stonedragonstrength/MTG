@@ -58,6 +58,12 @@ export default function ProfileEditor({ profile, onDone }: Props) {
       commanderImage,
       commanderHistory,
       deckId,
+      // A second commander belongs with the one it was paired with: it stays
+      // while that commander does (editing a name must not lose it), and
+      // goes when another commander is picked here.
+      ...(profile?.partnerName && commanderName === profile.commanderName
+        ? { partnerName: profile.partnerName }
+        : {}),
     });
     onDone();
   }

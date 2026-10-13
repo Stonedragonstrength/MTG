@@ -98,20 +98,52 @@ beforeEach(() => {
   });
 });
 
-test('the tray fans from a pill and a tap plays the card', async () => {
+test('the seat that holds the big board finds its hand open, and a tap plays the card', async () => {
   const user = userEvent.setup();
-  render(<HandTray playerIdx={0} />);
-  await user.click(screen.getByRole('button', { name: /hand, 7 cards/i }));
+  render(<HandTray playerIdx={0} />); // seat 0's turn: nobody has to look for their cards
+  expect(screen.queryByRole('button', { name: /^hand, 7 cards$/i })).not.toBeInTheDocument();
+  expect(screen.getAllByRole('button', { name: /^play / })).toHaveLength(7);
   const first = useAppStore.getState().game!.players[0].cards!.hand[0];
   const buttons = await screen.findAllByRole('button', { name: `play ${first.name}` });
   await user.click(buttons[0]); // render order mirrors hand order
   expect(useAppStore.getState().playCard).toHaveBeenCalledWith(0, first.iid);
 });
 
+test('the open hand still says how many cards it holds, on the button that folds it', async () => {
+  const user = userEvent.setup();
+  render(<HandTray playerIdx={0} />);
+  const fold = screen.getByRole('button', { name: 'collapse hand, 7 cards' });
+  expect(fold).toHaveTextContent('✋ 7');
+  await user.click(fold);
+  expect(screen.queryByRole('button', { name: /^play / })).not.toBeInTheDocument();
+  // Folded it is the pill it always was, and a tap opens it again.
+  await user.click(screen.getByRole('button', { name: /^hand, 7 cards$/i }));
+  expect(screen.getAllByRole('button', { name: /^play / })).toHaveLength(7);
+});
+
+test('a seat that is not on the big board keeps its hand folded until it is tapped', async () => {
+  const g = seededGame();
+  useAppStore.setState({ game: { ...g, activePlayerIndex: 1 } }); // seat 0 is a bar now
+  const user = userEvent.setup();
+  render(<HandTray playerIdx={0} />);
+  expect(screen.queryByRole('button', { name: /^play / })).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: /^hand, 7 cards$/i }));
+  expect(screen.getAllByRole('button', { name: /^play / })).toHaveLength(7);
+});
+
+test('a hand folded by hand opens again when the big board comes back to the seat', async () => {
+  const user = userEvent.setup();
+  render(<HandTray playerIdx={0} />);
+  await user.click(screen.getByRole('button', { name: 'collapse hand, 7 cards' }));
+  const g = useAppStore.getState().game!;
+  act(() => useAppStore.setState({ game: { ...g, activePlayerIndex: 1 } })); // the turn passes…
+  act(() => useAppStore.setState({ game: { ...g, activePlayerIndex: 0, turnNumber: 2 } })); // …and comes back
+  expect(screen.getAllByRole('button', { name: /^play / })).toHaveLength(7);
+});
+
 test('turn one offers a mulligan', async () => {
   const user = userEvent.setup();
   render(<HandTray playerIdx={0} />);
-  await user.click(screen.getByRole('button', { name: /hand, 7 cards/i }));
   await user.click(screen.getByRole('button', { name: /mulligan/i }));
   expect(useAppStore.getState().mulliganSeat).toHaveBeenCalledWith(0);
 });
@@ -139,7 +171,6 @@ test('in a pod the first mulligan is free: Keep hand, no bottoming owed', async 
   });
   const user = userEvent.setup();
   render(<HandTray playerIdx={0} />);
-  await user.click(screen.getByRole('button', { name: /hand, 7 cards/i }));
   await user.click(screen.getByRole('button', { name: /^keep hand$/i })); // CR 103.5d: free in multiplayer
   expect(keepHand).toHaveBeenCalledWith(0, []);
 });
@@ -155,9 +186,7 @@ test('two players owe a bottom per mulligan, and the debt survives a played land
     },
   };
   useAppStore.setState({ game: g });
-  const user = userEvent.setup();
   render(<HandTray playerIdx={0} />);
-  await user.click(screen.getByRole('button', { name: /hand, 7 cards/i }));
   // the land is down: mulligan itself is gone, but the owed bottom is not
   expect(screen.queryByRole('button', { name: /^mulligan$/i })).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: /keep \(bottom 1\)/i })).toBeInTheDocument();
@@ -170,9 +199,7 @@ test('a kept hand shows no mulligan controls at all', async () => {
     cards: { ...g.players[0].cards!, mulligans: 1, kept: true },
   };
   useAppStore.setState({ game: g });
-  const user = userEvent.setup();
   render(<HandTray playerIdx={0} />);
-  await user.click(screen.getByRole('button', { name: /hand, 7 cards/i }));
   expect(screen.queryByRole('button', { name: /mulligan/i })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /keep/i })).not.toBeInTheDocument();
 });
@@ -191,7 +218,6 @@ test('a spell you cannot pay for is dimmed and will not play', async () => {
   useAppStore.setState({ game: g, playCard });
   const user = userEvent.setup();
   render(<HandTray playerIdx={0} />);
-  await user.click(screen.getByRole('button', { name: /hand, 1 card/i }));
   const card = await screen.findByRole('button', { name: /play lightning bolt/i });
   await vi.waitFor(() => expect(card.className).toContain('hand-card--poor'));
   await user.click(card);
@@ -212,7 +238,6 @@ test('the same spell plays once the mana sits untapped', async () => {
   useAppStore.setState({ game: g, playCard });
   const user = userEvent.setup();
   render(<HandTray playerIdx={0} />);
-  await user.click(screen.getByRole('button', { name: /hand, 1 card/i }));
   const card = await screen.findByRole('button', { name: /play lightning bolt/i });
   await vi.waitFor(() => expect(card.className).not.toContain('hand-card--poor'));
   await user.click(card);
@@ -235,7 +260,6 @@ test('a land you already tapped still pays: its mana is floating', async () => {
   useAppStore.setState({ game: g, playCard });
   const user = userEvent.setup();
   render(<HandTray playerIdx={0} />);
-  await user.click(screen.getByRole('button', { name: /hand, 1 card/i }));
   const card = await screen.findByRole('button', { name: /play lightning bolt/i });
   await vi.waitFor(() => expect(card.className).not.toContain('hand-card--poor'));
   await user.click(card);
@@ -258,7 +282,6 @@ test('mana a payment already spent does not pay twice', async () => {
   useAppStore.setState({ game: g, playCard });
   const user = userEvent.setup();
   render(<HandTray playerIdx={0} />);
-  await user.click(screen.getByRole('button', { name: /hand, 1 card/i }));
   const card = await screen.findByRole('button', { name: /play lightning bolt/i });
   await vi.waitFor(() => expect(card.className).toContain('hand-card--poor'));
   await user.click(card);
@@ -284,7 +307,6 @@ test('a two-part card lights up at one face’s cost, not the sum of both', asyn
   useAppStore.setState({ game: g, playCard });
   const user = userEvent.setup();
   render(<HandTray playerIdx={0} />);
-  await user.click(screen.getByRole('button', { name: /hand, 1 card/i }));
   const card = await screen.findByRole('button', { name: /play bonecrusher giant/i });
   await new Promise((r) => setTimeout(r, 50)); // records in
   expect(card.className).not.toContain('hand-card--poor'); // {2}{R} on three Mountains
@@ -306,7 +328,6 @@ test('Play anyway waits behind the hold for the cards the gate cannot read', asy
   useAppStore.setState({ game: g, playCard });
   const user = userEvent.setup();
   render(<HandTray playerIdx={0} />);
-  await user.click(screen.getByRole('button', { name: /hand, 1 card/i }));
   const card = await screen.findByRole('button', { name: /play lightning bolt/i });
   await user.pointer({ keys: '[MouseLeft>]', target: card });
   await new Promise((r) => setTimeout(r, 650));
@@ -347,7 +368,9 @@ async function sleep(ms: number) {
  * shows). What is on the battlefield may still be on its way: wait for the look you expect. */
 async function oneCardHand(user: ReturnType<typeof userEvent.setup>, name: RegExp) {
   render(<HandTray playerIdx={0} />);
-  await user.click(screen.getByRole('button', { name: /hand, 1 card/i }));
+  // Off the big board (someone else's turn) the hand is a pill: a tap fans it.
+  const pill = screen.queryByRole('button', { name: /^hand, \d+ cards?$/i });
+  if (pill) await user.click(pill);
   const card = await screen.findByRole('button', { name });
   await vi.waitFor(() => expect(card.querySelector('img')).not.toBeNull());
   return card;
@@ -622,7 +645,8 @@ test('a dead phone cannot wedge the hand: the hint expands on demand', async () 
   const user = userEvent.setup();
   render(<HandTray playerIdx={0} />);
   await user.click(screen.getByRole('button', { name: /show the hand here anyway/i }));
-  expect(screen.getByRole('button', { name: /hand, 7 cards/i })).toBeInTheDocument();
+  // The tray is back, as this seat's tray is on the big board: open.
+  expect(screen.getAllByRole('button', { name: /^play / })).toHaveLength(7);
 });
 
 test('the device that claimed the seat keeps its own tray despite handHeld', () => {
@@ -633,5 +657,6 @@ test('the device that claimed the seat keeps its own tray despite handHeld', () 
     online: { code: 'KQ7M2X', status: { kind: 'live', peers: 2 }, mySeat: 0 },
   });
   render(<HandTray playerIdx={0} />);
-  expect(screen.getByRole('button', { name: /hand, 7 cards/i })).toBeInTheDocument();
+  expect(screen.queryByTitle(/phone/i)).not.toBeInTheDocument();
+  expect(screen.getAllByRole('button', { name: /^play / })).toHaveLength(7);
 });

@@ -225,7 +225,7 @@ export function moveCard(
   iid: string,
   from: CardZone,
   to: CardZone,
-  opts?: { pos?: 'top' | 'bottom'; row?: 'front' | 'lands' },
+  opts?: { pos?: 'top' | 'bottom'; row?: CardInstance['row'] },
 ): GameState {
   return updateSeat(g, seat, (cards) => {
     const source = cards[from];
@@ -462,6 +462,35 @@ export function countLandPlay(g: GameState, seat: number): GameState {
     ...cards,
     landPlays: { turn: g.turnNumber, active: g.activePlayerIndex, n: landsPlayed(g, seat) + 1 },
   }));
+}
+
+/** Has this seat drawn from its library in the turn the game is in now?
+ * A stamp left by any other turn is stale and reads no. */
+export function hasDrawn(g: GameState, seat: number): boolean {
+  const stamp = g.players[seat]?.cards?.drew;
+  return !!stamp && stamp.turn === g.turnNumber && stamp.active === g.activePlayerIndex;
+}
+
+/** The seat has drawn this turn. The caller runs it in the same op that
+ * moves the cards, so undo and a rebase take both or neither. */
+export function markDrew(g: GameState, seat: number): GameState {
+  if (hasDrawn(g, seat)) return g;
+  return updateSeat(g, seat, (cards) => ({
+    ...cards,
+    drew: { turn: g.turnNumber, active: g.activePlayerIndex },
+  }));
+}
+
+/** Is the table waiting for this seat's draw for the turn? Its own turn,
+ * a library to draw from, and no draw yet — except the very first turn of
+ * a two-player game, whose player skips it (CR 103.8a; in a pod everyone
+ * draws). The game opens on seat 0 (createGame). */
+export function owesDraw(g: GameState, seat: number): boolean {
+  const cards = g.players[seat]?.cards;
+  if (!cards || g.activePlayerIndex !== seat || g.players[seat].eliminated) return false;
+  if (cards.library.length === 0 || hasDrawn(g, seat)) return false;
+  if (g.turnNumber === 1 && seat === 0 && g.players.length === 2) return false;
+  return true;
 }
 
 /** The synced announcement ring: dedup by id (rebases re-append), cap 30. */

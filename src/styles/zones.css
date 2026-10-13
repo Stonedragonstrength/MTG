@@ -648,7 +648,23 @@ button.term {
   flex: 0 0 auto;
 }
 
+/* The stack is a frame: the card face in it is the button (tap = use one),
+   and the tapped count on its corner is a second one (tap = untap one). */
+.land-face {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: none;
+  border-radius: inherit;
+  background: none;
+  overflow: hidden;
+}
+
 .land-stack img {
+  display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -922,6 +938,22 @@ input[type='range'] {
   font-size: 0.65rem;
 }
 
+/* On a land stack the count is the way back from a tap made by mistake: a
+   button of its own, big enough for a finger. */
+.tapped-badge--undo {
+  top: 0;
+  left: 0;
+  min-width: 30px;
+  min-height: 26px;
+  padding: 2px 5px;
+  border: 1px solid rgba(200, 168, 75, 0.7);
+  border-radius: 5px 0 6px 0;
+  background: rgba(0, 0, 0, 0.86);
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
 /* Board creatures moonlighting as mana sources wear their color(s). */
 .mana-badge {
   position: absolute;
@@ -1178,7 +1210,39 @@ input[type='range'] {
   }
 }
 
+/* The turn's draw is waiting: the library breathes and lifts until the
+   card is drawn. The first thing a turn asks for should be the loudest
+   thing on the board. */
+.dock-library--draw {
+  border-color: var(--accent);
+  animation: draw-call 1.3s ease-in-out infinite;
+}
+
+@keyframes draw-call {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 0 rgba(200, 168, 75, 0.55),
+      0 0 12px 2px rgba(200, 168, 75, 0.5);
+    transform: none;
+  }
+  50% {
+    box-shadow:
+      0 0 0 7px rgba(200, 168, 75, 0.22),
+      0 0 30px 10px rgba(200, 168, 75, 0.8);
+    transform: translateY(-4px) scale(1.03);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  /* Still lit, just still. */
+  .dock-library--draw {
+    animation: none;
+    box-shadow:
+      0 0 0 4px rgba(200, 168, 75, 0.35),
+      0 0 22px 6px rgba(200, 168, 75, 0.7);
+  }
+
   .thumb,
   .land-stack,
   .thumb img,
@@ -2968,11 +3032,36 @@ input[type='checkbox'] {
   color: var(--accent);
 }
 
+/* Permanents that are neither creatures nor mana: a row of their own. */
+.bf-side {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
 .zone-dock {
   display: flex;
   gap: 6px;
   align-items: flex-start;
   flex: 0 0 auto;
+}
+
+/* The small piles are a group only where the big board says so. */
+.dock-minis {
+  display: contents;
+}
+
+/* So is the header's leading group (who, and their chips). */
+.zone-lead {
+  display: contents;
+}
+
+/* And the shelf a deck seat keeps its lands, side cards and tokens on:
+   a box on the big board, nothing but its parts on a bar. */
+.zone-shelf,
+.token-shelf {
+  display: contents;
 }
 
 .dock-pile {
@@ -3016,6 +3105,26 @@ input[type='checkbox'] {
   font-weight: 700;
 }
 
+/* The turn's draw has not been made: the library says so, in words. (The
+   glow that goes with it is in the animation layer.) */
+.dock-draw {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 2px 0;
+  background: var(--accent);
+  color: #141410;
+  /* Sized for a small pile; the big library on the board writes it large. */
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-indent: 0.08em; /* the last letter's spacing would push it off centre */
+  text-align: center;
+  text-transform: uppercase;
+}
+
 .dock-empty {
   display: flex;
   align-items: center;
@@ -3038,6 +3147,14 @@ input[type='checkbox'] {
   border-radius: 999px;
   padding: 6px 16px;
   font-weight: 700;
+}
+
+/* The fanned hand's fold button wears the same count the pill does. */
+.hand-fold {
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .hand-fan {
@@ -3065,6 +3182,11 @@ input[type='checkbox'] {
 }
 
 .hand-card img { width: 100%; height: 100%; object-fit: cover; }
+
+/* A card's place in the fan: a box only on the big board (see there). */
+.hand-slot {
+  display: contents;
+}
 
 .hand-card--selected {
   outline: 3px solid var(--accent);
@@ -3120,123 +3242,503 @@ input[type='checkbox'] {
   min-width: 0;
 }
 
-/* The focused seat is a grid so the token shelf can share the lands'
-   line: header / front row (the flexible middle) / lands + tokens / hand.
-   The front row sizes its cards to fill what it gets (useFitCards writes
-   --card-h); the hand reads at double size. */
+/* The focused seat is a grid. The whole top is the FIELD, for creatures:
+   BattlefieldRow sizes them to fill it (useFitCards writes --card-h).
+   Under it one slim status line and the SHELF — lands and mana rocks, the
+   other permanents, tokens — which never grows up into the field: its
+   cards narrow together, down to a floor, and past that the shelf scrolls
+   sideways. At the player's own edge the hand, and at its end the piles:
+   graveyard, exile and the commanders small, the library as large as a
+   hand card (it is where the turn's draw is made).
+
+   .bf-row and (with the hand open) .zone-dock are boxes only on a
+   collapsed bar; here they dissolve (display: contents) and this grid
+   places their parts. The combat bar's row is always there: empty (no
+   fight, or not this seat's move) it has no height. */
 .zone--cards.zone--focused {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) fit-content(40%);
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto auto;
   grid-template-areas:
     'header header'
-    'field field'
-    'lands tokens'
-    'hand hand';
+    'combat combat'
+    'field  field'
+    'status dock'
+    'shelf  dock'
+    'hand   hand';
+  gap: 4px 8px;
   align-items: stretch;
   justify-items: stretch;
 }
 
-.zone--cards.zone--focused > .zone-header { grid-area: header; }
-.zone--cards.zone--focused > .bf-row { grid-area: field; }
-.zone--cards.zone--focused > .lands-row { grid-area: lands; }
-.zone--cards.zone--focused > .board-strip { grid-area: tokens; }
-.zone--cards.zone--focused > .hand-tray { grid-area: hand; }
-
-/* A fight adds one line under the header, for the combat bar. Only while
-   this seat acts in it (PlayerZone marks the zone): an empty row would cost
-   every other turn a gap. The front row gives the room, as the flexible one. */
-.zone--cards.zone--focused.zone--combat {
-  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+/* The hand open (as it is whenever a seat takes the big board): the
+   library stands at the end of the hand's row, the small piles above it. */
+.zone--cards.zone--focused:has(> .hand-tray > .hand-fan) {
   grid-template-areas:
     'header header'
     'combat combat'
-    'field field'
-    'lands tokens'
-    'hand hand';
+    'field  field'
+    'status minis'
+    'shelf  minis'
+    'hand   library';
 }
 
+/* A seat too narrow for one shelf line (a tablet held upright, a side
+   seat; PlayerZone measures it): the shelf takes the full width and two
+   lines, and the small piles stand at the end of its second. */
+.zone--cards.zone--focused.zone--narrow {
+  grid-template-areas:
+    'header header'
+    'combat combat'
+    'field  field'
+    'status status'
+    'shelf  shelf'
+    'hand   hand';
+}
+
+.zone--cards.zone--focused.zone--narrow:has(> .hand-tray > .hand-fan) {
+  grid-template-areas:
+    'header header'
+    'combat combat'
+    'field  field'
+    'status status'
+    'shelf  shelf'
+    'hand   library';
+}
+
+.zone--cards.zone--focused > .zone-header { grid-area: header; }
 .zone--cards.zone--focused > .combat-bar { grid-area: combat; }
+.zone--cards.zone--focused > .bf-row { display: contents; }
+.zone--cards.zone--focused .bf-cards { grid-area: field; }
+.zone--cards.zone--focused > .lands-row { grid-area: status; }
+.zone--cards.zone--focused > .zone-shelf { grid-area: shelf; }
+.zone--cards.zone--focused > .hand-tray { grid-area: hand; }
 
-.zone--cards.zone--focused .bf-row {
-  min-height: 0;
-  align-items: stretch;
-  padding: 4px 6px;
+/* One dark panel behind the status line and the shelf, so the field ends
+   where the player's own things begin. */
+.zone--cards.zone--focused::before {
+  content: '';
+  grid-row: status-start / shelf-end;
+  grid-column: 1 / -1;
+  border-radius: 10px;
+  background: rgba(8, 8, 12, 0.58);
+  pointer-events: none;
 }
 
+/* ---- the field ---- */
 .zone--cards.zone--focused .bf-cards {
+  min-width: 0;
   min-height: 0;
-  align-content: flex-start;
+  /* Room for a tapped card's swung-out corners (useFitCards leaves the
+     padding out of the box it fills): nothing in here may overflow and
+     grow a scroll bar across the board. */
+  padding: 10px 14px;
+  justify-content: center;
+  align-content: safe center;
+  overflow-x: hidden;
   overflow-y: auto;
+  scrollbar-width: none;
 }
 
-.zone--cards.zone--focused .vcard {
+.zone--cards.zone--focused .bf-cards::-webkit-scrollbar,
+.zone--cards.zone--focused .zone-shelf::-webkit-scrollbar,
+.zone--cards.zone--focused .board-strip::-webkit-scrollbar,
+.zone--cards.zone--focused .hand-cards::-webkit-scrollbar,
+.zone--cards.zone--focused .mana-summary::-webkit-scrollbar {
+  display: none;
+}
+
+.zone--cards.zone--focused .bf-cards .vcard {
   flex: 0 0 auto;
   height: var(--card-h, 134px);
   width: auto;
   aspect-ratio: 63 / 88;
 }
 
-.zone--cards.zone--focused .zone-dock {
-  align-self: flex-start;
-}
-
-.zone--cards.zone--focused .dock-pile {
-  width: 62px;
-  height: 87px;
-}
-
-/* Tokens: one compact shelf beside the lands instead of the whole middle. */
-.zone--cards.zone--focused .board-strip {
-  flex-wrap: nowrap;
-  align-items: center;
-  overflow-x: auto;
-  overflow-y: hidden;
+/* ---- the status line: what the seat has and can still spend ---- */
+.zone--cards.zone--focused > .lands-row {
+  position: relative; /* above the panel behind it */
+  width: auto;
   min-width: 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-/* Lands on a single line when there is room: count, pips, ready and
-   untap lead; the stacks take the rest; the dice still rides the end.
-   The stacks keep a floor of three and WRAP beneath the readout rather
-   than shrink — as the only flexible item they used to collapse to
-   nothing on a side seat once tokens and an untap button shared the line. */
-.zone--cards.zone--focused .lands-row {
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 8px;
-  min-width: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .zone--cards.zone--focused .mana-summary {
-  display: contents;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 34px;
+  padding: 2px 10px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
 }
 
-.zone--cards.zone--focused .lands-total,
-.zone--cards.zone--focused .mana-ready,
-.zone--cards.zone--focused .turn-readouts,
-.zone--cards.zone--focused .untap-btn,
-.zone--cards.zone--focused .attack-btn {
+.zone--cards.zone--focused .mana-summary > * {
   flex: 0 0 auto;
   white-space: nowrap;
 }
 
-.zone--cards.zone--focused .lands-stacks {
-  order: 1;
-  flex: 1 1 204px;
-  min-width: 0;
-  min-height: 90px;
+.zone--cards.zone--focused .turn-readouts {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+
+.zone--cards.zone--focused .attack-btn {
+  min-height: 30px;
+  padding: 2px 10px;
 }
 
 .zone--cards.zone--focused .zone-dice {
-  order: 2;
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  font-size: 0.9rem;
 }
+
+/* ---- the shelf: lands and rocks, other permanents, tokens ----
+   Each part knows how many cards it holds (--n, set by the component that
+   draws it; the token shelf also --c, its columns of chips). From that
+   come its floor (36px cards, 6px apart) and its full size (64px cards).
+   Parts start at their floor and grow together, a card's worth of room
+   per card, so every card on the shelf is the same size at any width.
+   The shelf wraps to a second line only when the parts do not fit even at
+   their floors — a crowded late-game board — and scrolls only past that. */
+.zone--cards.zone--focused .zone-shelf {
+  position: relative; /* above the panel behind it */
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  min-width: 0;
+  min-height: 98px;
+  padding: 4px 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.zone--cards.zone--focused .lands-stacks,
+.zone--cards.zone--focused .bf-side {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  flex: var(--n, 0) 1 calc(var(--n, 0) * 42px - 6px);
+  width: auto;
+  min-width: 0;
+  max-width: calc(var(--n, 0) * 70px - 6px);
+  min-height: 0;
+  padding: 0;
+  border: none;
+  overflow: visible;
+}
+
+/* A token stack is its card and, beside it, one more / how many / one
+   fewer; the chips after the stacks never shrink. */
+.zone--cards.zone--focused .token-shelf {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  flex: var(--n, 0) 1 calc(var(--n, 0) * 75px + var(--c, 1) * 46px);
+  min-width: 0;
+  max-width: calc(var(--n, 0) * 103px + var(--c, 1) * 46px);
+}
+
+.zone--cards.zone--focused .board-strip {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 0px;
+  width: auto;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.zone--cards.zone--focused .lands-stacks:empty,
+.zone--cards.zone--focused .board-strip:empty {
+  display: none;
+}
+
+/* A hairline where one kind of thing ends and the next begins. */
+.zone--cards.zone--focused .zone-shelf > * + * {
+  box-shadow: -7px 0 0 -6px rgba(255, 255, 255, 0.14);
+}
+
+/* Every card on the shelf is the same small card. */
+.zone--cards.zone--focused .land-stack,
+.zone--cards.zone--focused .bf-side .vcard,
+.zone--cards.zone--focused .board-strip .thumb {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 36px;
+  max-width: 64px;
+  height: auto;
+  aspect-ratio: 63 / 88;
+}
+
+.zone--cards.zone--focused .board-strip .board-item {
+  flex: 1 1 0;
+  flex-direction: row;
+  align-items: center;
+  gap: 3px;
+  min-width: 69px;
+  max-width: 97px;
+}
+
+.zone--cards.zone--focused .board-strip .thumb-name,
+.zone--cards.zone--focused .board-strip .stack-remove,
+.zone--cards.zone--focused .board-strip .pick-job {
+  display: none;
+}
+
+.zone--cards.zone--focused .board-strip .count-controls {
+  flex: 0 0 30px;
+  flex-direction: column-reverse;
+  align-items: stretch;
+  gap: 2px;
+}
+
+.zone--cards.zone--focused .board-strip .count-controls button {
+  width: 30px;
+  height: 28px;
+  padding: 0;
+  line-height: 1;
+}
+
+.zone--cards.zone--focused .board-strip .count-controls .count-badge,
+.zone--cards.zone--focused .board-strip .count-controls .pick-count {
+  width: auto;
+  min-width: 0;
+  font-size: 0.78rem;
+  line-height: 1.2;
+  text-align: center;
+}
+
+/* While the seat picks, the number between the two buttons is how many
+   copies are going in, not how many there are: a sword says so where the
+   word has no room. */
+.zone--cards.zone--focused .board-strip .count-controls .pick-count::before {
+  content: '⚔';
+  margin-right: 1px;
+  font-size: 0.7rem;
+  opacity: 0.85;
+}
+
+/* Narrow seats have height to spare and no width. The lands (and rocks)
+   always have a line to themselves, there from the first turn on so the
+   board does not jump when a land arrives. The side shelf and the tokens
+   share the next one while their cards can stay a comfortable size (56px:
+   that, not the floor, is where they start from here), and take a line
+   each when they cannot. The small piles stand over the far corner of the
+   last line, whichever it is. */
+.zone--cards.zone--focused.zone--narrow .zone-shelf {
+  overflow-x: hidden;
+}
+
+.zone--cards.zone--focused.zone--narrow .lands-stacks,
+.zone--cards.zone--focused.zone--narrow .lands-stacks:empty {
+  display: flex;
+  flex: 0 0 100%;
+  max-width: none;
+  min-height: 90px;
+}
+
+.zone--cards.zone--focused.zone--narrow .bf-side {
+  flex-basis: calc(var(--n, 0) * 62px - 6px);
+  box-shadow: none;
+}
+
+/* The token shelf is always last, so it is the one that keeps the piles'
+   corner clear: a margin, which counts when the line decides to wrap. */
+.zone--cards.zone--focused.zone--narrow .token-shelf {
+  flex-basis: calc(var(--n, 0) * 95px + var(--c, 1) * 46px);
+  min-height: 90px;
+  margin-right: var(--piles-w, 240px);
+  box-shadow: none;
+}
+
+.zone--cards.zone--focused.zone--narrow:has(> .hand-tray > .hand-fan) .zone-shelf {
+  --piles-w: 164px;
+}
+
+/* One tap, one token: the tokens this seat's deck makes, two rows of art
+   tiles at the shelf's end, and a "+" for anything else. */
+.token-chips {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-rows: repeat(2, 42px);
+  grid-auto-flow: column;
+  grid-auto-columns: 42px;
+  gap: 4px;
+}
+
+.token-chip {
+  position: relative;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #1d1d24;
+  border: 1px solid #4a4a58;
+}
+
+.token-chip img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  opacity: 0.85;
+}
+
+.token-chip-name {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 1px 2px;
+  background: rgba(0, 0, 0, 0.72);
+  font-family: var(--font-body);
+  font-size: 0.52rem;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.token-chip-plus {
+  position: absolute;
+  top: 0;
+  right: 2px;
+  font-size: 0.85rem;
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--accent);
+  text-shadow: 0 0 3px #000, 0 0 3px #000;
+}
+
+.token-chip--more {
+  border-style: dashed;
+}
+
+.token-chip--more .token-chip-plus {
+  position: static;
+  display: block;
+  font-size: 1.15rem;
+  text-shadow: none;
+}
+
+.token-chip--more .token-chip-name {
+  position: static;
+  background: none;
+  color: #8c8c99;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* ---- the piles ---- */
+
+/* With the hand folded they are one row of small piles at the shelf's end
+   (on a narrow seat: over the end of its second line). */
+.zone--cards.zone--focused .zone-dock {
+  grid-area: dock;
+  position: relative; /* above the panel behind it */
+  align-self: end;
+  justify-self: end;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 4px 8px 6px 0;
+}
+
+.zone--cards.zone--focused.zone--narrow .zone-dock {
+  grid-area: shelf;
+}
+
+.zone--cards.zone--focused .dock-pile {
+  flex: 0 0 auto;
+  width: 52px;
+  height: 73px;
+}
+
+/* With the hand open the dock dissolves: the small piles stand at the end
+   of the shelf, the library at the end of the hand's row. */
+.zone--cards.zone--focused:has(> .hand-tray > .hand-fan) .zone-dock {
+  display: contents;
+}
+
+.zone--cards.zone--focused:has(> .hand-tray > .hand-fan) .dock-minis {
+  grid-area: minis;
+  position: relative; /* above the panel behind it */
+  align-self: end;
+  justify-self: end;
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  width: 156px;
+  padding: 0 0 6px;
+}
+
+.zone--cards.zone--focused.zone--narrow:has(> .hand-tray > .hand-fan) .dock-minis {
+  grid-area: shelf;
+  margin-right: 0;
+}
+
+.zone--cards.zone--focused:has(> .hand-tray > .hand-fan) .dock-minis .dock-pile {
+  flex: 1 1 0;
+  min-width: 34px;
+  max-width: 62px;
+  width: auto;
+  height: auto;
+  aspect-ratio: 63 / 88;
+}
+
+.zone--cards.zone--focused:has(> .hand-tray > .hand-fan) .dock-library {
+  grid-area: library;
+  align-self: end;
+  justify-self: end;
+  width: 156px;
+  height: 218px;
+  border-width: 2px;
+  border-radius: 9px;
+}
+
+.zone--cards.zone--focused:has(> .hand-tray > .hand-fan) .dock-library .dock-count {
+  bottom: 6px;
+  right: 6px;
+  padding: 1px 9px;
+  font-size: 1rem;
+}
+
+.zone--cards.zone--focused:has(> .hand-tray > .hand-fan) .dock-library .dock-draw {
+  padding: 5px 0;
+  font-size: 1.05rem;
+  letter-spacing: 0.22em;
+  text-indent: 0.22em;
+}
+
+/* ---- the hand ---- */
 
 /* Hand tools stand beside the cards, not under them. */
 .zone--cards.zone--focused .hand-tray {
   display: flex;
   justify-content: center;
+  min-width: 0;
 }
 
 .zone--cards.zone--focused .hand-fan {
@@ -3256,56 +3758,98 @@ input[type='checkbox'] {
   max-width: 150px;
 }
 
+/* A hand held like a hand: every card is in sight at once. While there is
+   room they stand side by side; past that each one slides under the next
+   and shows its left edge (the name, the art), the last one whole. A slot
+   is the part of a card that shows; the card itself keeps its full size,
+   and the cards after it lie over the rest. Only a very full hand, every
+   card down to its narrowest strip, scrolls. */
 .zone--cards.zone--focused .hand-cards {
   flex: 1 1 0;
   min-width: 0;
+  gap: 0;
   justify-content: safe center;
+  scrollbar-width: none;
 }
 
-.zone--cards.zone--focused .board-strip .thumb,
-.zone--cards.zone--focused .board-strip .add-tile:not(.add-tile--centered) {
-  width: 64px;
-  height: 90px;
-}
-
-.zone--cards.zone--focused .add-tile--centered {
-  position: static;
-  transform: none;
-  width: 54px;
-  height: 54px;
-  font-size: 1.3rem;
-}
-
-/* The shelf is for tokens here — say so, the lands line sits right beside it. */
-.zone--cards.zone--focused .board-strip .add-tile {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  line-height: 1;
-}
-
-.zone--cards.zone--focused .board-strip .add-tile::after {
-  content: 'token';
-  font-size: 0.55rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: #8c8c99;
-}
-
-.zone--cards.zone--focused .land-stack {
-  width: 64px;
-  height: 90px;
-}
-
-.zone--cards.zone--focused .hand-card {
-  width: 156px;
+.zone--cards.zone--focused .hand-slot {
+  display: block;
+  position: relative;
+  flex: 1 1 0;
+  min-width: 40px;
+  max-width: 164px;
   height: 218px;
 }
 
-.zone--cards.zone--focused .hand-cards {
+.zone--cards.zone--focused .hand-slot:last-child {
+  flex: 0 0 156px;
+}
+
+.zone--cards.zone--focused .hand-card {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 156px;
+  height: 218px;
+  box-shadow: -4px 0 10px rgba(0, 0, 0, 0.55);
+}
+
+/* A card that cannot be played right now is dimmed — its picture, not the
+   card: a see-through card would show the one lying under it. */
+.zone--cards.zone--focused .hand-card--poor {
+  opacity: 1;
+  filter: none;
+}
+
+.zone--cards.zone--focused .hand-card--poor img,
+.zone--cards.zone--focused .hand-card--poor .vcard-placeholder {
+  opacity: 0.45;
+  filter: saturate(0.4);
+}
+
+/* ---- the header: Pass turn sits in the middle of the board ---- */
+
+/* The hub's own line: the turn on one side, Undo and More on the other,
+   in two columns of equal width — so the button between them is centred. */
+.zone--cards.zone--focused .header-hub .hub-main {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+}
+
+.zone--cards.zone--focused .header-hub .hub-turn {
+  justify-self: end;
+}
+
+.zone--cards.zone--focused .header-hub .hub-actions {
+  justify-self: start;
+}
+
+/* A wide board keeps the header on one line: who (and their chips) at one
+   end, life at the other, in two columns of equal width with the hub
+   between them. */
+.zone--cards.zone--focused:not(.zone--narrow) .zone-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+}
+
+.zone--cards.zone--focused:not(.zone--narrow) .zone-lead {
+  grid-column: 1;
+  display: flex;
+  align-items: center;
   gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.zone--cards.zone--focused:not(.zone--narrow) .header-hub {
+  grid-column: 2;
+}
+
+.zone--cards.zone--focused:not(.zone--narrow) .lifewrap {
+  grid-column: 3;
+  justify-self: end;
 }
 
 /* Collapsed seats keep one slim line: mini cards, mini piles. The cards
@@ -3375,6 +3919,31 @@ input[type='checkbox'] {
 .focus-mode .zone--cards:not(.zone--focused) .dock-count {
   font-size: 0.55rem;
   padding: 0 3px;
+}
+
+/* The side shelf rides the bar as more minis, after the creatures; it
+   gives way before they do. A mini library has no room for the word. */
+.focus-mode .zone--cards:not(.zone--focused) .bf-side {
+  flex: 0 1 auto;
+  flex-wrap: nowrap;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.focus-mode .zone--cards:not(.zone--focused) .dock-draw,
+.focus-mode .zone--cards:not(.zone--focused) .token-chips {
+  display: none;
+}
+
+/* The bar reads as it always has: cards, tokens, then the lands readout,
+   and the hand pill at the very end. */
+.focus-mode .zone--cards:not(.zone--focused) > .lands-row {
+  order: 2;
+}
+
+.focus-mode .zone--cards:not(.zone--focused) > .hand-tray {
+  order: 3;
 }
 
 .focus-mode .zone--cards:not(.zone--focused) .hand-pill {
@@ -3819,6 +4388,32 @@ input[type='checkbox'] {
   width: 92px;
   height: 128px;
 }
+
+/* A phone is too narrow for the creatures and the piles side by side: the
+   piles take a line of their own under them. */
+.hs-board .bf-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.hs-board .zone-dock {
+  align-self: flex-end;
+}
+
+/* Its side shelf: a second, smaller row under the creatures and the piles. */
+.hs-board .bf-side {
+  flex-wrap: nowrap;
+  gap: 6px;
+  padding: 4px 0;
+  overflow-x: auto;
+}
+
+.hs-board .bf-side .vcard {
+  width: 56px;
+  height: 78px;
+}
+
 
 /* A fight that involves this seat: one line, and a tap on it shows the table
    (there is no picking on the phone's hand view). */

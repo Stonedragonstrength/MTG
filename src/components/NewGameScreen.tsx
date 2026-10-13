@@ -285,6 +285,7 @@ export default function NewGameScreen({ onBack }: Props) {
       {hostError && <p className="hint join-error">{hostError}</p>}
       <div className="modal-actions">
         <button
+          className="primary"
           disabled={seated.length < 2 || hostBusy || needsADeck}
           onClick={() => void start()}
         >

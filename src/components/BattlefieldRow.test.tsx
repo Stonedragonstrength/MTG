@@ -114,24 +114,62 @@ function gameWithForest() {
   return g;
 }
 
-test('tapping the pedestal casts the commander when the mana is there', async () => {
+/** A deliberate tap, a moment after a sheet opened: the commander's card and the
+ * X sheet both open under the finger and take no tap as an answer for their
+ * first moment on screen (they go by when the tap happened). */
+function tapLater(el: HTMLElement) {
+  const tap = new MouseEvent('click', { bubbles: true, cancelable: true });
+  Object.defineProperty(tap, 'timeStamp', { value: Date.now() + 1000 });
+  fireEvent(el, tap);
+}
+
+test('a tap on the pedestal brings the commander up to read; Cast on that card casts it', async () => {
   useAppStore.setState({ game: gameWithForest() }); // Ashaya costs {1} in this fixture
   const user = userEvent.setup();
   render(<BattlefieldRow playerIdx={0} />);
-  const pedestal = screen.getByLabelText(/commander Ashaya/i);
-  const { waitFor } = await import('@testing-library/react');
-  await waitFor(() => expect(pedestal.querySelector('img')).not.toBeNull()); // records in
+  const pedestal = await screen.findByLabelText('commander Ashaya'); // records in: the Forest pays for it
   await user.click(pedestal);
+  // The tap itself casts nothing: a stray one costs nothing.
+  expect(useAppStore.getState().castCommander).not.toHaveBeenCalled();
+  expect(await screen.findByRole('heading', { name: 'Ashaya' })).toBeInTheDocument();
+  expect(screen.getByRole('img', { name: 'Ashaya' })).toBeInTheDocument(); // the card, large
+  tapLater(screen.getByRole('button', { name: 'Cast' }));
   expect(useAppStore.getState().castCommander).toHaveBeenCalledWith(0, useAppStore.getState().game!.players[0].cards!.command[0].iid);
+  await waitFor(() => expect(screen.queryByRole('heading', { name: 'Ashaya' })).not.toBeInTheDocument());
 });
 
-test('a commander you cannot pay for asks before casting', async () => {
+test('the second half of a double tap on the pedestal does not land on Cast', async () => {
+  useAppStore.setState({ game: gameWithForest() });
+  const user = userEvent.setup();
+  render(<BattlefieldRow playerIdx={0} />);
+  const pedestal = await screen.findByLabelText('commander Ashaya');
+  await user.click(pedestal);
+  await user.click(await screen.findByRole('button', { name: 'Cast' })); // at once: still the same gesture
+  expect(useAppStore.getState().castCommander).not.toHaveBeenCalled();
+  expect(screen.getByRole('heading', { name: 'Ashaya' })).toBeInTheDocument(); // still open, still asking
+});
+
+test('a hold on the pedestal opens the command zone', async () => {
+  useAppStore.setState({ game: gameWithForest() });
+  render(<BattlefieldRow playerIdx={0} />);
+  const pedestal = await screen.findByLabelText('commander Ashaya');
+  fireEvent.pointerDown(pedestal);
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 650));
+  });
+  fireEvent.pointerUp(pedestal);
+  expect(await screen.findByText(/command zone/i, { selector: 'h2' })).toBeInTheDocument();
+  expect(useAppStore.getState().castCommander).not.toHaveBeenCalled();
+});
+
+test('a commander you cannot pay for says so on its card, and Cast anyway is the way round', async () => {
   const user = userEvent.setup();
   render(<BattlefieldRow playerIdx={0} />); // no lands at all
   const pedestal = await screen.findByLabelText(/commander Ashaya — not enough mana/i);
   await user.click(pedestal);
   expect(useAppStore.getState().castCommander).not.toHaveBeenCalled();
-  await user.click(await screen.findByRole('button', { name: /cast anyway/i }));
+  expect(await screen.findByText(/not enough mana ready/i)).toBeInTheDocument();
+  tapLater(screen.getByRole('button', { name: 'Cast anyway' }));
   expect(useAppStore.getState().castCommander).toHaveBeenCalledWith(0, useAppStore.getState().game!.players[0].cards!.command[0].iid);
 });
 
@@ -146,15 +184,83 @@ test('commander tax counts against the mana on the table', async () => {
 });
 
 test('battlefield cards render with art and tap to tap', async () => {
-  const g = seededGame();
-  const iid = g.players[0].cards!.hand[0].iid;
-  const { moveCard } = await import('../lib/cards');
-  useAppStore.setState({ game: moveCard(g, 0, iid, 'hand', 'battlefield', { row: 'front' }) });
+  useAppStore.setState({
+    game: gameWith([{ iid: 'b1', cardId: 'c-bear', name: 'Grizzly Bears', row: 'front' }]),
+  });
   const user = userEvent.setup();
   render(<BattlefieldRow playerIdx={0} />);
   const card = (await screen.findAllByRole('button', { name: /^tap / }))[0];
+  await waitFor(() => expect(card.querySelector('img')).not.toBeNull());
   await user.click(card);
-  expect(useAppStore.getState().tapVirtualCard).toHaveBeenCalledWith(0, iid);
+  expect(useAppStore.getState().tapVirtualCard).toHaveBeenCalledWith(0, 'b1');
+});
+
+test('the field is for creatures: lands, mana rocks and other permanents are drawn elsewhere', async () => {
+  useAppStore.setState({
+    game: gameWith([
+      { iid: 'b1', cardId: 'c-bear', name: 'Grizzly Bears', row: 'front' },
+      { iid: 's1', cardId: 'c-sol', name: 'Sol Ring', row: 'front' }, // the lands row draws it
+      { iid: 'v1', cardId: 'c-fervor', name: 'Fervor', row: 'front' }, // the side shelf draws it
+      { iid: 'f1', cardId: 'c-forest', name: 'Forest', row: 'lands' },
+    ]),
+  });
+  const { container } = render(<BattlefieldRow playerIdx={0} />);
+  const bear = screen.getByRole('button', { name: 'tap Grizzly Bears' });
+  await waitFor(() => expect(bear.querySelector('img')).not.toBeNull());
+  await waitFor(() => expect(container.querySelectorAll('.bf-cards .vcard')).toHaveLength(1));
+  expect(screen.queryByRole('button', { name: 'tap Sol Ring' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'tap Fervor' })).not.toBeInTheDocument();
+});
+
+test('a card this device cannot read stays in the field: nothing is ever hidden', async () => {
+  useAppStore.setState({
+    game: gameWith([{ iid: 'u1', cardId: 'c-unknown', name: 'Mystery Relic', row: 'front' }]),
+  });
+  render(<BattlefieldRow playerIdx={0} />);
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 50)); // the lookup comes back empty
+  });
+  expect(screen.getByRole('button', { name: 'tap Mystery Relic' })).toBeInTheDocument();
+});
+
+// ---- the turn's draw ----
+
+test('on its own turn the library calls for the draw until the seat has drawn', async () => {
+  const g = seededGame();
+  // Turn 2: the very first turn of a two-player game has no draw.
+  useAppStore.setState({ game: { ...g, turnNumber: 2 } });
+  const first = render(<BattlefieldRow playerIdx={0} />);
+  const pile = screen.getByLabelText('library, 4 cards — draw for the turn');
+  expect(pile.className).toContain('dock-library--draw');
+  expect(pile).toHaveTextContent(/draw/i);
+  first.unmount();
+
+  const seat = g.players[0].cards!;
+  g.players[0] = { ...g.players[0], cards: { ...seat, drew: { turn: 2, active: 0 } } };
+  useAppStore.setState({ game: { ...g, turnNumber: 2 } });
+  render(<BattlefieldRow playerIdx={0} />);
+  const quiet = screen.getByLabelText('library, 4 cards');
+  expect(quiet.className).not.toContain('dock-library--draw');
+  expect(quiet).not.toHaveTextContent(/draw/i);
+});
+
+test('nobody is called to draw on someone else’s turn, on the opening turn of a duel, or with no library', () => {
+  const g = seededGame();
+  const calls = () => document.querySelectorAll('.dock-library--draw').length;
+  useAppStore.setState({ game: { ...g, turnNumber: 2, activePlayerIndex: 1 } });
+  const other = render(<BattlefieldRow playerIdx={0} />);
+  expect(calls()).toBe(0);
+  other.unmount();
+
+  useAppStore.setState({ game: { ...g, turnNumber: 1 } }); // two players: the first skips the draw
+  const opening = render(<BattlefieldRow playerIdx={0} />);
+  expect(calls()).toBe(0);
+  opening.unmount();
+
+  g.players[0] = { ...g.players[0], cards: { ...g.players[0].cards!, library: [] } };
+  useAppStore.setState({ game: { ...g, turnNumber: 2 } });
+  render(<BattlefieldRow playerIdx={0} />);
+  expect(calls()).toBe(0);
 });
 
 // ---- turn rules: summoning sickness, X costs ----
@@ -188,8 +294,9 @@ test('once its controller’s turn has come round the badge is gone', async () =
 test('a fresh artifact or land never shows it: only creatures get summoning sick', async () => {
   useAppStore.setState({
     game: gameWith([
-      { iid: 's1', cardId: 'c-sol', name: 'Sol Ring', row: 'front', sick: true },
-      { iid: 'f1', cardId: 'c-forest', name: 'Forest', row: 'front', sick: true }, // a land moved up front
+      // Both kept up in the field by hand: the board would draw them with the lands.
+      { iid: 's1', cardId: 'c-sol', name: 'Sol Ring', row: 'field', sick: true },
+      { iid: 'f1', cardId: 'c-forest', name: 'Forest', row: 'field', sick: true },
     ]),
   });
   render(<BattlefieldRow playerIdx={0} />);
@@ -216,11 +323,9 @@ test('a fresh creature with haste shows none, whether the haste is its own or ha
     game: gameWith([FRESH_BEAR, { iid: 'v1', cardId: 'c-fervor', name: 'Fervor', row: 'front' }]),
   });
   render(<BattlefieldRow playerIdx={0} />);
-  const fervor = screen.getByRole('button', { name: 'tap Fervor' });
-  await waitFor(() => expect(fervor.querySelector('img')).not.toBeNull());
-  const bear = screen.getByRole('button', { name: /^tap Grizzly Bears/ });
+  // Fervor itself is on the side shelf; its text still reaches the creatures.
+  const bear = await screen.findByRole('button', { name: 'tap Grizzly Bears' });
   expect(badge(bear)).toBeNull();
-  expect(bear).toHaveAccessibleName('tap Grizzly Bears');
 });
 
 test('a fresh card whose record cannot be read shows no badge', async () => {
@@ -272,18 +377,15 @@ test('a commander with X in its cost asks how much from the pedestal, instead of
   render(<BattlefieldRow playerIdx={0} />);
   const pedestal = screen.getByLabelText(/commander The Goose Mother/i);
   await waitFor(() => expect(pedestal.querySelector('img')).not.toBeNull()); // records in
-  expect(pedestal).toHaveAccessibleName('commander The Goose Mother — tap to cast'); // X = 0 is payable
+  expect(pedestal).toHaveAccessibleName('commander The Goose Mother'); // X = 0 is payable: not short
   await user.click(pedestal);
   expect(useAppStore.getState().castCommander).not.toHaveBeenCalled();
   expect(await screen.findByRole('heading', { name: 'The Goose Mother' })).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Cast for X = 0' })).toBeInTheDocument();
-  // Deliberate taps, a moment after the sheet opened: for its first moment on
-  // screen the X sheet takes no tap as an answer (it goes by when the tap happened).
-  const tapLater = (el: HTMLElement) => {
-    const tap = new MouseEvent('click', { bubbles: true, cancelable: true });
-    Object.defineProperty(tap, 'timeStamp', { value: Date.now() + 1000 });
-    fireEvent(el, tap);
-  };
+  // Cast on its card asks how much, in that card's place: one sheet, not two.
+  tapLater(screen.getByRole('button', { name: 'Cast' }));
+  expect(useAppStore.getState().castCommander).not.toHaveBeenCalled();
+  expect(await screen.findByRole('button', { name: 'Cast for X = 0' })).toBeInTheDocument();
+  expect(screen.getAllByRole('heading', { name: 'The Goose Mother' })).toHaveLength(1);
   tapLater(screen.getByRole('button', { name: 'Max' }));
   tapLater(screen.getByRole('button', { name: 'Cast for X = 2' }));
   expect(useAppStore.getState().castCommander).toHaveBeenCalledWith(0, iid, { x: 2 });
@@ -298,7 +400,7 @@ test('an X commander the seat cannot pay for: Cast anyway asks for X as well', a
   const user = userEvent.setup();
   render(<BattlefieldRow playerIdx={0} />);
   await user.click(await screen.findByLabelText(/commander The Goose Mother — not enough mana/i));
-  await user.click(await screen.findByRole('button', { name: /cast anyway/i }));
+  tapLater(await screen.findByRole('button', { name: 'Cast anyway' }));
   expect(useAppStore.getState().castCommander).not.toHaveBeenCalled();
   expect(await screen.findByRole('button', { name: 'Cast anyway (X = 0)' })).toBeInTheDocument();
   expect(screen.queryByText(/command zone/i, { selector: 'h2' })).not.toBeInTheDocument(); // one sheet, not two
@@ -393,6 +495,8 @@ test('a partner pair shows two pedestals, and each casts its own commander', asy
   render(<BattlefieldRow playerIdx={0} />);
   expect(screen.getByLabelText(/commander Ashaya/i)).toBeInTheDocument();
   await user.click(screen.getByLabelText(/commander Tymna/i));
+  expect(await screen.findByRole('heading', { name: 'Tymna' })).toBeInTheDocument();
+  tapLater(screen.getByRole('button', { name: 'Cast' }));
   expect(useAppStore.getState().castCommander).toHaveBeenCalledWith(0, second.iid);
   expect(useAppStore.getState().castCommander).not.toHaveBeenCalledWith(0, first.iid);
 });

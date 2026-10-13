@@ -272,7 +272,7 @@ test('tapping a virtual land stack taps its first untapped copy', async () => {
   expect(tapVirtualCard).toHaveBeenCalledWith(0, 'i-b', true); // directed: never a toggle
 });
 
-test('a fully tapped virtual stack ignores taps and surfaces untap-all', async () => {
+test('a fully tapped virtual stack takes a tap the other way — it stands one back up — and surfaces untap-all', async () => {
   const tapVirtualCard = vi.fn();
   const untapAll = vi.fn();
   const game = createGame(config);
@@ -284,9 +284,47 @@ test('a fully tapped virtual stack ignores taps and surfaces untap-all', async (
   const user = userEvent.setup();
   render(<LandsRow playerIdx={0} />);
   await user.click(screen.getByRole('button', { name: 'Forest, 1 of 1 tapped' }));
-  expect(tapVirtualCard).not.toHaveBeenCalled();
+  // The way is said outright: untap, never "toggle".
+  expect(tapVirtualCard).toHaveBeenCalledTimes(1);
+  expect(tapVirtualCard).toHaveBeenCalledWith(0, 'i-a', false);
   await user.click(screen.getByRole('button', { name: /untap all/i }));
   expect(untapAll).toHaveBeenCalledWith(0);
+});
+
+test('a mana tap made by mistake has a way back: the tapped count on a stack untaps one', async () => {
+  const tapVirtualCard = vi.fn();
+  const game = createGame(config);
+  game.players[0] = {
+    ...game.players[0],
+    cards: seatWith([
+      { iid: 'i-a', cardId: 'c-forest', name: 'Forest', row: 'lands', tapped: true },
+      { iid: 'i-b', cardId: 'c-forest', name: 'Forest', row: 'lands', tapped: true },
+      { iid: 'i-c', cardId: 'c-forest', name: 'Forest', row: 'lands' },
+    ]),
+  };
+  useAppStore.setState({ game, tapVirtualCard });
+  const user = userEvent.setup();
+  render(<LandsRow playerIdx={0} />);
+  const badge = screen.getByRole('button', { name: 'untap one Forest' });
+  expect(badge).toHaveTextContent('2⤵');
+  await user.click(badge);
+  // The copy tapped last comes back, and the stack's own tap did not fire as well.
+  expect(tapVirtualCard).toHaveBeenCalledTimes(1);
+  expect(tapVirtualCard).toHaveBeenCalledWith(0, 'i-b', false);
+  // A tap on the stack itself still uses the next one.
+  await user.click(screen.getByRole('button', { name: 'Forest, 2 of 3 tapped' }));
+  expect(tapVirtualCard).toHaveBeenLastCalledWith(0, 'i-c', true);
+});
+
+test('an untapped stack offers no way back: there is nothing to take back', () => {
+  const game = createGame(config);
+  game.players[0] = {
+    ...game.players[0],
+    cards: seatWith([{ iid: 'i-a', cardId: 'c-forest', name: 'Forest', row: 'lands' }]),
+  };
+  useAppStore.setState({ game });
+  render(<LandsRow playerIdx={0} />);
+  expect(screen.queryByRole('button', { name: /untap one/i })).not.toBeInTheDocument();
 });
 
 test('a virtual seat hides the quick-add basics — deck lands carry the mana now', () => {
@@ -530,4 +568,79 @@ test('the phone’s hand view has no Attack button: the fight is declared on the
   render(<LandsRow playerIdx={0} attackButton={false} />);
   expect(screen.queryByRole('button', { name: 'attack' })).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: /dice roller/i })).toBeInTheDocument(); // the rest of the line is as it was
+});
+
+// ---- the lands shelf: mana rocks sit with the lands; the row can be drawn in two halves ----
+
+const SOL: CardInstance = { iid: 's1', cardId: 'c-sol', name: 'Sol Ring', row: 'front' };
+
+test('a mana rock is drawn with the lands, taps like one, and never counts as a land', async () => {
+  VRECORDS['c-sol'] = record('c-sol', 'Sol Ring', 'Artifact', '{T}: Add {C}{C}.');
+  const tapVirtualCard = vi.fn();
+  useAppStore.setState({ game: cardsGame(seatWith([FOREST, SOL])), tapVirtualCard });
+  const user = userEvent.setup();
+  render(<LandsRow playerIdx={0} />);
+  const ring = await screen.findByRole('button', { name: 'Sol Ring' }); // its record is in: it left the field
+  expect(screen.getByText('1 lands')).toBeInTheDocument(); // the Forest alone
+  expect(screen.getByLabelText('1 colorless sources')).toBeInTheDocument(); // the ring feeds the pips
+  expect(await screen.findByLabelText('3 mana ready')).toBeInTheDocument();
+  await user.click(ring);
+  expect(tapVirtualCard).toHaveBeenCalledWith(0, 's1', true);
+});
+
+test('a rock a player keeps up in the field stays off the shelf', async () => {
+  VRECORDS['c-sol'] = record('c-sol', 'Sol Ring', 'Artifact', '{T}: Add {C}{C}.');
+  useAppStore.setState({ game: cardsGame(seatWith([FOREST, { ...SOL, row: 'field' }])) });
+  render(<LandsRow playerIdx={0} />);
+  expect(await screen.findByLabelText('3 mana ready')).toBeInTheDocument(); // the lookups have answered
+  expect(screen.queryByRole('button', { name: 'Sol Ring' })).not.toBeInTheDocument();
+});
+
+test('a creature that taps for mana stays in the field: the shelf is for lands and rocks', async () => {
+  useAppStore.setState({ game: cardsGame(seatWith([FOREST, ELF])) });
+  render(<LandsRow playerIdx={0} />);
+  expect(await screen.findByLabelText('2 mana ready')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Llanowar Elves' })).not.toBeInTheDocument();
+});
+
+test('a fully tapped tracker stack takes a tap the other way too, and its count is a way back at any time', async () => {
+  const tapItem = vi.fn();
+  const game = createGame(config);
+  game.players[0] = {
+    ...game.players[0],
+    board: [{ ...landItem('Forest', '({T}: Add {G}.)', 2), tapped: 2 }],
+  };
+  useAppStore.setState({ game, tapItem });
+  const user = userEvent.setup();
+  const view = render(<LandsRow playerIdx={0} />);
+  await user.click(screen.getByRole('button', { name: 'Forest, 2 of 2 tapped' }));
+  expect(tapItem).toHaveBeenLastCalledWith(0, 'land-Forest', -1);
+  view.unmount();
+
+  game.players[0] = {
+    ...game.players[0],
+    board: [{ ...landItem('Forest', '({T}: Add {G}.)', 3), tapped: 1 }],
+  };
+  useAppStore.setState({ game: { ...game } });
+  render(<LandsRow playerIdx={0} />);
+  await user.click(screen.getByRole('button', { name: 'untap one Forest' }));
+  expect(tapItem).toHaveBeenLastCalledWith(0, 'land-Forest', -1);
+  await user.click(screen.getByRole('button', { name: 'Forest, 1 of 3 tapped' }));
+  expect(tapItem).toHaveBeenLastCalledWith(0, 'land-Forest', 1);
+});
+
+test('drawn in halves: the status half has the readouts and no stacks, the stacks half the other way round', () => {
+  useAppStore.setState({ game: cardsGame(seatWith([FOREST])) });
+  const status = render(<LandsRow playerIdx={0} part="status" />);
+  expect(screen.getByText('1 lands')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /dice roller/i })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Forest' })).not.toBeInTheDocument();
+  status.unmount();
+
+  const { container } = render(<LandsRow playerIdx={0} part="stacks" />);
+  expect(screen.getByRole('button', { name: 'Forest' })).toBeInTheDocument();
+  expect(screen.queryByText('1 lands')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /dice roller/i })).not.toBeInTheDocument();
+  // The stacks say how many they are: the big board shares its shelf line out by it.
+  expect(container.querySelector<HTMLElement>('.lands-stacks')!.style.getPropertyValue('--n')).toBe('1');
 });

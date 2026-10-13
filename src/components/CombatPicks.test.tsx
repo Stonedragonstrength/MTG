@@ -121,7 +121,8 @@ function table(seats = 2): GameState {
             onField('giant', 'c-giant', { tapped: true }),
             onField('angel', 'c-angel', { sick: true }),
             onField('wall', 'c-wall'),
-            onField('ring', 'c-ring'),
+            // Kept up with the creatures by hand: left to the board it would sit with the lands.
+            onField('ring', 'c-ring', { row: 'field' }),
           ]),
         };
       if (i === 1)
@@ -254,7 +255,7 @@ describe('picking attackers on the cards', () => {
     expect(attacks()).toEqual([]);
   });
 
-  test('only creatures change meaning: a mana rock in the front row is not dimmed and still taps', async () => {
+  test('only creatures change meaning: a mana rock kept in the field is not dimmed and still taps', async () => {
     await attackersUp();
     const ring = screen.getByRole('button', { name: 'tap Sol Ring' });
     expect(ring.className).toBe('vcard');

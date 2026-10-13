@@ -205,6 +205,22 @@ describe('landSummary', () => {
     expect(summary.any).toBe(0);
   });
 
+  test('a mana rock on the shelf feeds the color pips but is not one of the lands', () => {
+    const summary = landSummary(
+      [],
+      [
+        { oracleText: '({T}: Add {G}.)' }, // a Forest
+        { oracleText: '{T}: Add {C}{C}.', land: false }, // Sol Ring
+        { oracleText: "{T}: Add one mana of any color in your commander's color identity.", land: false },
+        { oracleText: null, land: false }, // a rock not read yet: nothing to count
+      ],
+    );
+    expect(summary.total).toBe(1);
+    expect(summary.colors.G).toBe(1);
+    expect(summary.colors.C).toBe(1);
+    expect(summary.any).toBe(1);
+  });
+
   test('a board creature set to any-color counts as an any source', () => {
     const rite = { ...creature('Soldier', '', 2), manaMode: 'any' as const };
     expect(landSummary([rite]).any).toBe(2);

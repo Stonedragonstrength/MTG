@@ -119,3 +119,56 @@ test('an ordinary card is never offered the command zone', async () => {
   await screen.findByRole('heading', { name: 'Grizzly Bears' });
   expect(screen.queryByRole('button', { name: /to command/i })).not.toBeInTheDocument();
 });
+
+// ---- the plain tap, and where the card is kept ----
+
+test('the plain tap is always in the sheet — the way back from a tap made by mistake — and says which way', async () => {
+  const { fireEvent } = await import('@testing-library/react');
+  const { g, iid } = gameWithBear();
+  const tapVirtualCard = vi.fn();
+  useAppStore.setState({ game: g, tapVirtualCard });
+  const onClose = vi.fn();
+  const first = render(<BattlefieldCardSheet playerIdx={0} iid={iid} onClose={onClose} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Tap' }));
+  expect(tapVirtualCard).toHaveBeenLastCalledWith(0, iid, true);
+  expect(onClose).toHaveBeenCalled();
+  first.unmount();
+
+  const { tapCard } = await import('../lib/cards');
+  useAppStore.setState({ game: tapCard(g, 0, iid, true) });
+  render(<BattlefieldCardSheet playerIdx={0} iid={iid} onClose={onClose} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Untap' }));
+  expect(tapVirtualCard).toHaveBeenLastCalledWith(0, iid, false);
+});
+
+test('"Keep it" offers the places the card is not drawn in, and pins it where the player says', async () => {
+  const { fireEvent, waitFor } = await import('@testing-library/react');
+  const { g, iid } = gameWithBear();
+  const moveVirtualCard = vi.fn();
+  useAppStore.setState({ game: g, moveVirtualCard });
+  render(<BattlefieldCardSheet playerIdx={0} iid={iid} onClose={() => {}} />);
+  // A creature is drawn in the field: the two shelves are on offer, the field is not.
+  await waitFor(() => expect(screen.getByRole('button', { name: 'With the lands' })).toBeInTheDocument());
+  expect(screen.getByRole('button', { name: 'On the side shelf' })).toBeInTheDocument();
+  await waitFor(() =>
+    expect(screen.queryByRole('button', { name: 'On the battlefield' })).not.toBeInTheDocument(),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'On the side shelf' }));
+  expect(moveVirtualCard).toHaveBeenLastCalledWith(0, iid, 'battlefield', 'battlefield', { row: 'side' });
+  fireEvent.click(screen.getByRole('button', { name: 'With the lands' }));
+  expect(moveVirtualCard).toHaveBeenLastCalledWith(0, iid, 'battlefield', 'battlefield', { row: 'lands' });
+});
+
+test('a card kept on a shelf by hand is offered the way back to the battlefield', async () => {
+  const { fireEvent } = await import('@testing-library/react');
+  const { g, iid } = gameWithBear();
+  const moveVirtualCard = vi.fn();
+  useAppStore.setState({
+    game: moveCard(g, 0, iid, 'battlefield', 'battlefield', { row: 'lands' }),
+    moveVirtualCard,
+  });
+  render(<BattlefieldCardSheet playerIdx={0} iid={iid} onClose={() => {}} />);
+  expect(screen.queryByRole('button', { name: 'With the lands' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'On the battlefield' }));
+  expect(moveVirtualCard).toHaveBeenLastCalledWith(0, iid, 'battlefield', 'battlefield', { row: 'field' });
+});

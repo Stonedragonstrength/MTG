@@ -5,6 +5,7 @@ import BattlefieldRow from './BattlefieldRow';
 import HandTray from './HandTray';
 import LandsRow from './LandsRow';
 import LifeCounter from './LifeCounter';
+import SideShelf from './SideShelf';
 
 interface Props {
   seatIdx: number;
@@ -83,6 +84,7 @@ export default function HandScreen({ seatIdx, onShowTable }: Props) {
       )}
       <section className="hs-board">
         <BattlefieldRow playerIdx={seatIdx} picks={false} />
+        <SideShelf playerIdx={seatIdx} picks={false} />
         <LandsRow playerIdx={seatIdx} attackButton={false} />
       </section>
       <section className="hs-life-row" aria-label="my life">

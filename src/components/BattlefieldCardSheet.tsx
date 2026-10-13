@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { isCommander } from '../lib/cards';
+import { shelfOf, type Shelf } from '../lib/shelf';
+import type { CardInstance } from '../lib/types';
 import { useAppStore } from '../state/store';
 import Sheet from './Sheet';
 import { useCardRecords } from './useCardRecords';
@@ -12,6 +14,13 @@ interface Props {
   /** false where there is no picking (the phone's hand view): no combat chips either. */
   picks?: boolean;
 }
+
+/** The three places a seat's board draws a card, and the `row` that pins it there. */
+const SHELVES: { shelf: Shelf; row: NonNullable<CardInstance['row']>; label: string }[] = [
+  { shelf: 'field', row: 'field', label: 'On the battlefield' },
+  { shelf: 'lands', row: 'lands', label: 'With the lands' },
+  { shelf: 'side', row: 'side', label: 'On the side shelf' },
+];
 
 /** Everything you do to a card on the battlefield that isn't a tap. */
 export default function BattlefieldCardSheet({ playerIdx, iid, onClose, picks = true }: Props) {
@@ -53,6 +62,7 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose, picks = 
   // front row fights — a card on the lands shelf moves there first.
   const look = card.row !== 'lands' && combat?.mode ? combat.look({ kind: 'card', id: iid }) : null;
   const job = look?.mode === 'attack' ? 'Attack' : 'Block';
+  const shelf = shelfOf(card, record);
 
   return (
     <Sheet title={card.name} onClose={onClose}>
@@ -61,28 +71,28 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose, picks = 
         {record?.typeLine && <p className="type-line">{record.typeLine}</p>}
       </div>
 
-      {look && (
-        <div className="detail-section">
-          <span className="section-label">Combat</span>
-          <div className="chip-row">
-            {look.stop && (
-              <button className="chip" onClick={go(look.stop)}>
-                Stop {look.mode === 'attack' ? 'attacking' : 'blocking'}
-              </button>
-            )}
-            {look.anyway && (
-              <button className="chip" onClick={go(look.anyway)}>
-                {/* "anyway" when a tap on the card would have refused */}
-                {look.picks && look.free > 0 ? job : `${job} anyway`}
-              </button>
-            )}
-            {/* The direction is said outright: a stale sheet must not flip it back. */}
-            <button className="chip" onClick={go(() => tapVirtualCard(playerIdx, iid, !card.tapped))}>
-              {card.tapped ? 'Untap' : 'Tap'}
+      <div className="detail-section">
+        <span className="section-label">{look ? 'Combat' : 'Tap'}</span>
+        <div className="chip-row">
+          {look?.stop && (
+            <button className="chip" onClick={go(look.stop)}>
+              Stop {look.mode === 'attack' ? 'attacking' : 'blocking'}
             </button>
-          </div>
+          )}
+          {look?.anyway && (
+            <button className="chip" onClick={go(look.anyway)}>
+              {/* "anyway" when a tap on the card would have refused */}
+              {look.picks && look.free > 0 ? job : `${job} anyway`}
+            </button>
+          )}
+          {/* Always here: the plain tap, and the way back from one made by
+              mistake. The direction is said outright — a stale sheet must
+              not flip it back. */}
+          <button className="chip" onClick={go(() => tapVirtualCard(playerIdx, iid, !card.tapped))}>
+            {card.tapped ? 'Untap' : 'Tap'}
+          </button>
         </div>
-      )}
+      </div>
 
       <div className="detail-section">
         <span className="section-label">Counters</span>
@@ -131,16 +141,27 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose, picks = 
               To command (+2 tax)
             </button>
           )}
-          <button
-            className="chip"
-            onClick={() =>
-              moveVirtualCard(playerIdx, iid, 'battlefield', 'battlefield', {
-                row: card.row === 'lands' ? 'front' : 'lands',
-              })
-            }
-          >
-            {card.row === 'lands' ? 'To front row' : 'To lands shelf'}
-          </button>
+        </div>
+      </div>
+
+      {/* Where it is drawn. The board sorts cards by type; this is for the
+          one that belongs somewhere else (an animated land, a Vehicle the
+          player wants up with the creatures). 'lands' also keeps it out of
+          combat until it is moved back. */}
+      <div className="detail-section">
+        <span className="section-label">Keep it</span>
+        <div className="chip-row">
+          {SHELVES.filter((s) => s.shelf !== shelf).map((s) => (
+            <button
+              key={s.shelf}
+              className="chip"
+              onClick={() =>
+                moveVirtualCard(playerIdx, iid, 'battlefield', 'battlefield', { row: s.row })
+              }
+            >
+              {s.label}
+            </button>
+          ))}
         </div>
       </div>
     </Sheet>

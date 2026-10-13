@@ -9,14 +9,17 @@ import {
   countLandPlay,
   draw,
   exileN,
+  hasDrawn,
   isCommander,
   keepHand,
   landsPlayed,
+  markDrew,
   millN,
   moveCard,
   mulberry32,
   mulligan,
   newIid,
+  owesDraw,
   readyCards,
   seedSeat,
   setCardCounter,
@@ -709,6 +712,67 @@ describe('arriving on the battlefield (summoning sickness)', () => {
     expect(onField(readyCards(fresh, 0), iid)).toMatchObject({ tapped: true, counters: { p1p1: 2 } });
     expect(onField(untapAllCards(fresh, 0), iid).sick).toBe(true); // the untap button is not a new turn
     expect(onField(tapCard(fresh, 0, iid, false), iid).sick).toBe(true);
+  });
+});
+
+describe("the turn's draw", () => {
+  const atTurn = (g: GameState, turnNumber: number, activePlayerIndex: number): GameState => ({
+    ...g,
+    turnNumber,
+    activePlayerIndex,
+  });
+
+  test('a seat that has not drawn carries no stamp', () => {
+    const g = seeded();
+    expect(hasDrawn(g, 0)).toBe(false);
+    expect('drew' in g.players[0].cards!).toBe(false);
+    expect(hasDrawn(g, 1)).toBe(false); // tracker seat
+    expect(hasDrawn(g, 9)).toBe(false); // no such seat
+  });
+
+  test('marking the draw stamps the turn, once', () => {
+    const g = atTurn(seeded(), 3, 0);
+    const drawn = markDrew(g, 0);
+    expect(drawn.players[0].cards!.drew).toEqual({ turn: 3, active: 0 });
+    expect(hasDrawn(drawn, 0)).toBe(true);
+    expect(markDrew(drawn, 0)).toBe(drawn); // a replay changes nothing
+    expect(markDrew(g, 1)).toBe(g); // a tracker seat has no library to draw from
+  });
+
+  test('the stamp expires by itself: any other turn reads "not yet"', () => {
+    const drawn = markDrew(atTurn(seeded(), 3, 0), 0);
+    expect(hasDrawn(atTurn(drawn, 3, 1), 0)).toBe(false); // the turn moved on
+    expect(hasDrawn(atTurn(drawn, 4, 0), 0)).toBe(false); // their own next turn
+    const again = markDrew(atTurn(drawn, 4, 0), 0);
+    expect(again.players[0].cards!.drew).toEqual({ turn: 4, active: 0 });
+  });
+
+  test('the table waits for the draw of the seat whose turn it is, until it is made', () => {
+    const g = atTurn(seeded(), 2, 0);
+    expect(owesDraw(g, 0)).toBe(true);
+    expect(owesDraw(markDrew(g, 0), 0)).toBe(false);
+    expect(owesDraw(atTurn(g, 2, 1), 0)).toBe(false); // not its turn
+    expect(owesDraw(g, 1)).toBe(false); // a tracker seat draws from a real library
+  });
+
+  test('nobody is asked to draw from an empty library, and a defeated seat owes nothing', () => {
+    const g = atTurn(seeded(), 2, 0);
+    const seat = g.players[0];
+    const empty = { ...g, players: [{ ...seat, cards: { ...seat.cards!, library: [] } }, g.players[1]] };
+    expect(owesDraw(empty, 0)).toBe(false);
+    const out = { ...g, players: [{ ...seat, eliminated: true }, g.players[1]] };
+    expect(owesDraw(out, 0)).toBe(false);
+  });
+
+  test('the player who goes first in a two-player game skips the opening draw; in a pod everyone draws', () => {
+    const duel = seeded(); // turn 1, seat 0, two players
+    expect(owesDraw(duel, 0)).toBe(false);
+    expect(owesDraw(atTurn(duel, 2, 0), 0)).toBe(true);
+    const pod: GameState = {
+      ...duel,
+      players: [...duel.players, { ...duel.players[1], profileId: 'p2' }],
+    };
+    expect(owesDraw(pod, 0)).toBe(true);
   });
 });
 

@@ -224,5 +224,7 @@ test('…and the hold sheet offers no way to pick from here either', async () =>
   const sheet = within(document.querySelector<HTMLElement>('.sheet')!);
   expect(sheet.getByText('Move')).toBeInTheDocument();
   expect(sheet.queryByText('Combat')).not.toBeInTheDocument();
-  expect(sheet.queryByRole('button', { name: /attack|^tap$|^untap$/i })).not.toBeInTheDocument();
+  expect(sheet.queryByRole('button', { name: /attack|block/i })).not.toBeInTheDocument();
+  // The plain tap is always in the sheet (it is also the way back from one made by mistake).
+  expect(sheet.getByRole('button', { name: 'Tap' })).toBeInTheDocument();
 });

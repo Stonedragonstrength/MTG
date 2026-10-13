@@ -44,7 +44,12 @@ export interface CardInstance {
   name: string; // feed text + findCardByName fallback (printing drift)
   tapped?: boolean; // battlefield only; omitted = untapped (per CARD)
   counters?: Record<string, number>; // battlefield only
-  row?: 'front' | 'lands'; // battlefield shelf
+  /** Battlefield only. 'lands' keeps a card on the lands shelf and out of
+   * combat. 'front' (and no value) is an ordinary permanent: lib/shelf.ts
+   * says where it is drawn, by its type. 'side' and 'field' are a place
+   * the player chose by hand, and builds that do not know them treat them
+   * as 'front'. */
+  row?: 'front' | 'lands' | 'side' | 'field';
   /** Battlefield only, meaningful only while tapped: mana units a payment
    * has drawn from this tap. A tapped card with nothing spent is floating
    * its whole yield (the player tapped it by hand). */
@@ -79,6 +84,10 @@ export interface SeatCards {
    * turnNumber and activePlayerIndex. Nothing ever resets it: a stamp from
    * any other turn simply counts as zero. Absent until the first land. */
   landPlays?: { turn: number; active: number; n: number };
+  /** The turn in which this seat last drew from its library, named the
+   * same way. Like landPlays, nothing resets it: a stamp from any other
+   * turn means "has not drawn yet". Absent until the first draw. */
+  drew?: { turn: number; active: number };
 }
 
 /** Synced announcement ring — the trust model's deterrent. Cap 30. */

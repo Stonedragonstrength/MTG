@@ -14,7 +14,15 @@ export function useFitCards(
     if (!el || typeof ResizeObserver === 'undefined') return;
     const apply = () => {
       if (el.clientWidth === 0 || el.clientHeight === 0) return;
-      const h = fitCardHeight(el.clientWidth, el.clientHeight, count, { max });
+      // The cards fill the box INSIDE its padding: the padding is there for
+      // a tapped card's tilted corners, and a row sized to the padded width
+      // wraps one card early and pushes the last row out of sight.
+      const pad = getComputedStyle(el);
+      const px = (v: string) => Number.parseFloat(v) || 0;
+      const width = el.clientWidth - px(pad.paddingLeft) - px(pad.paddingRight);
+      const height = el.clientHeight - px(pad.paddingTop) - px(pad.paddingBottom);
+      // A hair under: a row that fits to the last fraction of a pixel wraps.
+      const h = fitCardHeight(width - 1, height, count, { max });
       el.style.setProperty('--card-h', `${h}px`);
     };
     apply();

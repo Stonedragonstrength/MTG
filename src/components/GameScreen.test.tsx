@@ -591,26 +591,34 @@ describe('combat on the cards', () => {
     expect([0, 1, 2, 3].map(chip)).toEqual([null, null, null, null]);
   });
 
-  test('hand trays fold whenever the big board changes seat, not only when the turn moves', async () => {
+  test('the hand is open for the player whose turn it is, on the big board; every tray goes back to that whenever the board changes seat', async () => {
     fightTable(2, true);
     const user = userEvent.setup();
     const { container } = render(<GameScreen />);
-    const fans = () => container.querySelectorAll('.hand-fan').length;
-    for (const pill of screen.getAllByRole('button', { name: 'hand, 2 cards' })) await user.click(pill);
-    expect(fans()).toBe(2); // both hands lie open
+    /** The seats whose hand lies open. */
+    const open = () =>
+      [...container.querySelectorAll('.zone')]
+        .filter((zone) => zone.querySelector('.hand-fan'))
+        .map((zone) => /seat-\d/.exec(zone.className)![0])
+        .sort();
+    expect(open()).toEqual(['seat-0']); // nobody has to look for their cards on their own turn
+    await user.click(container.querySelector<HTMLElement>('.zone.seat-1 .hand-pill')!);
+    expect(open()).toEqual(['seat-0', 'seat-1']); // someone opened the hand on the bar too
     act(() => store().startCombat());
-    expect(fans()).toBe(2); // the board has not moved
+    expect(open()).toEqual(['seat-0', 'seat-1']); // the board has not moved
     await act(async () => {
       store().setAttacker(stack(0), 1, 1);
       await store().confirmAttackers();
     });
     expect(focused(container)).toEqual(['seat-1']);
-    expect(fans()).toBe(0); // the table turned to the defender: every tray folded
+    // The table turned to the defender: every tray folded. The defender's too —
+    // it is not their turn, and the board is for their blockers — one tap away.
+    expect(open()).toEqual([]);
     await user.click(container.querySelector<HTMLElement>('.zone.seat-1 .hand-pill')!);
-    expect(fans()).toBe(1);
+    expect(open()).toEqual(['seat-1']);
     act(() => store().finishBlocks(1));
     expect(focused(container)).toEqual(['seat-0']);
-    expect(fans()).toBe(0); // and again when it turned back
+    expect(open()).toEqual(['seat-0']); // and again when it turned back
     expect(store().game!.activePlayerIndex).toBe(0); // all within one turn
   });
 

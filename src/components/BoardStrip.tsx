@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { computedPT } from '../lib/board';
 import { sickCopies } from '../lib/keywords';
 import { COLOR_NAMES, effectiveManaColors } from '../lib/mana';
@@ -11,6 +11,7 @@ const DEATH_MS = 700;
 import CardDetail from './CardDetail';
 import CardSearch from './CardSearch';
 import CombatMarks, { combatClasses } from './CombatMarks';
+import TokenChips from './TokenChips';
 import { useSeatCombat, type UnitLook } from './useCombat';
 import { useLongPress } from './useLongPress';
 import { useSeatTexts } from './useSeatTexts';
@@ -133,6 +134,7 @@ export default function BoardStrip({ playerIdx }: Props) {
   const tapItem = useAppStore((s) => s.tapItem);
   const [searchOpen, setSearchOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [chipColumns, setChipColumns] = useState(1);
   // Afterimages of removed stacks: the store drops them instantly, these
   // linger in place just long enough for the slash animation.
   const [dying, setDying] = useState<{ item: BoardItem; at: number }[]>([]);
@@ -169,9 +171,20 @@ export default function BoardStrip({ playerIdx }: Props) {
 
   // Few cards get the big treatment; a wide board shrinks to fit.
   const size = entries.length <= 3 ? 'lg' : entries.length <= 8 ? 'md' : 'sm';
+  // A seat playing a deck keeps its tokens on a slim shelf beside its lands.
+  const deckSeat = game.players[playerIdx].cards !== undefined;
 
-  return (
-    <div className={`board-strip board-strip--${size}`}>
+  const sheets = (
+    <>
+      {searchOpen && <CardSearch playerIdx={playerIdx} onClose={() => setSearchOpen(false)} />}
+      {detailId && (
+        <CardDetail playerIdx={playerIdx} itemId={detailId} onClose={() => setDetailId(null)} />
+      )}
+    </>
+  );
+
+  const strip = (
+    <div className={`board-strip board-strip--${size}${deckSeat ? ' board-strip--shelf' : ''}`}>
       {entries.map(({ live, item, at }) => {
         const look = live ? (combat?.look({ kind: 'stack', id: item.id }) ?? null) : null;
         const job = combat?.mode === 'attack' ? 'attacking' : 'blocking';
@@ -199,7 +212,7 @@ export default function BoardStrip({ playerIdx }: Props) {
                   −
                 </button>
                 <span className="pick-count">
-                  {look.picked} {job}
+                  {look.picked} <span className="pick-job">{job}</span>
                 </span>
                 <button
                   aria-label={`one more ${item.name} ${job}`}
@@ -257,17 +270,35 @@ export default function BoardStrip({ playerIdx }: Props) {
           </div>
         );
       })}
-      <button
-        className={entries.length === 0 ? 'add-tile add-tile--centered' : 'add-tile'}
-        aria-label="add a card"
-        onClick={() => setSearchOpen(true)}
-      >
-        +
-      </button>
-      {searchOpen && <CardSearch playerIdx={playerIdx} onClose={() => setSearchOpen(false)} />}
-      {detailId && (
-        <CardDetail playerIdx={playerIdx} itemId={detailId} onClose={() => setDetailId(null)} />
+      {!deckSeat && (
+        <button
+          className={entries.length === 0 ? 'add-tile add-tile--centered' : 'add-tile'}
+          aria-label="add a card"
+          onClick={() => setSearchOpen(true)}
+        >
+          +
+        </button>
       )}
+      {!deckSeat && sheets}
+    </div>
+  );
+
+  if (!deckSeat) return strip;
+  return (
+    // A deck seat's token shelf: the stacks, and beside them one chip per
+    // token its own cards make (one tap each). A box only on the big board,
+    // which shares its shelf line out by these two counts.
+    <div
+      className="token-shelf"
+      style={{ '--n': entries.length, '--c': chipColumns } as CSSProperties}
+    >
+      {strip}
+      <TokenChips
+        playerIdx={playerIdx}
+        onMore={() => setSearchOpen(true)}
+        onColumns={setChipColumns}
+      />
+      {sheets}
     </div>
   );
 }
