@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { createBoardItem } from '../lib/board';
 import { bestToken, tokensMadeBy, type TokenWant } from '../lib/deckTokens';
+import { frontId } from '../lib/faces';
 import type { CardRecord } from '../lib/types';
 import { useAppStore } from '../state/store';
 import { useCardRecords } from './useCardRecords';
@@ -43,11 +44,15 @@ export default function TokenChips({ playerIdx, onMore, onColumns }: Props) {
 
   const seat = player?.cards;
   // The deck: one entry per different card, in an order that does not
-  // change as cards move between zones.
+  // change as cards move between zones — or as one is turned onto its back
+  // face: the card is read whole, by its front id.
   const deck = new Map<string, { cardId: string; name: string }>();
   if (seat) {
     for (const zone of [seat.library, seat.hand, seat.battlefield, seat.graveyard, seat.exile, seat.command])
-      for (const c of zone) if (!deck.has(c.cardId)) deck.set(c.cardId, { cardId: c.cardId, name: c.name });
+      for (const c of zone) {
+        const cardId = frontId(c.cardId);
+        if (!deck.has(cardId)) deck.set(cardId, { cardId, name: c.name });
+      }
   }
   const cards = [...deck.values()].sort((a, b) => a.cardId.localeCompare(b.cardId));
   const records = useCardRecords(cards);

@@ -1,4 +1,5 @@
-import type { CardRecord } from '../lib/types';
+import { backView, frontId, isBackId, turnsOver } from '../lib/faces';
+import type { CardFace, CardRecord } from '../lib/types';
 import { getDb, kvGet, kvSet } from './db';
 
 const BULK_INDEX_URL = 'https://api.scryfall.com/bulk-data';
@@ -29,6 +30,31 @@ export function slimCard(raw: Raw): CardRecord | null {
   const priceStr = str(prices.usd) ?? str(prices.usd_foil);
   const parsedPrice = priceStr ? Number.parseFloat(priceStr) : NaN;
 
+  const colors =
+    (raw.colors as string[] | undefined) ?? (face0.colors as string[] | undefined) ?? [];
+  // The other face, for the layouts whose card turns over on the table. A
+  // flip card has one picture and one color for both faces: its faces carry
+  // neither. Any other card of two halves (split, adventure) is marked as
+  // having no back, so nobody has to guess from its type line.
+  const face1 = faces?.[1];
+  const backImages = (face1?.image_uris ?? {}) as Record<string, unknown>;
+  const back: CardFace | null | undefined =
+    face1 && TURNING_LAYOUTS.has(layout)
+      ? {
+          name: str(face1.name) ?? name.split(' // ')[1] ?? name,
+          typeLine: str(face1.type_line) ?? '',
+          oracleText: str(face1.oracle_text) ?? '',
+          manaCost: str(face1.mana_cost) ?? '',
+          power: str(face1.power),
+          toughness: str(face1.toughness),
+          colors: (face1.colors as string[] | undefined) ?? colors,
+          imageNormal: str(backImages.normal),
+          imageArtCrop: str(backImages.art_crop),
+        }
+      : face1 || typeLine.includes(' // ')
+        ? null
+        : undefined;
+
   return {
     id: str(raw.id) ?? name,
     colorIdentity: (raw.color_identity as string[] | undefined) ?? [],
@@ -39,14 +65,19 @@ export function slimCard(raw: Raw): CardRecord | null {
     manaCost: str(raw.mana_cost) ?? str(face0.mana_cost) ?? '',
     power: str(raw.power) ?? str(face0.power),
     toughness: str(raw.toughness) ?? str(face0.toughness),
-    colors: (raw.colors as string[] | undefined) ?? (face0.colors as string[] | undefined) ?? [],
+    colors,
     imageNormal: str(imageUris.normal),
     imageArtCrop: str(imageUris.art_crop),
     isToken: layout === 'token' || layout === 'double_faced_token' || typeLine.includes('Token'),
     isBasicLand: typeLine.startsWith('Basic Land'),
     priceUsd: Number.isFinite(parsedPrice) ? parsedPrice : null,
+    ...(back !== undefined ? { back } : {}),
   };
 }
+
+/** Scryfall layouts whose second face is a face the card can lie on. (A
+ * meld card's other side is another card altogether: it has no faces.) */
+const TURNING_LAYOUTS = new Set(['transform', 'modal_dfc', 'double_faced_token', 'flip']);
 
 interface BulkEntry {
   type?: unknown;
@@ -181,8 +212,50 @@ export async function importBulkData(
   return imported;
 }
 
+/** A back id (lib/faces.ts) reads the card and hands over its back face,
+ * laid out like a single-faced card. An id that names no stored card finds
+ * nothing either way: the caller's fallback by name has to make the back
+ * view itself. */
 export async function getCardById(id: string): Promise<CardRecord | undefined> {
-  return getDb().cards.get(id);
+  if (!isBackId(id)) return getDb().cards.get(id);
+  const front = await getDb().cards.get(frontId(id));
+  if (!front) return undefined;
+  return backView(front.back === undefined && turnsOver(front) ? await withBack(front) : front);
+}
+
+/** How long the one read of a card from Scryfall may take. */
+const REFRESH_TIMEOUT_MS = 4000;
+/** Cards whose refresh was tried this session: once is all each gets. */
+const refreshTried = new Set<string>();
+const SCRYFALL_ID = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+
+/** A two-faced card stored before faces were kept has no back picture and
+ * no back power or toughness. The first time it is turned over it is read
+ * from Scryfall once more and stored, so they are there for good. Not while
+ * offline, not for an id that is not Scryfall's, and never twice in one
+ * session; whatever goes wrong, the record that is there is the answer. */
+async function withBack(front: CardRecord): Promise<CardRecord> {
+  if (refreshTried.has(front.id) || !SCRYFALL_ID.test(front.id)) return front;
+  if (typeof fetch !== 'function') return front;
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return front;
+  refreshTried.add(front.id);
+  const stop = new AbortController();
+  const timer = setTimeout(() => stop.abort(), REFRESH_TIMEOUT_MS);
+  try {
+    const resp = await fetch(`https://api.scryfall.com/cards/${front.id}`, {
+      headers: { Accept: 'application/json' },
+      signal: stop.signal,
+    });
+    if (!resp.ok) return front;
+    const fresh = slimCard((await resp.json()) as Raw);
+    if (!fresh || fresh.id !== front.id || !fresh.back) return front;
+    await getDb().cards.put(fresh);
+    return fresh;
+  } catch {
+    return front;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function findCardByName(name: string): Promise<CardRecord | undefined> {

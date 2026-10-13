@@ -40,7 +40,9 @@ export type CardZone = 'library' | 'hand' | 'battlefield' | 'graveyard' | 'exile
  * delete tapped/counters/row on zone exit and never write defaults (wire size). */
 export interface CardInstance {
   iid: string; // per-game instance id
-  cardId: string; // local card-DB id; resolved via getCardById
+  /** Local card-DB id; resolved via getCardById. On the battlefield it may
+   * be a back id (lib/faces.ts): the card lies on its back face. */
+  cardId: string;
   name: string; // feed text + findCardByName fallback (printing drift)
   tapped?: boolean; // battlefield only; omitted = untapped (per CARD)
   counters?: Record<string, number>; // battlefield only
@@ -224,6 +226,25 @@ export interface CardRecord {
   isToken: boolean;
   isBasicLand: boolean;
   priceUsd?: number | null; // present on cards imported after prices shipped
+  /** The other face of a card that turns over (transform, modal, flip, a
+   * two-sided token). null: the card was looked at and has none, though its
+   * type line holds two halves (split, adventure). Absent on single-faced
+   * cards and on every record stored before faces were kept — read it
+   * through lib/faces.ts. */
+  back?: CardFace | null;
+}
+
+/** One face of a card, as far as the table reads it. */
+export interface CardFace {
+  name: string;
+  typeLine: string;
+  oracleText: string;
+  manaCost: string;
+  power: string | null;
+  toughness: string | null;
+  colors: string[];
+  imageNormal: string | null;
+  imageArtCrop: string | null;
 }
 
 // ---- combat on the cards ----

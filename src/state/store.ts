@@ -14,6 +14,7 @@ import { DEFAULT_SETTINGS, getSettings, saveSettings, type Settings } from '../d
 import { hostName, hostOf } from '../lib/attach';
 import { opponentsOf, tappedToAttack } from '../lib/attackDraft';
 import * as boardLib from '../lib/board';
+import { backView, faceNames, frontId, isBackId, turnsOver } from '../lib/faces';
 import * as gameLib from '../lib/game';
 import * as payLib from '../lib/pay';
 import { planEffect, type SpellEffect } from '../lib/spellEffects';
@@ -81,6 +82,9 @@ export interface AppStore {
     opts?: { x?: number; asLand?: true; extras?: number[] },
   ): Promise<void>;
   tapVirtualCard(seat: number, iid: string, wantTapped?: boolean): void;
+  /** Turns a double-faced card on the battlefield over, onto whichever
+   * face is down, and tells the table what it has become. */
+  transformCard(seat: number, iid: string): Promise<void>;
   setVirtualCounter(seat: number, iid: string, name: string, value: number): void;
   moveVirtualCard(
     seat: number,
@@ -224,7 +228,10 @@ async function seatRecords(g: GameState, seat: number): Promise<SeatRecords> {
   for (const c of g.players[seat]?.cards?.battlefield ?? []) {
     if (c.cardId in records) continue;
     const byId = await m.getCardById(c.cardId).catch(() => undefined);
-    records[c.cardId] = byId ?? (await m.findCardByName(c.name).catch(() => undefined));
+    const byName = byId ? undefined : await m.findCardByName(c.name).catch(() => undefined);
+    // Found by name, the card is its front: one lying on its back still
+    // has to read as its back face (lib/faces.ts).
+    records[c.cardId] = byId ?? (byName && isBackId(c.cardId) ? backView(byName) : byName);
   }
   return records;
 }
@@ -733,6 +740,8 @@ export function createAppStore() {
                 ? cardsLib.moveCard(base, seat, iid, 'hand', 'graveyard')
                 : cardsLib.moveCard(base, seat, iid, 'hand', 'battlefield', { row });
             if (moved === base && !boughtBack) return base;
+            // The land on the back of a spell lands back face up: it reads as the land it is.
+            if (opts?.asLand && turnsOver(record)) moved = cardsLib.flipCard(moved, seat, iid, true);
             if (shown) moved = cardsLib.setReveal(moved, shown);
             // The land drop is counted in the same op as the move, so undo
             // and a rebase take both or neither — and only for the turn it
@@ -765,6 +774,38 @@ export function createAppStore() {
           (base) => {
             const baseCard = base.players[seat]?.cards?.battlefield.find((c) => c.iid === iid);
             return !!baseCard && (baseCard.tapped ?? false) === wasTapped;
+          },
+        );
+      },
+
+      // Which face is up is read off the card as it lies now, and the op
+      // says the direction outright: a replay can confirm a turn but never
+      // turn the card back. The names of the faces come off the card's
+      // record (its front one: the names are the same either way up), or
+      // off the "Front // Back" the instance carries. A card that cannot
+      // be read turns all the same.
+      async transformCard(seat, iid) {
+        const g = get().game;
+        const card = g?.players[seat]?.cards?.battlefield.find((c) => c.iid === iid);
+        if (!g || !card) return;
+        const wasBack = isBackId(card.cardId);
+        const record = await import('../data/scryfall').then(async (m) => {
+          const byId = await m.getCardById(frontId(card.cardId)).catch(() => undefined);
+          if (byId) return byId;
+          return m.findCardByName(card.name).catch(() => undefined);
+        });
+        const { front, back } = faceNames(record, card.name);
+        const text = wasBack
+          ? `${back ?? card.name} turns back into ${front}`
+          : back
+            ? `${front} becomes ${back}`
+            : `${front} is turned over`;
+        cardMutate(
+          (base) => cardsLib.flipCard(base, seat, iid, !wasBack),
+          `${seatName(g, seat)}: ${text}`,
+          (base) => {
+            const baseCard = base.players[seat]?.cards?.battlefield.find((c) => c.iid === iid);
+            return !!baseCard && isBackId(baseCard.cardId) === wasBack;
           },
         );
       },

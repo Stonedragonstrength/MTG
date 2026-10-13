@@ -7,6 +7,7 @@ import { useAppStore } from './state/store';
 import './styles/screens.css';
 import './styles/sheets.css';
 import './styles/spells.css';
+import './styles/faces.css';
 
 export default function App() {
   const setupDone = useAppStore((s) => s.setupDone);

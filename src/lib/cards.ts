@@ -7,6 +7,7 @@ import type {
   Reveal,
   SeatCards,
 } from './types';
+import { backId, frontId, isBackId } from './faces';
 
 /** Per-game instance id: 10 chars of base36 randomness. */
 export function newIid(): string {
@@ -108,10 +109,11 @@ export function seedSeat(g: GameState, seat: number, cards: SeatCards): GameStat
   return { ...g, players: g.players.map((p, i) => (i === seat ? { ...p, cards } : p)) };
 }
 
-/** Battlefield-only fields never travel to other zones. */
+/** Battlefield-only fields never travel to other zones — and neither does
+ * the face that was up: a card that leaves is its front face again. */
 function stripped(c: CardInstance): CardInstance {
   const { tapped: _t, counters: _c, row: _r, spent: _s, sick: _k, on: _o, ...rest } = c;
-  return rest;
+  return isBackId(rest.cardId) ? { ...rest, cardId: frontId(rest.cardId) } : rest;
 }
 
 function takeFrom(
@@ -401,6 +403,18 @@ export function tapCard(g: GameState, seat: number, iid: string, tapped: boolean
       return tapped ? { ...rest, tapped: true } : rest;
     });
     return { ...cards, battlefield };
+  });
+}
+
+/** Turns a double-faced card on the battlefield onto its back face, or
+ * back onto its front. Which face is up lives in its `cardId` (lib/faces.ts),
+ * so everything that reads the card reads that face. The direction is
+ * explicit, like a tap's: a replay onto a card already lying that way
+ * changes nothing. Tapped, counters, what is attached: all as they were. */
+export function flipCard(g: GameState, seat: number, iid: string, back: boolean): GameState {
+  return mapBattlefieldCard(g, seat, iid, (c) => {
+    const cardId = back ? backId(c.cardId) : frontId(c.cardId);
+    return cardId === c.cardId ? c : { ...c, cardId };
   });
 }
 

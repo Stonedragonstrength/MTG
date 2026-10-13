@@ -1,5 +1,6 @@
 import type { CardInstance } from '../lib/types';
 import CombatMarks, { combatClasses } from './CombatMarks';
+import FaceMark from './FaceMark';
 import type { UnitLook } from './useCombat';
 import { useLongPress } from './useLongPress';
 
@@ -78,6 +79,7 @@ export default function VCard({ card, art, sick, look, names, attached = 0, onTa
           🔗{attached}
         </span>
       )}
+      <FaceMark cardId={card.cardId} />
       <CombatMarks look={look} names={names} />
     </button>
   );

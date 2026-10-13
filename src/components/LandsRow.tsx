@@ -17,6 +17,7 @@ import BattlefieldCardSheet from './BattlefieldCardSheet';
 import CardDetail from './CardDetail';
 import CardSearch from './CardSearch';
 import DiceRoller from './DiceRoller';
+import FaceMark from './FaceMark';
 import { useCardRecords } from './useCardRecords';
 import { useLongPress } from './useLongPress';
 import { useSeatTexts } from './useSeatTexts';
@@ -190,6 +191,8 @@ function VirtualLandStack({
             🔗{attached}
           </span>
         )}
+        {/* The land on the back of a spell: a stack holds one card id, so one face. */}
+        <FaceMark cardId={stack.cards[0].cardId} />
       </button>
       {tapped > 0 && <TappedBadge tapped={tapped} name={name} onUntap={onUntap} />}
     </span>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { findCardByName, getCardById } from '../data/scryfall';
+import { backView, isBackId } from '../lib/faces';
 import type { CardRecord } from '../lib/types';
 
 /** Module-level cache: a card resolved once stays resolved for the
@@ -35,7 +36,9 @@ export function useCardRecords(
           // Only a RESOLVED miss is hopeless. A rejected read (DB closed
           // mid-sleep, blocked upgrade) stays uncached so a later mount
           // retries instead of poisoning the whole session.
-          cache.set(m.cardId, byName ?? null);
+          // Found by name, the card is its front: one lying on its back
+          // (lib/faces.ts) still has to read as its back face.
+          cache.set(m.cardId, byName ? (isBackId(m.cardId) ? backView(byName) : byName) : null);
         } catch {
           // transient — leave unresolved
         }

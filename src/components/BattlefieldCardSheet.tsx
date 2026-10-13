@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { attachedTo, attaches, hostName, hostOf, isAura, isEquipment } from '../lib/attach';
 import { isCommander } from '../lib/cards';
+import { faceNames, isBackId, turnsOver } from '../lib/faces';
 import { shelfOf, type Shelf } from '../lib/shelf';
 import type { CardInstance } from '../lib/types';
 import { useAppStore } from '../state/store';
@@ -32,6 +33,7 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose, picks = 
   const commanderDiedAction = useAppStore((s) => s.commanderDiedAction);
   const tapVirtualCard = useAppStore((s) => s.tapVirtualCard);
   const sacrificeCard = useAppStore((s) => s.sacrificeCard);
+  const transformCard = useAppStore((s) => s.transformCard);
   const startCombat = useAppStore((s) => s.startCombat);
   const attachVirtualCard = useAppStore((s) => s.attachVirtualCard);
   const [counterName, setCounterName] = useState('');
@@ -78,6 +80,8 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose, picks = 
   const job = look?.mode === 'attack' ? 'Attack' : 'Block';
   const myTurn = game.activePlayerIndex === playerIdx && !game.players[playerIdx].eliminated;
   const shelf = shelfOf(card, record);
+  const onBack = isBackId(card.cardId);
+  const faces = faceNames(record, card.name);
 
   return (
     <Sheet title={card.name} onClose={onClose}>
@@ -160,6 +164,22 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose, picks = 
           </button>
         </div>
       </div>
+
+      {/* A double-faced card: turn it over. The direction is read off the
+          card as it lies, and everything on the table then reads that face. */}
+      {turnsOver(record) && (
+        <div className="detail-section">
+          <span className="section-label">Faces</span>
+          <p className="face-now">
+            {onBack ? `On its back${faces.back ? `: ${faces.back}` : ''}` : `Front face up: ${faces.front}`}
+          </p>
+          <div className="chip-row">
+            <button className="chip" onClick={go(() => void transformCard(playerIdx, iid))}>
+              {onBack ? 'Transform back' : 'Transform'}
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="detail-section">
         <span className="section-label">Counters</span>
