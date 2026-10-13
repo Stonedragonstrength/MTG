@@ -239,8 +239,9 @@ test('what sits on a creature is drawn tucked under it, and is no longer on the 
   expect(screen.getByRole('button', { name: 'tap Hill Giant' }).closest('.vcard-host')).toBeNull();
   // The shelf keeps only what is unattached.
   await waitFor(() => expect(container.querySelectorAll('.bf-side .vcard')).toHaveLength(2));
-  expect(screen.queryByRole('button', { name: 'tap Lightning Greaves' })).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: "tap Giant's Might" })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /Lightning Greaves$/ })).not.toBeInTheDocument();
+  // An Aura lying unattached offers to be attached on a tap.
+  expect(screen.getByRole('button', { name: "attach Giant's Might" })).toBeInTheDocument();
 });
 
 test('a tap on a tucked card brings it up: its own sheet, where it can be taken off', async () => {

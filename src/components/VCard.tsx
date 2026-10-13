@@ -15,6 +15,10 @@ interface Props {
   /** How many Auras and Equipment sit on it, where they are not drawn
    * beside it (a small card on a shelf): a count on its corner. */
   attached?: number;
+  /** What a tap does when that is not tapping the card, in one word: an
+   * Equipment lying unattached is tapped to 'equip' it. The card wears the
+   * word, and its label says it. */
+  use?: string;
   onTap: () => void;
   onDetail: () => void;
 }
@@ -27,7 +31,7 @@ interface Props {
  * a tap picks it (or is ignored, dimmed, when it cannot fight — the hold
  * still opens the sheet, where "Attack anyway" and a plain Tap live).
  * Anything that is no creature keeps its ordinary tap. */
-export default function VCard({ card, art, sick, look, names, attached = 0, onTap, onDetail }: Props) {
+export default function VCard({ card, art, sick, look, names, attached = 0, use, onTap, onDetail }: Props) {
   const picks = look?.picks === true;
   const press = useLongPress(picks ? look.tap : onTap, onDetail);
   const p1p1 = card.counters?.p1p1 ?? 0;
@@ -35,7 +39,7 @@ export default function VCard({ card, art, sick, look, names, attached = 0, onTa
   // The result is waiting and it fought: the tap says whether it dies.
   const judged = picks && look.mode === 'damage';
   const label = !picks
-    ? `tap ${card.name}${sick ? ', summoning sick' : ''}`
+    ? `${use ?? 'tap'} ${card.name}${sick ? ', summoning sick' : ''}`
     : judged
       ? look.picked > 0
         ? `${card.name} dies — tap if it lives`
@@ -55,7 +59,7 @@ export default function VCard({ card, art, sick, look, names, attached = 0, onTa
           ? 'Tap to change whether it dies · hold for options'
           : picks
             ? `Tap to ${job} · hold for options`
-            : 'Tap to tap · hold for options'
+            : `Tap to ${use ?? 'tap'} · hold for options`
       }
       {...press}
     >
@@ -77,6 +81,11 @@ export default function VCard({ card, art, sick, look, names, attached = 0, onTa
       {attached > 0 && (
         <span className="attached-badge" aria-label={`${attached} attached`}>
           🔗{attached}
+        </span>
+      )}
+      {use && !picks && (
+        <span className="use-band" aria-hidden="true">
+          {use}
         </span>
       )}
       <FaceMark cardId={card.cardId} />

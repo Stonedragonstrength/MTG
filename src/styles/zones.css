@@ -3219,9 +3219,29 @@ input[type='checkbox'] {
   line-height: 1.4;
 }
 
+/* What a tap on a card does when that is not tapping it: an Equipment
+   lying unattached wears "equip" along its lower edge. */
+.use-band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 1px 0;
+  background: rgba(0, 0, 0, 0.8);
+  color: var(--accent);
+  font-size: 0.5rem;
+  font-weight: 800;
+  line-height: 1.35;
+  letter-spacing: 0.05em;
+  text-align: center;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
 /* A bar has no room for them: the host's own mini says enough. */
 .focus-mode .zone--cards:not(.zone--focused) .vcard-attached,
-.focus-mode .zone--cards:not(.zone--focused) .attached-badge {
+.focus-mode .zone--cards:not(.zone--focused) .attached-badge,
+.focus-mode .zone--cards:not(.zone--focused) .use-band {
   display: none;
 }
 
@@ -3476,16 +3496,16 @@ input[type='checkbox'] {
     'hand   library';
 }
 
-/* A seat too narrow for one shelf line (a tablet held upright, a side
-   seat; PlayerZone measures it): the shelf takes the full width and two
-   lines, and the small piles stand at the end of its second. */
+/* A narrow seat (a tablet held upright, a side seat; PlayerZone measures
+   it): the status line needs the full width, and the small piles stand at
+   the end of the shelf alone. */
 .zone--cards.zone--focused.zone--narrow {
   grid-template-areas:
     'header header'
     'combat combat'
     'field  field'
     'status status'
-    'shelf  shelf'
+    'shelf  dock'
     'hand   hand';
 }
 
@@ -3495,7 +3515,7 @@ input[type='checkbox'] {
     'combat combat'
     'field  field'
     'status status'
-    'shelf  shelf'
+    'shelf  minis'
     'hand   library';
 }
 
@@ -3597,22 +3617,30 @@ input[type='checkbox'] {
   font-size: 0.9rem;
 }
 
-/* ---- the shelf: lands and rocks, other permanents, tokens ----
+/* ---- the shelf: tokens, other permanents, lands and rocks ----
+   One short line, on a wide seat and a narrow one alike. At its start the
+   tokens (the chips that make them, then the stacks) and the permanents
+   that are neither creatures nor mana. At its end (the next grid column)
+   the small piles. Between the two, in the middle of the room that is
+   left, the lands and mana rocks. (The DOM order is lands, permanents,
+   tokens — what a collapsed bar reads; `order` turns it round here.)
+
    Each part knows how many cards it holds (--n, set by the component that
    draws it; the token shelf also --c, its columns of chips). From that
-   come its floor (36px cards, 6px apart) and its full size (64px cards).
-   Parts start at their floor and grow together, a card's worth of room
-   per card, so every card on the shelf is the same size at any width.
-   The shelf wraps to a second line only when the parts do not fit even at
-   their floors — a crowded late-game board — and scrolls only past that. */
+   come its floor (32px cards, 6px apart) and its full size (46px cards:
+   64px tall, which is the line). Parts start at their floor and grow
+   together, a card's worth of room per card, so every card on the shelf
+   is the same size at any width. The shelf wraps to a second line only
+   when the parts do not fit even at their floors — a crowded late-game
+   board — and lands too many for a whole line wrap among themselves. */
 .zone--cards.zone--focused .zone-shelf {
   position: relative; /* above the panel behind it */
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px 12px;
+  gap: 4px 12px;
   min-width: 0;
-  min-height: 98px;
+  min-height: 72px;
   padding: 4px 8px;
   overflow-x: auto;
   overflow-y: hidden;
@@ -3625,26 +3653,53 @@ input[type='checkbox'] {
   flex-wrap: nowrap;
   align-items: center;
   gap: 6px;
-  flex: var(--n, 0) 1 calc(var(--n, 0) * 42px - 6px);
+  flex: var(--n, 0) 1 calc(var(--n, 0) * 38px - 6px);
   width: auto;
   min-width: 0;
-  max-width: calc(var(--n, 0) * 70px - 6px);
+  max-width: calc(var(--n, 0) * 52px - 6px);
   min-height: 0;
   padding: 0;
   border: none;
   overflow: visible;
 }
 
+/* The lands are a grid, so that where they are too many for one row the
+   next row's cards are the same size as the first's. (The columns are
+   counted at the 32px floor; the box's own max-width keeps them to 46px.) */
+.zone--cards.zone--focused .lands-stacks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(32px, 1fr));
+  gap: 4px 6px;
+}
+
+/* The lands come last and stand in the middle of the room the others
+   leave: on a crowded board that also lets the tokens and the other
+   permanents share one line, and the lands have the next to themselves. */
+.zone--cards.zone--focused .lands-stacks {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.zone--cards.zone--focused .bf-side {
+  order: -1;
+}
+
 /* A token stack is its card and, beside it, one more / how many / one
-   fewer; the chips after the stacks never shrink. */
+   fewer. The chips stand first and never shrink: the place to make a
+   token does not move as the board fills. */
 .zone--cards.zone--focused .token-shelf {
+  order: -2;
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
   gap: 8px;
-  flex: var(--n, 0) 1 calc(var(--n, 0) * 75px + var(--c, 1) * 46px);
+  flex: var(--n, 0) 1 calc(var(--n, 0) * 71px + var(--c, 1) * 44px);
   min-width: 0;
-  max-width: calc(var(--n, 0) * 103px + var(--c, 1) * 46px);
+  max-width: calc(var(--n, 0) * 85px + var(--c, 1) * 44px);
+}
+
+.zone--cards.zone--focused .token-chips {
+  order: -1;
 }
 
 .zone--cards.zone--focused .board-strip {
@@ -3668,9 +3723,11 @@ input[type='checkbox'] {
   display: none;
 }
 
-/* A hairline where one kind of thing ends and the next begins. */
-.zone--cards.zone--focused .zone-shelf > * + * {
-  box-shadow: -7px 0 0 -6px rgba(255, 255, 255, 0.14);
+/* A hairline where one kind of thing ends and the next begins: after the
+   tokens, and after the other permanents. */
+.zone--cards.zone--focused .zone-shelf > .token-shelf,
+.zone--cards.zone--focused .zone-shelf > .bf-side {
+  box-shadow: 7px 0 0 -6px rgba(255, 255, 255, 0.14);
 }
 
 /* Every card on the shelf is the same small card. */
@@ -3679,8 +3736,8 @@ input[type='checkbox'] {
 .zone--cards.zone--focused .board-strip .thumb {
   flex: 1 1 0;
   width: auto;
-  min-width: 36px;
-  max-width: 64px;
+  min-width: 32px;
+  max-width: 46px;
   height: auto;
   aspect-ratio: 63 / 88;
 }
@@ -3690,8 +3747,8 @@ input[type='checkbox'] {
   flex-direction: row;
   align-items: center;
   gap: 3px;
-  min-width: 69px;
-  max-width: 97px;
+  min-width: 65px;
+  max-width: 79px;
 }
 
 .zone--cards.zone--focused .board-strip .thumb-name,
@@ -3700,16 +3757,17 @@ input[type='checkbox'] {
   display: none;
 }
 
+/* One more / how many / one fewer, in a column as tall as the card. */
 .zone--cards.zone--focused .board-strip .count-controls {
   flex: 0 0 30px;
   flex-direction: column-reverse;
   align-items: stretch;
-  gap: 2px;
+  gap: 1px;
 }
 
 .zone--cards.zone--focused .board-strip .count-controls button {
   width: 30px;
-  height: 28px;
+  height: 24px;
   padding: 0;
   line-height: 1;
 }
@@ -3718,8 +3776,8 @@ input[type='checkbox'] {
 .zone--cards.zone--focused .board-strip .count-controls .pick-count {
   width: auto;
   min-width: 0;
-  font-size: 0.78rem;
-  line-height: 1.2;
+  font-size: 0.72rem;
+  line-height: 14px;
   text-align: center;
 }
 
@@ -3749,63 +3807,33 @@ input[type='checkbox'] {
   display: none;
 }
 
-/* Narrow seats have height to spare and no width. The lands (and rocks)
-   always have a line to themselves, there from the first turn on so the
-   board does not jump when a land arrives. The side shelf and the tokens
-   share the next one while their cards can stay a comfortable size (56px:
-   that, not the floor, is where they start from here), and take a line
-   each when they cannot. The small piles stand over the far corner of the
-   last line, whichever it is. */
-.zone--cards.zone--focused.zone--narrow .zone-shelf {
-  overflow-x: hidden;
-}
-
-.zone--cards.zone--focused.zone--narrow .lands-stacks,
-.zone--cards.zone--focused.zone--narrow .lands-stacks:empty {
-  display: flex;
-  flex: 0 0 100%;
-  max-width: none;
-  min-height: 90px;
-}
-
-.zone--cards.zone--focused.zone--narrow .bf-side {
-  flex-basis: calc(var(--n, 0) * 62px - 6px);
-  box-shadow: none;
-}
-
-/* The token shelf is always last, so it is the one that keeps the piles'
-   corner clear: a margin, which counts when the line decides to wrap. */
-.zone--cards.zone--focused.zone--narrow .token-shelf {
-  flex-basis: calc(var(--n, 0) * 95px + var(--c, 1) * 46px);
-  min-height: 90px;
-  margin-right: var(--piles-w, 240px);
-  box-shadow: none;
-}
-
-.zone--cards.zone--focused.zone--narrow:has(> .hand-tray > .hand-fan) .zone-shelf {
-  --piles-w: 164px;
-}
-
 /* One tap, one token: the tokens this seat's deck makes, two rows of art
-   tiles at the shelf's end, and a "+" for anything else. */
+   tiles at the shelf's start (together as tall as a shelf card), and a
+   "+" for anything else. */
 .token-chips {
   flex: 0 0 auto;
   display: grid;
-  grid-template-rows: repeat(2, 42px);
+  grid-template-rows: repeat(2, 30px);
   grid-auto-flow: column;
-  grid-auto-columns: 42px;
+  grid-auto-columns: 40px;
   gap: 4px;
 }
 
 .token-chip {
   position: relative;
-  width: 42px;
-  height: 42px;
+  width: 40px;
+  height: 30px;
   padding: 0;
-  border-radius: 8px;
+  border-radius: 7px;
   overflow: hidden;
   background: #1d1d24;
   border: 1px solid #4a4a58;
+}
+
+/* By itself (a deck that makes no tokens) the "+" is the whole column. */
+.token-chip--more:only-child {
+  grid-row: span 2;
+  height: auto;
 }
 
 .token-chip img {
@@ -3855,16 +3883,23 @@ input[type='checkbox'] {
 
 .token-chip--more .token-chip-name {
   position: static;
+  padding: 0;
   background: none;
   color: #8c8c99;
-  letter-spacing: 0.04em;
+  font-size: 0.48rem;
+  letter-spacing: 0.03em;
   text-transform: uppercase;
+}
+
+.token-chip--more:not(:only-child) .token-chip-plus {
+  font-size: 0.95rem;
+  line-height: 1;
 }
 
 /* ---- the piles ---- */
 
-/* With the hand folded they are one row of small piles at the shelf's end
-   (on a narrow seat: over the end of its second line). */
+/* With the hand folded they are one row of small piles at the shelf's
+   end, each the size of a shelf card. */
 .zone--cards.zone--focused .zone-dock {
   grid-area: dock;
   position: relative; /* above the panel behind it */
@@ -3872,17 +3907,13 @@ input[type='checkbox'] {
   justify-self: end;
   justify-content: flex-end;
   gap: 6px;
-  padding: 4px 8px 6px 0;
-}
-
-.zone--cards.zone--focused.zone--narrow .zone-dock {
-  grid-area: shelf;
+  padding: 4px 8px 4px 0;
 }
 
 .zone--cards.zone--focused .dock-pile {
   flex: 0 0 auto;
-  width: 52px;
-  height: 73px;
+  width: 46px;
+  height: 64px;
 }
 
 /* With the hand open the dock dissolves: the small piles stand at the end
@@ -3900,18 +3931,13 @@ input[type='checkbox'] {
   justify-content: flex-end;
   gap: 6px;
   width: 156px;
-  padding: 0 0 6px;
-}
-
-.zone--cards.zone--focused.zone--narrow:has(> .hand-tray > .hand-fan) .dock-minis {
-  grid-area: shelf;
-  margin-right: 0;
+  padding: 0 0 4px;
 }
 
 .zone--cards.zone--focused:has(> .hand-tray > .hand-fan) .dock-minis .dock-pile {
   flex: 1 1 0;
   min-width: 34px;
-  max-width: 62px;
+  max-width: 46px;
   width: auto;
   height: auto;
   aspect-ratio: 63 / 88;

@@ -84,7 +84,7 @@ test('the side shelf holds the permanents that are neither creatures nor there f
   await waitFor(() => expect(container.querySelectorAll('.bf-side .vcard')).toHaveLength(2));
   const shelf = screen.getByRole('group', { name: /artifacts and enchantments/i });
   expect(shelf).toContainElement(screen.getByRole('button', { name: 'tap Rhystic Study' }));
-  expect(shelf).toContainElement(screen.getByRole('button', { name: 'tap Lightning Greaves' }));
+  expect(shelf).toContainElement(screen.getByRole('button', { name: 'equip Lightning Greaves' }));
   expect(screen.queryByRole('button', { name: /Grizzly Bears/ })).not.toBeInTheDocument(); // the field's
   expect(screen.queryByRole('button', { name: /Sol Ring/ })).not.toBeInTheDocument(); // the lands row's
   // It says how many cards it holds: the big board shares its shelf line out by it.
@@ -104,6 +104,33 @@ test('a card on the shelf taps on a tap and opens its sheet on a hold, as it wou
   });
   fireEvent.pointerUp(study);
   expect(await screen.findByRole('heading', { name: 'Rhystic Study' })).toBeInTheDocument();
+});
+
+test('an Equipment lying unattached says so, and a tap opens the list of what it can go on', async () => {
+  render(<SideShelf playerIdx={0} />);
+  const greaves = await screen.findByRole('button', { name: 'equip Lightning Greaves' });
+  expect(greaves.querySelector('.use-band')).toHaveTextContent('equip');
+  // Anything else on the shelf wears no such word.
+  expect(screen.getByRole('button', { name: 'tap Rhystic Study' }).querySelector('.use-band')).toBeNull();
+
+  fireEvent.pointerDown(greaves);
+  fireEvent.pointerUp(greaves);
+  expect(useAppStore.getState().tapVirtualCard).not.toHaveBeenCalled(); // tapping it is not what a player wants
+  expect(await screen.findByRole('heading', { name: 'Equip Lightning Greaves' })).toBeInTheDocument();
+  expect(await screen.findByRole('button', { name: 'put it on Grizzly Bears' })).toBeInTheDocument();
+});
+
+test('the hold still opens an Equipment’s own sheet, where it can be tapped', async () => {
+  render(<SideShelf playerIdx={0} />);
+  const greaves = await screen.findByRole('button', { name: 'equip Lightning Greaves' });
+  fireEvent.pointerDown(greaves);
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 650));
+  });
+  fireEvent.pointerUp(greaves);
+  expect(await screen.findByRole('heading', { name: 'Lightning Greaves' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Tap' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Equip…' })).toBeInTheDocument();
 });
 
 test('nothing is drawn while the shelf is empty', async () => {

@@ -23,10 +23,11 @@ const ACCENTS: Record<string, string> = {
   G: '#6aa877',
 };
 
-/** A deck seat's big board narrower than this cannot hold its lands, its
- * other permanents, its tokens and its piles on one shelf line: a tablet
- * held upright, or a side seat (the board turns to face it). */
-const ONE_SHELF_LINE_PX = 1000;
+/** A deck seat's big board narrower than this is a narrow one — a tablet
+ * held upright, or a side seat (the board turns to face it): its status
+ * line takes the whole width, its header a second line, and its hand's
+ * buttons a line above the cards. */
+const NARROW_SEAT_PX = 1000;
 
 /** Is the element laid out narrower than `limit`? Its own width, before
  * any turn the table gives it — which a media query cannot know. False
@@ -63,7 +64,7 @@ export default function PlayerZone({
   const flipped = useAppStore((s) => s.seatFlips[playerIdx] === true);
   const [sheetOpen, setSheetOpen] = useState(false);
   const zoneRef = useRef<HTMLElement>(null);
-  const narrow = useNarrowerThan(zoneRef, ONE_SHELF_LINE_PX);
+  const narrow = useNarrowerThan(zoneRef, NARROW_SEAT_PX);
   const stake = useLifeAtStake(playerIdx);
   if (!game) return null;
 
@@ -85,7 +86,7 @@ export default function PlayerZone({
     player.eliminated ? 'zone--dead' : '',
     isActive && !player.eliminated ? 'zone--active' : '',
     focused ? 'zone--focused' : '',
-    narrow ? 'zone--narrow' : '', // a deck seat's big board then gives its lands a line of their own
+    narrow ? 'zone--narrow' : '', // a deck seat's big board then lays its lines out for the width it has
     player.cards ? 'zone--cards' : '', // compact chrome: the cards need the room
     flipped ? 'zone--flipped' : '', // drawn turned around on this device ("Flip this side")
     showHub && !focused ? 'zone--hub' : '', // a slim bar carrying the pinned turn bar
@@ -197,7 +198,9 @@ export default function PlayerZone({
         // A seat playing a deck: the creatures and the piles; a status
         // line; one shelf for everything else it has on the table (lands
         // and mana rocks, the other permanents, tokens); the hand. On a
-        // collapsed bar the shelf is no box at all, only its parts.
+        // collapsed bar the shelf is no box at all, only its parts. On the
+        // big board it is one short line, and the stylesheet sets the
+        // parts in another order: tokens, permanents, then the lands.
         <>
           <BattlefieldRow playerIdx={playerIdx} />
           <LandsRow playerIdx={playerIdx} part="status" />
