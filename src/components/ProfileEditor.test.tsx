@@ -97,3 +97,44 @@ test('a new player has nothing to delete', () => {
   render(<ProfileEditor profile={null} onDone={() => {}} />);
   expect(screen.queryByRole('button', { name: /delete/i })).not.toBeInTheDocument();
 });
+
+// ---- the deck a player sits down with ----
+
+const deck = (id: string, name: string) => ({ id, name, commander: null, colors: [], cards: [], updatedAt: 1 });
+
+test('the deck of a player can be chosen from the saved decks and is saved with the player', async () => {
+  useAppStore.setState({ decks: [deck('d1', 'Stompy'), deck('d2', 'Burn')] });
+  const user = userEvent.setup();
+  render(<ProfileEditor profile={profile} onDone={() => {}} />);
+  const select = screen.getByLabelText('Deck');
+  expect(select).toHaveValue('');
+  expect([...select.querySelectorAll('option')].map((o) => o.textContent)).toEqual(['None', 'Stompy', 'Burn']);
+  await user.selectOptions(select, 'd2');
+  await user.click(screen.getByRole('button', { name: /^save$/i }));
+  expect(saved?.deckId).toBe('d2');
+});
+
+test('the attached deck shows as chosen, and "None" takes it off', async () => {
+  useAppStore.setState({ decks: [deck('d1', 'Stompy')] });
+  const user = userEvent.setup();
+  render(<ProfileEditor profile={{ ...profile, deckId: 'd1' }} onDone={() => {}} />);
+  expect(screen.getByLabelText('Deck')).toHaveValue('d1');
+  await user.selectOptions(screen.getByLabelText('Deck'), '');
+  await user.click(screen.getByRole('button', { name: /^save$/i }));
+  expect(saved?.deckId).toBeNull();
+});
+
+test('an attached deck that no longer exists reads as None and is left as it was on save', async () => {
+  useAppStore.setState({ decks: [deck('d1', 'Stompy')] });
+  const user = userEvent.setup();
+  render(<ProfileEditor profile={{ ...profile, deckId: 'gone' }} onDone={() => {}} />);
+  expect(screen.getByLabelText('Deck')).toHaveValue('');
+  await user.click(screen.getByRole('button', { name: /^save$/i }));
+  expect(saved?.deckId).toBe('gone');
+});
+
+test('with no saved decks there is no deck to choose', () => {
+  useAppStore.setState({ decks: [] });
+  render(<ProfileEditor profile={profile} onDone={() => {}} />);
+  expect(screen.queryByLabelText('Deck')).not.toBeInTheDocument();
+});

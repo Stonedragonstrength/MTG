@@ -646,7 +646,7 @@ label {
   flex-direction: column;
   gap: 8px;
   width: 100%;
-  max-width: 420px;
+  max-width: 640px;
 }
 
 .deck-pick {
@@ -655,6 +655,8 @@ label {
   justify-content: space-between;
   gap: 10px;
   font-size: 0.85rem;
+  flex-direction: row;
+  text-align: left;
 }
 
 .deck-pick select {
@@ -664,7 +666,11 @@ label {
   border: 1px solid #3a3a44;
   border-radius: 8px;
   padding: 6px 10px;
-  max-width: 220px;
+  min-height: 44px;
+  min-width: 0;
+  flex: 0 1 400px;
+  /* Deck names and the long "No deck" line read whole in the body font. */
+  font-family: var(--font-body);
 }
 
 /* ---- commander alignment ---- */
@@ -1200,9 +1206,90 @@ label {
   white-space: nowrap;
 }
 
-.cards-mode-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.9rem;
+/* ---- new game: Assistant, or Play on the tablet ---- */
+.play-choice {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  width: 100%;
+  max-width: 640px;
+}
+
+/* The two lines above the player chips sit together, so four seated players
+   and their decks still fit a tablet held sideways. */
+.new-game p {
+  margin: 0;
+}
+
+.play-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 12px;
+  row-gap: 4px;
+  align-content: start;
+  min-height: 88px;
+  padding: 14px 16px;
+  text-align: left;
+  border-width: 2px;
+}
+
+/* The dot of a radio button: which of the two is on reads at a glance. */
+.play-card::before {
+  content: '';
+  grid-row: 1;
+  align-self: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid #6a6a78;
+}
+
+.play-card.selected {
+  border-color: var(--accent);
+  background: #332b14;
+}
+
+.play-card.selected::before {
+  border-color: var(--accent);
+  background: radial-gradient(circle, var(--accent) 0 45%, transparent 50%);
+}
+
+.play-card-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.play-card.selected .play-card-title {
+  color: var(--accent);
+}
+
+.play-card-line,
+.play-card-hint {
+  grid-column: 2;
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  line-height: 1.35;
+  opacity: 0.8;
+}
+
+.play-card-hint {
+  color: #d4b96a;
+  opacity: 1;
+}
+
+@media (max-width: 520px) {
+  .play-choice {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* The player editor's "Deck" row. */
+.profile-deck {
+  flex-direction: row;
+}
+
+.profile-deck select {
+  min-width: 0;
+  max-width: 55%;
+  min-height: 44px;
 }

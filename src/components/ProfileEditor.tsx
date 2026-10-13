@@ -27,6 +27,10 @@ export default function ProfileEditor({ profile, onDone }: Props) {
   const [commanderImage, setCommanderImage] = useState<string | null>(
     profile?.commanderImage ?? null,
   );
+  const decks = useAppStore((s) => s.decks);
+  // Kept as saved until changed here, even when it names a deck this device
+  // no longer has (it may simply not have synced yet).
+  const [deckId, setDeckId] = useState<string | null>(profile?.deckId ?? null);
   const [picking, setPicking] = useState<'avatar' | 'commander' | null>(null);
   const deleting = useConfirmTap();
   const history = profile?.commanderHistory ?? [];
@@ -53,6 +57,7 @@ export default function ProfileEditor({ profile, onDone }: Props) {
       commanderColors,
       commanderImage,
       commanderHistory,
+      deckId,
     });
     onDone();
   }
@@ -122,6 +127,26 @@ export default function ProfileEditor({ profile, onDone }: Props) {
             ))}
           </div>
         </div>
+      )}
+      {decks.length > 0 && (
+        <label className="settings-row profile-deck">
+          <span className="settings-row-text">
+            <span>Deck</span>
+            <small>Ready to play each new game</small>
+          </span>
+          <select
+            aria-label="Deck"
+            value={decks.some((d) => d.id === deckId) ? (deckId ?? '') : ''}
+            onChange={(e) => setDeckId(e.target.value || null)}
+          >
+            <option value="">None</option>
+            {decks.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+        </label>
       )}
       {picking && (
         <AvatarPicker

@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Format, PlayerProfile } from '../lib/types';
+import type { Deck, Format, PlayerProfile } from '../lib/types';
 import { useAppStore } from '../state/store';
 
 interface Props {
   onBack: () => void;
 }
+
+/** How the table plays: real cards with the tablet keeping score, or saved
+ * decks dealt and played on screen. */
+type Play = 'assistant' | 'tablet';
 
 export default function NewGameScreen({ onBack }: Props) {
   const profiles = useAppStore((s) => s.profiles);
@@ -13,14 +17,16 @@ export default function NewGameScreen({ onBack }: Props) {
   const hostOnlineGame = useAppStore((s) => s.hostOnlineGame);
   const saveProfile = useAppStore((s) => s.saveProfile);
   const seedSeatFromDeck = useAppStore((s) => s.seedSeatFromDeck);
-  const [format, setFormat] = useState<Format>('commander');
-  const [cardsMode, setCardsMode] = useState(false);
+  const [play, setPlay] = useState<Play>('assistant');
+  const [pickedFormat, setPickedFormat] = useState<Format>('commander');
   const [where, setWhere] = useState<'local' | 'online'>('local');
   const [cloudReady, setCloudReady] = useState(false);
   const [hostBusy, setHostBusy] = useState(false);
   const [hostError, setHostError] = useState('');
   const [threshold, setThreshold] = useState('21');
   const [selected, setSelected] = useState<string[]>([]);
+  // Only what was chosen on this screen ('' = "no deck", chosen on purpose).
+  // A player nobody chose for sits down with the deck attached to them.
   const [deckChoice, setDeckChoice] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -40,11 +46,12 @@ export default function NewGameScreen({ onBack }: Props) {
     };
   }, []);
 
-  // The Virtual-cards box lives under Commander only; leaving the format
-  // disarms it so no hidden cards-mode Standard game can start.
-  useEffect(() => {
-    if (format !== 'commander') setCardsMode(false);
-  }, [format]);
+  // Playing on the tablet needs a deck to play. A sync can delete the last
+  // one while this screen is open: then it is the Assistant again.
+  const onTablet = play === 'tablet' && decks.length > 0;
+  // Decks on screen are Commander decks, whatever format was picked before.
+  const format: Format = onTablet ? 'commander' : pickedFormat;
+  const pickingDecks = format === 'commander' && decks.length > 0;
 
   // A sync can take a player away while this screen is open (deleted on
   // another device, or found to be one the cloud already had): only players
@@ -60,43 +67,70 @@ export default function NewGameScreen({ onBack }: Props) {
     });
   }
 
-  /** A chosen deck brings its commander along for this game (and sticks
-   * to the profile for next time). */
+  /** The deck this player sits down with: the one chosen here, else the one
+   * attached to them. Only decks still saved count (a sync can delete one). */
+  function deckFor(profile: PlayerProfile): Deck | undefined {
+    if (!pickingDecks) return undefined;
+    const id = profile.id in deckChoice ? deckChoice[profile.id] : profile.deckId;
+    return id ? decks.find((d) => d.id === id) : undefined;
+  }
+
+  const seatedProfiles = seated.map((id) => profiles.find((p) => p.id === id)!);
+  const needsADeck = onTablet && !seatedProfiles.some((p) => deckFor(p));
+
+  /** A chosen deck stays attached to the player for next time, and brings
+   * its commander along for this game. One save, and only when something
+   * about the player actually changed. */
   function withDeck(profile: PlayerProfile): PlayerProfile {
-    const deck = decks.find((d) => d.id === deckChoice[profile.id]);
-    if (!deck?.commander) return profile;
-    const patched = {
-      ...profile,
-      commanderName: deck.commander.name,
-      // A pair's second commander rides along (commander damage is counted
-      // per commander); a solo deck clears whatever the last deck left.
-      partnerName: deck.partner?.name ?? null,
-      commanderColors: deck.colors,
-      commanderImage: deck.commander.imageNormal,
-    };
+    if (!pickingDecks) return profile;
+    const deck = deckFor(profile);
+    let patched = profile;
+    if (deck) {
+      patched = { ...profile, deckId: deck.id };
+      if (deck.commander) {
+        patched = {
+          ...patched,
+          commanderName: deck.commander.name,
+          // A pair's second commander rides along (commander damage is counted
+          // per commander); a solo deck clears whatever the last deck left.
+          partnerName: deck.partner?.name ?? null,
+          commanderColors: deck.colors,
+          commanderImage: deck.commander.imageNormal,
+        };
+      }
+    } else if (deckChoice[profile.id] === '' && profile.deckId) {
+      // "No deck" chosen on purpose over the attached one: it comes off.
+      patched = { ...profile, deckId: null };
+    }
+    const same =
+      (patched.deckId ?? null) === (profile.deckId ?? null) &&
+      patched.commanderName === profile.commanderName &&
+      (patched.partnerName ?? null) === (profile.partnerName ?? null) &&
+      (patched.commanderColors ?? []).join() === (profile.commanderColors ?? []).join() &&
+      (patched.commanderImage ?? null) === (profile.commanderImage ?? null);
+    if (same) return profile;
     void saveProfile(patched);
     return patched;
   }
 
-  function seedChosenDecks() {
-    // Shared tablet (or host): every seat whose player picked a deck
-    // gets seated with it. Guests on their own devices bring their own.
-    seated.forEach((id, seatIdx) => {
-      const deck = decks.find((d) => d.id === deckChoice[id]);
-      if (deck) seedSeatFromDeck(seatIdx, deck);
-    });
-  }
-
   async function start() {
     const n = Number(threshold);
+    // Shared tablet (or host): every seat whose player has a deck gets
+    // seated with it. Guests on their own devices bring their own.
+    const toDeal = onTablet
+      ? seatedProfiles.flatMap((p, seatIdx) => {
+          const deck = deckFor(p);
+          return deck ? [{ seatIdx, deck }] : [];
+        })
+      : [];
+    const seedChosenDecks = () => toDeal.forEach(({ seatIdx, deck }) => seedSeatFromDeck(seatIdx, deck));
     const config = {
       format,
       startingLife: format === 'commander' ? (40 as const) : (20 as const),
       commanderDamageThreshold: Number.isFinite(n) && n >= 1 ? Math.floor(n) : 21,
-      profiles: seated.map((id) => withDeck(profiles.find((p) => p.id === id)!)),
-      ...(format === 'commander' && cardsMode ? { mode: 'cards' as const } : {}),
+      profiles: seatedProfiles.map(withDeck),
+      ...(onTablet ? { mode: 'cards' as const } : {}),
     };
-    const seeding = format === 'commander' && cardsMode;
     if (where === 'online') {
       setHostBusy(true);
       setHostError('');
@@ -111,16 +145,46 @@ export default function NewGameScreen({ onBack }: Props) {
       if (calledOff) return;
       setHostBusy(false);
       if (err) setHostError(err);
-      else if (seeding) seedChosenDecks();
+      else seedChosenDecks();
       return;
     }
     startGame(config);
-    if (seeding) seedChosenDecks();
+    seedChosenDecks();
   }
 
   return (
     <div className="screen new-game">
       <h2>New game</h2>
+      <div className="play-choice" role="radiogroup" aria-label="How are you playing?">
+        <button
+          type="button"
+          role="radio"
+          aria-checked={!onTablet}
+          className={onTablet ? 'play-card' : 'play-card selected'}
+          onClick={() => setPlay('assistant')}
+        >
+          <span className="play-card-title">Assistant</span>
+          <span className="play-card-line">
+            Real cards on the table. The tablet keeps life, tokens, lands and commander damage.
+          </span>
+        </button>
+        <button
+          type="button"
+          role="radio"
+          aria-checked={onTablet}
+          disabled={decks.length === 0}
+          className={onTablet ? 'play-card selected' : 'play-card'}
+          onClick={() => setPlay('tablet')}
+        >
+          <span className="play-card-title">Play on the tablet</span>
+          <span className="play-card-line">
+            Your saved decks are shuffled, dealt and played on screen.
+          </span>
+          {decks.length === 0 && (
+            <span className="play-card-hint">Build a deck first (Home → Decks).</span>
+          )}
+        </button>
+      </div>
       <fieldset className="format-toggle">
         <legend>Where</legend>
         <label>
@@ -144,27 +208,29 @@ export default function NewGameScreen({ onBack }: Props) {
           {!cloudReady && <small> (sign in under Settings → Cloud sync first)</small>}
         </label>
       </fieldset>
-      <fieldset className="format-toggle">
-        <legend>Format</legend>
-        <label>
-          <input
-            type="radio"
-            name="format"
-            checked={format === 'commander'}
-            onChange={() => setFormat('commander')}
-          />
-          Commander (40 life)
-        </label>
-        <label>
-          <input
-            type="radio"
-            name="format"
-            checked={format === 'standard'}
-            onChange={() => setFormat('standard')}
-          />
-          Standard (20 life)
-        </label>
-      </fieldset>
+      {!onTablet && (
+        <fieldset className="format-toggle">
+          <legend>Format</legend>
+          <label>
+            <input
+              type="radio"
+              name="format"
+              checked={format === 'commander'}
+              onChange={() => setPickedFormat('commander')}
+            />
+            Commander (40 life)
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="format"
+              checked={format === 'standard'}
+              onChange={() => setPickedFormat('standard')}
+            />
+            Standard (20 life)
+          </label>
+        </fieldset>
+      )}
       {format === 'commander' && (
         <label className="threshold">
           Commander damage to eliminate
@@ -192,45 +258,36 @@ export default function NewGameScreen({ onBack }: Props) {
           </button>
         ))}
       </div>
-      {format === 'commander' && decks.length > 0 && (
-        <label className="cards-mode-toggle">
-          <input
-            type="checkbox"
-            aria-label="virtual cards"
-            checked={cardsMode}
-            onChange={(e) => setCardsMode(e.target.checked)}
-          />
-          Virtual cards — play your saved decks digitally (pick decks below)
-        </label>
-      )}
-      {format === 'commander' && decks.length > 0 && seated.length > 0 && (
+      {pickingDecks && seatedProfiles.length > 0 && (
         <div className="deck-picks">
-          {seated.map((id) => {
-            const p = profiles.find((x) => x.id === id)!;
-            return (
-              <label key={id} className="deck-pick">
-                Deck for {p.name}
-                <select
-                  value={deckChoice[id] ?? ''}
-                  onChange={(e) =>
-                    setDeckChoice((prev) => ({ ...prev, [id]: e.target.value }))
-                  }
-                >
-                  <option value="">{p.commanderName ?? 'No deck'}</option>
-                  {decks.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            );
-          })}
+          {seatedProfiles.map((p) => (
+            <label key={p.id} className="deck-pick">
+              <span>{onTablet ? `Deck for ${p.name}` : `Commander deck for ${p.name}`}</span>
+              <select
+                value={deckFor(p)?.id ?? ''}
+                onChange={(e) => setDeckChoice((prev) => ({ ...prev, [p.id]: e.target.value }))}
+              >
+                {!onTablet && <option value="">No deck</option>}
+                {decks.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                ))}
+                {onTablet && <option value="">No deck — real cards (assistant seat)</option>}
+              </select>
+            </label>
+          ))}
         </div>
+      )}
+      {needsADeck && seatedProfiles.length > 0 && (
+        <p className="hint">Pick a deck for at least one player.</p>
       )}
       {hostError && <p className="hint join-error">{hostError}</p>}
       <div className="modal-actions">
-        <button disabled={seated.length < 2 || hostBusy} onClick={() => void start()}>
+        <button
+          disabled={seated.length < 2 || hostBusy || needsADeck}
+          onClick={() => void start()}
+        >
           {hostBusy ? 'Opening table…' : 'Start game'}
         </button>
         <button className="ghost" onClick={onBack}>

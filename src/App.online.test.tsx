@@ -130,7 +130,7 @@ test('hosting a cards table from home opens the game with the chosen deck dealt'
   render(<App />);
   await user.click(await screen.findByRole('button', { name: /new game/i }));
   await user.click(await screen.findByRole('radio', { name: /online/i }));
-  await user.click(screen.getByRole('checkbox', { name: /virtual cards/i }));
+  await user.click(screen.getByRole('radio', { name: /play on the tablet/i }));
   await user.click(screen.getByRole('button', { name: 'Nathan' }));
   await user.click(screen.getByRole('button', { name: 'Sam' }));
   await user.selectOptions(screen.getByLabelText(/deck for Nathan/i), 'deck-1');

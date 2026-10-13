@@ -11,6 +11,9 @@ export interface PlayerProfile {
   commanderColors?: string[] | null; // WUBRG identity, for zone theming
   commanderImage?: string | null; // card image for the home-screen tile
   commanderHistory?: CommanderEntry[]; // recently used commanders, newest first
+  /** The saved deck this player last sat down with; pre-filled on New Game.
+   * May name a deck that has since been deleted: then it counts as none. */
+  deckId?: string | null;
   /** ms epoch of the last save; last-write-wins across devices. Absent on
    * profiles saved before players synced: those count as the oldest. */
   updatedAt?: number;
