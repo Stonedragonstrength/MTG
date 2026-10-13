@@ -8,6 +8,7 @@ import { useAppStore } from '../state/store';
 import AttachSheet from './AttachSheet';
 import HandCardSheet from './HandCardSheet';
 import { useCardRecords } from './useCardRecords';
+import { useFitHand } from './useFitHand';
 import { useLongPress } from './useLongPress';
 import { useSeatTexts } from './useSeatTexts';
 import XCostSheet from './XCostSheet';
@@ -30,18 +31,14 @@ function HandCard({
 }) {
   const press = useLongPress(onPlay, onDetail);
   return (
-    // The slot is the card's place in the fan: on the big board the cards
-    // overlap, and the slot is the part of this one that shows.
-    <span className="hand-slot">
-      <button
-        className={`hand-card${selected ? ' hand-card--selected' : ''}${why ? ' hand-card--poor' : ''}`}
-        aria-label={`play ${name}`}
-        title={why ? `${why.replace(/\.$/, '')} · hold for options` : 'Tap to play · hold for options'}
-        {...press}
-      >
-        {art ? <img src={art} alt="" loading="lazy" /> : <span className="vcard-placeholder">{name}</span>}
-      </button>
-    </span>
+    <button
+      className={`hand-card${selected ? ' hand-card--selected' : ''}${why ? ' hand-card--poor' : ''}`}
+      aria-label={`play ${name}`}
+      title={why ? `${why.replace(/\.$/, '')} · hold for options` : 'Tap to play · hold for options'}
+      {...press}
+    >
+      {art ? <img src={art} alt="" loading="lazy" /> : <span className="vcard-placeholder">{name}</span>}
+    </button>
   );
 }
 
@@ -51,8 +48,9 @@ interface Props {
   forceFanned?: boolean;
 }
 
-/** Your hand, docked at your own edge: a count pill that fans into
- * thumbnails. Tap plays (undo covers misclicks); hold for options.
+/** Your hand, docked at your own edge: a count pill that opens into the
+ * cards, every one of them in sight whole (useFitHand sizes them to the
+ * room there is). Tap plays (undo covers misclicks); hold for options.
  * Turn one offers the London mulligan with select-to-bottom on keep. */
 export default function HandTray({ playerIdx, forceFanned = false }: Props) {
   const game = useAppStore((s) => s.game);
@@ -69,6 +67,9 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
   const [showHeld, setShowHeld] = useState(false); // dead-phone escape hatch
   const [xFor, setXFor] = useState<string | null>(null); // the card the X sheet is asking about
   const [attachFor, setAttachFor] = useState<string | null>(null); // the Aura just played, asking where it goes
+  // The box the cards lie in, while the hand is open: it is measured, and
+  // the cards sized so that every one of them is in sight.
+  const [cardsBox, setCardsBox] = useState<HTMLElement | null>(null);
 
   const activeIdx = game?.activePlayerIndex;
   // The seat holding the big board: it also changes hands mid-turn, when a
@@ -94,6 +95,7 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
   const records = useCardRecords(seat?.hand ?? []);
   const bfRecords = useCardRecords(seat?.battlefield ?? []);
   const texts = useSeatTexts(playerIdx);
+  useFitHand(cardsBox, seat?.hand.length ?? 0);
   if (!game || !seat) return null;
 
   // The gates: a spell lights up only while the untapped table can pay it,
@@ -173,7 +175,7 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
         </button>
       ) : (
         <div className="hand-fan">
-          <div className="hand-cards">
+          <div className="hand-cards" ref={setCardsBox}>
             {seat.hand.map((c) => (
               <HandCard
                 key={c.iid}

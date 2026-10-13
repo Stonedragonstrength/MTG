@@ -2901,21 +2901,48 @@ input[type='checkbox'] {
 .table-360 {
   display: block;
   position: relative;
+  /* How thick the bar along each edge is; every box below is placed from
+     these four. An edge with no bar — nobody sits there (three players
+     have no top seat), or its player holds the big board — counts as
+     -4px: whatever borders it then runs to 4px from the screen's edge. A
+     bar whose hand lies open is thicker by the hand's line, and the big
+     board and the bars beside it give it the room. */
+  --bar: 54px;
+  --bar-open: 200px;
+  --bar-t: var(--bar);
+  --bar-b: var(--bar);
+  --bar-l: var(--bar);
+  --bar-r: var(--bar);
 }
+
+.players-3.table-360 { --bar-t: -4px; }
+
+.table-360:has(> .zone--focused.edge-top) { --bar-t: -4px; }
+.table-360:has(> .zone--focused.edge-bottom) { --bar-b: -4px; }
+.table-360:has(> .zone--focused.edge-left) { --bar-l: -4px; }
+.table-360:has(> .zone--focused.edge-right) { --bar-r: -4px; }
+
+.table-360:has(> .edge-top:not(.zone--focused) > .hand-tray > .hand-fan) { --bar-t: var(--bar-open); }
+.table-360:has(> .edge-bottom:not(.zone--focused) > .hand-tray > .hand-fan) { --bar-b: var(--bar-open); }
+.table-360:has(> .edge-left:not(.zone--focused) > .hand-tray > .hand-fan) { --bar-l: var(--bar-open); }
+.table-360:has(> .edge-right:not(.zone--focused) > .hand-tray > .hand-fan) { --bar-r: var(--bar-open); }
 
 .table-360 .zone {
   position: absolute;
   margin: 0;
 }
 
-/* Collapsed edge bars: 52px thick strips hugging each player's edge,
-   rotated to face them. Vertical bars are laid out horizontally and
-   rotated into place, so the slim-bar content works unchanged. */
+/* Collapsed edge bars: strips hugging each player's edge, rotated to face
+   them. The top and bottom rows own the full width; the side bars sit
+   between the rows, and run to the screen's edge where there is none
+   (three players, or the row of the player holding the board). Vertical
+   bars are laid out horizontally and rotated into place, so the slim-bar
+   content works unchanged. */
 .table-360 .edge-bottom:not(.zone--focused) {
-  left: 62px;
-  right: 62px;
+  left: 4px;
+  right: 4px;
   bottom: 4px;
-  height: 54px;
+  height: var(--bar-b);
   transform: none;
 }
 
@@ -2924,26 +2951,26 @@ input[type='checkbox'] {
 }
 
 .table-360 .edge-top:not(.zone--focused) {
-  left: 62px;
-  right: 62px;
+  left: 4px;
+  right: 4px;
   top: 4px;
-  height: 54px;
+  height: var(--bar-t);
   transform: rotate(calc(180deg + var(--flip, 0deg)));
 }
 
 .table-360 .edge-left:not(.zone--focused) {
-  top: 50%;
-  left: 29px;
-  width: calc(100dvh - 128px);
-  height: 54px;
+  top: calc(50% + (var(--bar-t) - var(--bar-b)) / 2);
+  left: calc(2px + var(--bar-l) / 2);
+  width: calc(100dvh - var(--bar-t) - var(--bar-b) - 16px);
+  height: var(--bar-l);
   transform: translate(-50%, -50%) rotate(calc(90deg + var(--flip, 0deg)));
 }
 
 .table-360 .edge-right:not(.zone--focused) {
-  top: 50%;
-  left: calc(100% - 29px);
-  width: calc(100dvh - 128px);
-  height: 54px;
+  top: calc(50% + (var(--bar-t) - var(--bar-b)) / 2);
+  left: calc(100% - 2px - var(--bar-r) / 2);
+  width: calc(100dvh - var(--bar-t) - var(--bar-b) - 16px);
+  height: var(--bar-r);
   transform: translate(-50%, -50%) rotate(calc(-90deg + var(--flip, 0deg)));
 }
 
@@ -2957,9 +2984,16 @@ input[type='checkbox'] {
   min-width: 80px;
 }
 
-/* The focused zone fills the center, oriented toward its player's edge. */
+/* The focused zone fills the center between the bars, oriented toward its
+   player's edge, and claims its own (empty) edge strip. A side seat's
+   board is laid out upright and rotated into place: the board turns to
+   face that player. */
+.table-360 .zone--focused.edge-bottom,
+.table-360 .zone--focused.edge-top {
+  inset: calc(var(--bar-t) + 8px) calc(var(--bar-r) + 8px) calc(var(--bar-b) + 8px) calc(var(--bar-l) + 8px);
+}
+
 .table-360 .zone--focused.edge-bottom {
-  inset: 62px 62px 62px 62px;
   transform: none;
 }
 
@@ -2968,110 +3002,23 @@ input[type='checkbox'] {
 }
 
 .table-360 .zone--focused.edge-top {
-  inset: 62px 62px 62px 62px;
   transform: rotate(calc(180deg + var(--flip, 0deg)));
 }
 
+.table-360 .zone--focused.edge-left,
+.table-360 .zone--focused.edge-right {
+  inset: auto;
+  top: calc(50% + (var(--bar-t) - var(--bar-b)) / 2);
+  left: calc(50% + (var(--bar-l) - var(--bar-r)) / 2);
+  width: calc(100dvh - var(--bar-t) - var(--bar-b) - 16px);
+  height: calc(100dvw - var(--bar-l) - var(--bar-r) - 16px);
+}
+
 .table-360 .zone--focused.edge-left {
-  top: 50%;
-  left: 50%;
-  width: calc(100dvh - 124px);
-  height: calc(100dvw - 124px);
   transform: translate(-50%, -50%) rotate(calc(90deg + var(--flip, 0deg)));
 }
 
 .table-360 .zone--focused.edge-right {
-  top: 50%;
-  left: 50%;
-  width: calc(100dvh - 124px);
-  height: calc(100dvw - 124px);
-  transform: translate(-50%, -50%) rotate(calc(-90deg + var(--flip, 0deg)));
-}
-
-/* The focused zone claims its own (empty) edge strip. */
-.table-360 .zone--focused.edge-bottom {
-  inset: 62px 62px 4px 62px;
-}
-
-.table-360 .zone--focused.edge-top {
-  inset: 4px 62px 62px 62px;
-}
-
-.table-360 .zone--focused.edge-left {
-  height: calc(100dvw - 66px);
-  left: calc(50% - 29px);
-}
-
-.table-360 .zone--focused.edge-right {
-  height: calc(100dvw - 66px);
-  left: calc(50% + 29px);
-}
-
-/* Three players have no top seat: that edge is free space too. */
-.players-3.table-360 .zone--focused.edge-bottom {
-  inset: 4px 62px 4px 62px;
-}
-
-.players-3.table-360 .edge-left:not(.zone--focused),
-.players-3.table-360 .edge-right:not(.zone--focused) {
-  width: calc(100dvh - 70px);
-  top: calc(50% - 29px);
-}
-
-.players-3.table-360 .zone--focused.edge-left,
-.players-3.table-360 .zone--focused.edge-right {
-  width: calc(100dvh - 66px);
-  top: calc(50% - 29px);
-}
-
-/* Side bars run nearly full height — the corners are theirs, since the
-   top/bottom bars start 62px in. Relieves cramped side players. */
-.table-360 .edge-left:not(.zone--focused),
-.table-360 .edge-right:not(.zone--focused),
-.players-3.table-360 .edge-left:not(.zone--focused),
-.players-3.table-360 .edge-right:not(.zone--focused) {
-  width: calc(100dvh - 12px);
-  top: 50%;
-}
-
-/* Stable view: the center board never spins sideways. Side-seat turns
-   keep it screen-upright (their edge bar still faces them) and the board
-   claims their empty edge strip. Only the top seat flips it 180. */
-/* Side-seat turns: the board rotates to face that player's edge and
-   claims their empty strip. */
-.table-360 .zone--focused.edge-left {
-  inset: auto;
-  width: calc(100dvh - 124px);
-  height: calc(100dvw - 66px);
-  top: 50%;
-  left: calc(50% - 29px);
-  transform: translate(-50%, -50%) rotate(calc(90deg + var(--flip, 0deg)));
-}
-
-.table-360 .zone--focused.edge-right {
-  inset: auto;
-  width: calc(100dvh - 124px);
-  height: calc(100dvw - 66px);
-  top: 50%;
-  left: calc(50% + 29px);
-  transform: translate(-50%, -50%) rotate(calc(-90deg + var(--flip, 0deg)));
-}
-
-.players-3.table-360 .zone--focused.edge-left {
-  inset: auto;
-  width: calc(100dvh - 66px);
-  height: calc(100dvw - 66px);
-  top: calc(50% - 29px);
-  left: calc(50% - 29px);
-  transform: translate(-50%, -50%) rotate(calc(90deg + var(--flip, 0deg)));
-}
-
-.players-3.table-360 .zone--focused.edge-right {
-  inset: auto;
-  width: calc(100dvh - 66px);
-  height: calc(100dvw - 66px);
-  top: calc(50% - 29px);
-  left: calc(50% + 29px);
   transform: translate(-50%, -50%) rotate(calc(-90deg + var(--flip, 0deg)));
 }
 
@@ -3131,43 +3078,17 @@ input[type='checkbox'] {
   justify-content: center;
 }
 
-/* Horizontal rows own the full width; side bars sit between the rows. */
-.table-360 .edge-bottom:not(.zone--focused),
-.table-360 .edge-top:not(.zone--focused) {
-  left: 4px;
-  right: 4px;
+/* So is a deck seat's board with open hands on the bars beside it: the
+   screen is wide, the board is not (PlayerZone measures it). */
+.zone--cards.zone--focused.zone--narrow .zone-header {
+  flex-wrap: wrap;
+  row-gap: 4px;
 }
 
-.table-360 .edge-left:not(.zone--focused),
-.table-360 .edge-right:not(.zone--focused) {
-  width: calc(100dvh - 128px);
-  top: 50%;
-}
-
-.players-3.table-360 .edge-left:not(.zone--focused),
-.players-3.table-360 .edge-right:not(.zone--focused) {
-  width: calc(100dvh - 70px);
-  top: calc(50% - 29px);
-}
-
-/* Side bars stretch into whichever row the active player vacated. */
-.table-360:has(.zone--focused.edge-bottom) .edge-left:not(.zone--focused),
-.table-360:has(.zone--focused.edge-bottom) .edge-right:not(.zone--focused) {
-  width: calc(100dvh - 66px);
-  top: calc(50% + 29px);
-}
-
-.table-360:has(.zone--focused.edge-top) .edge-left:not(.zone--focused),
-.table-360:has(.zone--focused.edge-top) .edge-right:not(.zone--focused) {
-  width: calc(100dvh - 66px);
-  top: calc(50% - 29px);
-}
-
-/* Three players, bottom active: no rows at all — sides run full height. */
-.players-3.table-360:has(.zone--focused.edge-bottom) .edge-left:not(.zone--focused),
-.players-3.table-360:has(.zone--focused.edge-bottom) .edge-right:not(.zone--focused) {
-  width: calc(100dvh - 8px);
-  top: 50%;
+.zone--cards.zone--focused.zone--narrow .header-hub {
+  order: 10;
+  flex-basis: 100%;
+  justify-content: center;
 }
 
 /* Collapsed bars drop commander-damage gauges entirely — the data lives
@@ -3454,11 +3375,6 @@ input[type='checkbox'] {
 }
 
 .hand-card img { width: 100%; height: 100%; object-fit: cover; }
-
-/* A card's place in the fan: a box only on the big board (see there). */
-.hand-slot {
-  display: contents;
-}
 
 .hand-card--selected {
   outline: 3px solid var(--accent);
@@ -4046,44 +3962,56 @@ input[type='checkbox'] {
   max-width: 150px;
 }
 
-/* A hand held like a hand: every card is in sight at once. While there is
-   room they stand side by side; past that each one slides under the next
-   and shows its left edge (the name, the art), the last one whole. A slot
-   is the part of a card that shows; the card itself keeps its full size,
-   and the cards after it lie over the rest. Only a very full hand, every
-   card down to its narrowest strip, scrolls. */
+/* Every card of the hand is in sight, whole: no card lies over another.
+   useFitHand measures this box and sizes the cards to it (--hand-h): side
+   by side while that leaves them a fair size, in a second row where the
+   seat has the height for one (a tablet held upright). --hand-pad is what
+   a full row leaves over each side, so the rows break evenly. Only a hand
+   too large for its room (--hand-room) at the smallest size scrolls. */
 .zone--cards.zone--focused .hand-cards {
   flex: 1 1 0;
   min-width: 0;
-  gap: 0;
-  justify-content: safe center;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  align-content: flex-start;
+  max-height: var(--hand-room, none);
+  padding: 0 var(--hand-pad, 0px);
+  overflow-x: hidden;
+  overflow-y: auto;
   scrollbar-width: none;
 }
 
-.zone--cards.zone--focused .hand-slot {
-  display: block;
-  position: relative;
-  flex: 1 1 0;
-  min-width: 40px;
-  max-width: 164px;
-  height: 218px;
-}
-
-.zone--cards.zone--focused .hand-slot:last-child {
-  flex: 0 0 156px;
-}
-
 .zone--cards.zone--focused .hand-card {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 156px;
-  height: 218px;
-  box-shadow: -4px 0 10px rgba(0, 0, 0, 0.55);
+  width: auto;
+  height: var(--hand-h, 218px);
+  aspect-ratio: 63 / 88;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.55);
+}
+
+/* A seat too narrow for a row of tools beside its cards (a tablet held
+   upright, a side seat): the tools take a line above, and the cards the
+   full width under it. */
+.zone--cards.zone--focused.zone--narrow .hand-fan {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.zone--cards.zone--focused.zone--narrow .hand-tools {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  max-width: none;
+}
+
+.zone--cards.zone--focused.zone--narrow .hand-cards {
+  flex: 0 0 auto;
 }
 
 /* A card that cannot be played right now is dimmed — its picture, not the
-   card: a see-through card would show the one lying under it. */
+   card: a see-through card would show the table lying under it. */
 .zone--cards.zone--focused .hand-card--poor {
   opacity: 1;
   filter: none;
@@ -4127,6 +4055,18 @@ input[type='checkbox'] {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Where that line runs short the chips give way: the name and its color
+   pips never slide under them. */
+.zone--cards.zone--focused:not(.zone--narrow) .zone-lead > .zone-id {
+  flex: 0 0 auto;
+}
+
+.zone--cards.zone--focused:not(.zone--narrow) .zone-lead > .zone-chips {
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
 }
@@ -4237,6 +4177,67 @@ input[type='checkbox'] {
 .focus-mode .zone--cards:not(.zone--focused) .hand-pill {
   padding: 2px 10px;
   font-size: 0.8rem;
+}
+
+/* A hand opened on a bar takes a line of its own, as long as the bar, at
+   the player's own edge: the tools at its start, then every card of the
+   hand whole (useFitHand sizes them: --hand-h, --hand-pad, --hand-room).
+   Around a 360 table the bar is that much thicker (--bar-open) and the
+   big board gives it the room. */
+.focus-mode .zone--cards:not(.zone--focused):has(> .hand-tray > .hand-fan) {
+  flex-wrap: wrap;
+  align-content: flex-start;
+}
+
+.focus-mode .zone--cards:not(.zone--focused) > .hand-tray:has(> .hand-fan) {
+  flex: 1 1 100%;
+  min-width: 0;
+  padding: 0;
+}
+
+.focus-mode .zone--cards:not(.zone--focused) .hand-fan {
+  flex-direction: row;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.focus-mode .zone--cards:not(.zone--focused) .hand-tools {
+  order: -1;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: stretch;
+  flex-wrap: nowrap;
+  gap: 4px;
+  max-width: 150px;
+}
+
+.focus-mode .zone--cards:not(.zone--focused) .hand-tools button {
+  padding: 3px 10px;
+  font-size: 0.8rem;
+}
+
+.focus-mode .zone--cards:not(.zone--focused) .hand-cards {
+  flex: 1 1 0;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: center;
+  align-content: flex-start;
+  max-height: var(--hand-room, none);
+  padding: 0 var(--hand-pad, 0px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.focus-mode .zone--cards:not(.zone--focused) .hand-cards::-webkit-scrollbar {
+  display: none;
+}
+
+.focus-mode .zone--cards:not(.zone--focused) .hand-card {
+  width: auto;
+  height: var(--hand-h, 109px);
+  aspect-ratio: 63 / 88;
 }
 
 .hand-card--poor,
