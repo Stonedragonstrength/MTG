@@ -17,6 +17,7 @@ import * as boardLib from '../lib/board';
 import { backView, faceNames, frontId, isBackId, turnsOver } from '../lib/faces';
 import * as gameLib from '../lib/game';
 import * as payLib from '../lib/pay';
+import * as payWithLib from '../lib/payWith';
 import { planEffect, type SpellEffect } from '../lib/spellEffects';
 import { isLandCard } from '../lib/turnRules';
 import { playDefeat, playLifeTick, playTurnChime } from '../lib/sound';
@@ -76,10 +77,12 @@ export interface AppStore {
    * `asLand`: play the land on the card's back face instead of casting it. */
   /** `extras`: how often each optional extra cost of the card is paid, in
    * the order `pay.extraCosts` reads them (kicker, multikicker, buyback…). */
+  /** `using`: the mana sources the player chose to pay with ("Pay with…"),
+   * source key → how many (lib/payWith.ts). Left out, the table chooses. */
   playCard(
     seat: number,
     iid: string,
-    opts?: { x?: number; asLand?: true; extras?: number[] },
+    opts?: { x?: number; asLand?: true; extras?: number[]; using?: Record<string, number> },
   ): Promise<void>;
   tapVirtualCard(seat: number, iid: string, wantTapped?: boolean): void;
   /** Turns a double-faced card on the battlefield over, onto whichever
@@ -100,7 +103,11 @@ export interface AppStore {
   shuffleSeat(seat: number): void;
   mulliganSeat(seat: number): void;
   keepHand(seat: number, bottomIids: string[]): void;
-  castCommander(seat: number, iid?: string, opts?: { x?: number }): void;
+  castCommander(
+    seat: number,
+    iid?: string,
+    opts?: { x?: number; using?: Record<string, number> },
+  ): void;
   commanderDiedAction(seat: number, iid: string): void;
   commanderReturned(seat: number, iid: string, from: 'graveyard' | 'exile'): void;
   peekNotice(seat: number): void;
@@ -263,22 +270,37 @@ const wholeX = (x: number | undefined) =>
  * move. A cast that arrives in a different turn from the one it was made
  * in (a rebase past a Pass turn) only moves the card: tapping that later
  * turn's lands for it would leave the player short for no reason. `base`
- * is the state BEFORE the card moves, so it cannot pay for itself. */
+ * is the state BEFORE the card moves, so it cannot pay for itself.
+ *
+ * `using` is a payment the player chose ("Pay with…"): source key → how
+ * many. Those sources pay, as far as they are still there, and nothing
+ * else is touched — see payWith for what happens to each of them. */
 function payFrom(
   base: GameState,
   seat: number,
   costs: payLib.PayCost[],
   records: SeatRecords,
   castIn: TurnStamp,
+  using?: Record<string, number>,
 ): (moved: GameState) => GameState {
   const sameTurn = isTurn(base, castIn);
   const player = base.players[seat];
-  const plan = sameTurn
-    ? payLib.planAnyFace(
-        costs,
-        payLib.sourcesFrom(player?.cards?.battlefield ?? [], records, player?.board ?? []),
-      )
-    : null;
+  const sources = sameTurn
+    ? payLib.sourcesFrom(player?.cards?.battlefield ?? [], records, player?.board ?? [])
+    : [];
+  if (using) {
+    const chosen = payWithLib.payWith(costs, payWithLib.sourcesUsing(sources, using));
+    return (moved) => {
+      let next = moved;
+      for (const [iid, units] of Object.entries(chosen.spend))
+        next = cardsLib.spendMana(next, seat, iid, units);
+      for (const iid of chosen.tap) next = cardsLib.tapCard(next, seat, iid, true);
+      for (const [itemId, copies] of Object.entries(chosen.boardTaps))
+        next = boardLib.tapItem(next, seat, itemId, copies);
+      return next;
+    };
+  }
+  const plan = sameTurn ? payLib.planAnyFace(costs, sources) : null;
   return (moved) => {
     if (!plan) return moved; // nothing can pay it (or it was forced): tap nothing
     let next = moved;
@@ -732,7 +754,7 @@ export function createAppStore() {
           : null;
         cardMutate(
           (base) => {
-            const pay = payFrom(base, seat, priced, records, castIn);
+            const pay = payFrom(base, seat, priced, records, castIn, opts?.using);
             if (!base.players[seat]?.cards?.hand.some((c) => c.iid === iid)) return base;
             let moved = boughtBack
               ? base
@@ -963,7 +985,7 @@ export function createAppStore() {
           const castIn = { turn: g.turnNumber, active: g.activePlayerIndex };
           cardMutate(
             (base) => {
-              const pay = payFrom(base, seat, priced, records, castIn);
+              const pay = payFrom(base, seat, priced, records, castIn, opts?.using);
               let moved = cardsLib.moveCard(base, seat, cmd.iid, 'command', 'battlefield', {
                 row: 'front',
               });

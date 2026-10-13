@@ -13,6 +13,7 @@ import {
   sourcesFrom,
 } from '../lib/pay';
 import { useAppStore } from '../state/store';
+import PayWithSheet from './PayWithSheet';
 import Sheet from './Sheet';
 import { useCardRecords } from './useCardRecords';
 import { useSettleTaps } from './useSettleTaps';
@@ -42,6 +43,7 @@ export default function XCostSheet({ playerIdx, iid, from, onClose }: Props) {
   const castCommander = useAppStore((s) => s.castCommander);
   const [x, setX] = useState(0);
   const [asked, setAsked] = useState<number[]>([]);
+  const [choosing, setChoosing] = useState(false); // "Pay with…" has this sheet's place
   // It opens under the finger, on the tap that plays a hand card: the rest
   // of that tap must not land on Cast, on the stepper or on the backdrop.
   useSettleTaps();
@@ -90,14 +92,34 @@ export default function XCostSheet({ playerIdx, iid, from, onClose }: Props) {
       ? 'Cast'
       : 'Cast anyway';
 
+  // Which lands pay, with what was answered here: that sheet takes this
+  // one's place, and its Back returns with the answers as they were.
+  if (choosing)
+    return (
+      <PayWithSheet
+        playerIdx={playerIdx}
+        iid={iid}
+        from={from}
+        {...(asksX ? { x } : {})}
+        extras={times}
+        onBack={() => setChoosing(false)}
+        onClose={onClose}
+      />
+    );
+
   return (
     <Sheet
       title={card.name}
       onClose={onClose}
       footer={
-        <button className="primary" onClick={cast}>
-          {label}
-        </button>
+        <>
+          <button className="ghost" onClick={() => setChoosing(true)}>
+            Pay with…
+          </button>
+          <button className="primary" onClick={cast}>
+            {label}
+          </button>
+        </>
       }
     >
       <div className="card-hero x-hero">

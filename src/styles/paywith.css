@@ -1,0 +1,217 @@
+/* ---- "Pay with…": which lands pay for a spell (PayWithSheet) ---- */
+
+/* A mana symbol as the cards print it; the colored dot stands in offline. */
+.mana-sym {
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  padding: 0;
+  flex: 0 0 auto;
+  border-radius: 50%;
+}
+
+img.mana-sym {
+  display: block;
+}
+
+.pay-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+.pay-cost {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #9a9aa5;
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+}
+
+.pay-hint {
+  margin: 0;
+  color: #9a9aa5;
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+}
+
+.pay-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.pay-tile {
+  min-width: 0;
+  min-height: 104px;
+  border-radius: 12px;
+  border: 2px solid #33333d;
+  background: #1f1f27;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+}
+
+.pay-tile--lit {
+  border-color: var(--accent);
+  background: #22201a;
+}
+
+.pay-tile--spent {
+  min-height: 0;
+  border-style: dashed;
+  background: transparent;
+  color: #8a877f;
+}
+
+.pay-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* The card's picture, small: enough to know the land by. */
+.pay-art {
+  width: 58px;
+  height: 43px;
+  flex: 0 0 auto;
+  border-radius: 6px;
+  object-fit: cover;
+  background: #101014;
+}
+
+.pay-tile--spent .pay-art {
+  opacity: 0.45;
+}
+
+.pay-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.9rem;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.pay-name small {
+  color: #9a9aa5;
+}
+
+.pay-name .pay-note {
+  display: block;
+  font-size: 0.72rem;
+}
+
+.pay-makes {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex: 0 0 auto;
+}
+
+.pay-or {
+  color: #9a9aa5;
+  font-family: var(--font-body);
+  font-size: 0.72rem;
+}
+
+.pay-say {
+  color: #9a9aa5;
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+}
+
+.pay-tile--lit .pay-say {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.pay-step {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.pay-step button {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  background: transparent;
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.pay-step button:disabled {
+  opacity: 0.3;
+}
+
+/* The footer: the count on the left, where the eye rests while the tiles
+   change; the two answers on the right. */
+.pay-foot {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.pay-tally {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  text-align: left;
+}
+
+.pay-paid {
+  color: #5fcf8b;
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.pay-paid--short {
+  color: #e0a44a;
+}
+
+.pay-sub {
+  color: #9a9aa5;
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+}
+
+.sheet-footer .pay-foot button {
+  flex: 0 1 auto;
+  min-width: 96px;
+  padding-inline: 18px;
+}
+
+/* A phone held upright: one tile a row, the count above the buttons. */
+@media (max-width: 480px) {
+  .pay-tiles {
+    grid-template-columns: 1fr;
+  }
+
+  .pay-foot {
+    flex-wrap: wrap;
+  }
+
+  .pay-tally {
+    flex-basis: 100%;
+  }
+
+  .sheet-footer .pay-foot button {
+    flex: 1;
+  }
+}

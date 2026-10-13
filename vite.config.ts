@@ -26,8 +26,8 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         runtimeCaching: [
           {
-            // Card images: cache forever, first load wins.
-            urlPattern: /^https:\/\/(cards|c\d)\.scryfall\.(io|com)\/.*/i,
+            // Card images and the mana symbols: cache forever, first load wins.
+            urlPattern: /^https:\/\/(cards|c\d|svgs)\.scryfall\.(io|com)\/.*/i,
             handler: 'CacheFirst',
             options: {
               cacheName: 'scryfall-images',

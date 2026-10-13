@@ -228,7 +228,8 @@ export function entersWithX(oracleText: string): boolean {
   return /\benters (?:the battlefield )?with X \+1\/\+1 counters on it\b/i.test(oracleText);
 }
 
-function canPay(s: ManaSource, pip: ManaColor[]): boolean {
+/** Can this source pay that colored pip? */
+export function canPay(s: ManaSource, pip: ManaColor[]): boolean {
   if (s.produces.includes('any') && pip.some((c) => c !== 'C')) return true; // any color ≠ colorless
   return s.produces.some((p) => p !== 'any' && pip.includes(p));
 }

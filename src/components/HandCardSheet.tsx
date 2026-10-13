@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { asksAtCast } from '../lib/pay';
-import { hasLandBack } from '../lib/turnRules';
+import { hasLandBack, isLandCard } from '../lib/turnRules';
 import { useAppStore } from '../state/store';
+import PayWithSheet from './PayWithSheet';
 import Sheet from './Sheet';
 import { useCardRecords } from './useCardRecords';
 import XCostSheet from './XCostSheet';
@@ -24,6 +25,7 @@ export default function HandCardSheet({ playerIdx, iid, why = null, onClose }: P
   const moveVirtualCard = useAppStore((s) => s.moveVirtualCard);
   const playCard = useAppStore((s) => s.playCard);
   const [askX, setAskX] = useState(false);
+  const [paying, setPaying] = useState(false);
   const card = game?.players[playerIdx]?.cards?.hand.find((c) => c.iid === iid);
   const records = useCardRecords(card ? [card] : []);
   // The card left the hand (drawn away, discarded remotely): really close.
@@ -35,6 +37,17 @@ export default function HandCardSheet({ playerIdx, iid, why = null, onClose }: P
   const record = records[card.cardId];
   // Playing a card with {X} always asks how much first, override or not.
   if (askX) return <XCostSheet playerIdx={playerIdx} iid={iid} from="hand" onClose={onClose} />;
+  // Choosing the lands that pay takes this sheet's place; Back returns here.
+  if (paying)
+    return (
+      <PayWithSheet
+        playerIdx={playerIdx}
+        iid={iid}
+        from="hand"
+        onBack={() => setPaying(false)}
+        onClose={onClose}
+      />
+    );
 
   const go = (to: 'graveyard' | 'exile', posTo?: never) => () => {
     void posTo;
@@ -63,6 +76,17 @@ export default function HandCardSheet({ playerIdx, iid, why = null, onClose }: P
             }}
           >
             Play anyway
+          </button>
+        )}
+        {!isLandCard(record?.typeLine ?? '') && (
+          // Cast it with the lands the player picks instead of the table's
+          // choice. A card that asks something first (X, a kicker) asks it
+          // first here too: its cast sheet has the same way on.
+          <button
+            className="chip"
+            onClick={() => (asksAtCast(record, 'hand') ? setAskX(true) : setPaying(true))}
+          >
+            Pay with…
           </button>
         )}
         {hasLandBack(record?.typeLine ?? '') && (

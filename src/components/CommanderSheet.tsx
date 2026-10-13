@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { commanderTax } from '../lib/cards';
 import { affordable, castCosts, hasX, sourcesFrom } from '../lib/pay';
 import { useAppStore } from '../state/store';
+import PayWithSheet from './PayWithSheet';
 import Sheet from './Sheet';
 import { useCardRecords } from './useCardRecords';
 import { useSettleTaps } from './useSettleTaps';
@@ -21,6 +22,7 @@ export default function CommanderSheet({ playerIdx, iid, onClose }: Props) {
   const game = useAppStore((s) => s.game);
   const castCommander = useAppStore((s) => s.castCommander);
   const [askX, setAskX] = useState(false);
+  const [paying, setPaying] = useState(false);
   // It opens under the finger, on the tap that asked for it: the rest of
   // that tap must not land on Cast.
   useSettleTaps();
@@ -37,6 +39,17 @@ export default function CommanderSheet({ playerIdx, iid, onClose }: Props) {
   if (!player || !seat || !card) return null;
   // A commander with {X} in its cost asks how much, in this sheet's place.
   if (askX) return <XCostSheet playerIdx={playerIdx} iid={iid} from="command" onClose={onClose} />;
+  // Choosing the lands that pay takes this sheet's place; Back returns here.
+  if (paying)
+    return (
+      <PayWithSheet
+        playerIdx={playerIdx}
+        iid={iid}
+        from="command"
+        onBack={() => setPaying(false)}
+        onClose={onClose}
+      />
+    );
 
   const record = records[card.cardId];
   const tax = commanderTax(player, card.iid);
@@ -60,9 +73,19 @@ export default function CommanderSheet({ playerIdx, iid, onClose }: Props) {
       title={card.name}
       onClose={onClose}
       footer={
-        <button className="primary" onClick={cast}>
-          {poor ? 'Cast anyway' : 'Cast'}
-        </button>
+        <>
+          {/* A commander with {X} is asked how much first: its cast sheet
+              has the same way on to the lands. */}
+          <button
+            className="ghost"
+            onClick={() => (costs && hasX(costs) ? setAskX(true) : setPaying(true))}
+          >
+            Pay with…
+          </button>
+          <button className="primary" onClick={cast}>
+            {poor ? 'Cast anyway' : 'Cast'}
+          </button>
+        </>
       }
     >
       <div className="card-hero zoom-card">
