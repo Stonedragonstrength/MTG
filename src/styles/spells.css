@@ -46,6 +46,15 @@
   cursor: default;
 }
 
+/* An option of a modal spell its caster did not take: it stays in place, faint. */
+.spell-prompt--off,
+.spell-prompt--off:active {
+  border-color: #3a3a42;
+  background: rgba(12, 12, 16, 0.4);
+  color: #5f5f6a;
+  cursor: default;
+}
+
 /* ---- SpellTargetSheet: the rows are AttachSheet's; these are its own marks ---- */
 .spell-row--player .pile-name {
   font-family: var(--font-display);

@@ -49,6 +49,19 @@ const RECORDS: Record<string, CardRecord> = {
   'c-murder': rec('c-murder', 'Murder', 'Instant', 'Destroy target creature.'),
   'c-burst': rec('c-burst', 'Burst of Strength', 'Instant', 'Put a +1/+1 counter on target creature.'),
   'c-blaze': rec('c-blaze', 'Blaze', 'Sorcery', 'Blaze deals X damage to any target.'),
+  'c-charm': rec('c-charm', 'Healing Charm', 'Instant', 'Choose one —\n• You gain 4 life.\n• Draw two cards.'),
+  'c-pact': rec(
+    'c-pact',
+    'Scholar’s Pact',
+    'Sorcery',
+    'Choose one —\n• Draw two cards. You lose 2 life.\n• You gain 4 life.',
+  ),
+  'c-command': rec(
+    'c-command',
+    'Elder Command',
+    'Instant',
+    'Choose two —\n• You gain 4 life.\n• Draw two cards.\n• Each opponent loses 2 life.',
+  ),
   'c-bear': rec('c-bear', 'Grizzly Bears', 'Creature — Bear', '', '2'),
   'c-giant': rec('c-giant', 'Hill Giant', 'Creature — Giant', '', '3'),
   'c-forest': rec('c-forest', 'Forest', 'Basic Land — Forest', '({T}: Add {G}.)'),
@@ -236,6 +249,56 @@ test('while a button waits the cast stays twenty seconds, not seven', async () =
   pass(19_000);
   expect(banner()).not.toBeNull();
   pass(2_000);
+  expect(banner()).toBeNull();
+});
+
+test('a "choose one" spell is done with the option taken: the other goes quiet and the banner leaves', async () => {
+  casts('c-charm');
+  await settle();
+  expect(labels()).toEqual(['Gain 4 life', 'Draw 2']);
+  pass(400);
+  fireEvent.click(screen.getByRole('button', { name: 'Gain 4 life' }));
+  expect(game().players[0].life).toBe(44);
+  const other = screen.getByRole('button', { name: 'Draw 2' });
+  expect(other).toBeDisabled();
+  expect(other.className).toContain('spell-prompt--off');
+  fireEvent.click(other);
+  expect(game().players[0].cards!.hand).toHaveLength(0); // the option not taken does nothing
+  expect(banner()).not.toBeNull();
+  pass(1_100);
+  expect(banner()).toBeNull(); // no twenty seconds of waiting for a button nobody will press
+});
+
+test('the option taken is finished first: its second effect waits to be pressed', async () => {
+  casts('c-pact');
+  await settle();
+  expect(labels()).toEqual(['Draw 2', 'Lose 2 life', 'Gain 4 life']);
+  pass(400);
+  fireEvent.click(screen.getByRole('button', { name: 'Draw 2' }));
+  await settle();
+  expect(screen.getByRole('button', { name: 'Lose 2 life' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Gain 4 life' })).toBeDisabled();
+  pass(2_000);
+  expect(banner()).not.toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Lose 2 life' }));
+  expect(game().players[0].life).toBe(38);
+  pass(1_100);
+  expect(banner()).toBeNull();
+});
+
+test('a "choose two" spell closes after the second option', async () => {
+  casts('c-command');
+  await settle();
+  pass(400);
+  fireEvent.click(screen.getByRole('button', { name: 'Gain 4 life' }));
+  expect(screen.getByRole('button', { name: 'Draw 2' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Each opponent loses 2' })).toBeEnabled();
+  pass(2_000);
+  expect(banner()).not.toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Each opponent loses 2' }));
+  expect(game().players[1].life).toBe(38);
+  expect(screen.getByRole('button', { name: 'Draw 2' })).toBeDisabled();
+  pass(1_100);
   expect(banner()).toBeNull();
 });
 

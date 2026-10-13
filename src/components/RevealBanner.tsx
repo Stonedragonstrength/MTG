@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type MouseEvent } from
 import { createBoardItem } from '../lib/board';
 import { REVEAL_FRESH_MS } from '../lib/cards';
 import { bestToken } from '../lib/deckTokens';
-import { effectOf, spellPrompts, type SpellPrompt, type SpellTarget } from '../lib/spellEffects';
+import { effectOf, modesToChoose, spellPrompts, type SpellPrompt, type SpellTarget } from '../lib/spellEffects';
 import type { CardRecord, Reveal } from '../lib/types';
 import { useAppStore } from '../state/store';
 import { shieldBoard } from './Sheet';
@@ -135,12 +135,20 @@ function RevealPanel({ reveal, who, onDone }: PanelProps) {
   // caster's own device at an online table.
   const mySeat = useAppStore((s) => s.online?.mySeat);
   const asks = cast && (mySeat == null || mySeat === reveal.seat);
-  const read = asks ? spellPrompts(records[reveal.cards[0].cardId], { x: reveal.x }) : [];
+  const spell = records[reveal.cards[0].cardId];
+  const read = asks ? spellPrompts(spell, { x: reveal.x }) : [];
   const tokenCards = useTokenCards(read);
   const prompts = read.filter((p) => p.kind !== 'tokens' || tokenCards[p.key]);
   const [used, setUsed] = useState<{ id: string; keys: string[] }>({ id: reveal.id, keys: [] });
   const usedKeys = used.id === reveal.id ? used.keys : [];
-  const asking = prompts.some((p) => !usedKeys.includes(p.key));
+  // A modal spell ("Choose one —"): once its caster has taken as many of
+  // its options as it allows, the others are not happening — their buttons
+  // go quiet, and nothing is left to wait for.
+  const allowed = modesToChoose(spell);
+  const taken = new Set(prompts.flatMap((p) => (p.mode !== undefined && usedKeys.includes(p.key) ? [p.mode] : [])));
+  const passedOver = (p: SpellPrompt) =>
+    allowed !== null && p.mode !== undefined && taken.size >= allowed && !taken.has(p.mode);
+  const asking = prompts.some((p) => !usedKeys.includes(p.key) && !passedOver(p));
   const askingRef = useRef(asking);
   askingRef.current = asking;
   const [aiming, setAiming] = useState<{ id: string; prompt: SpellPrompt } | null>(null);
@@ -177,7 +185,8 @@ function RevealPanel({ reveal, who, onDone }: PanelProps) {
     return () => window.clearInterval(timer);
   }, [reveal.id, reveal.t, reveal.from]);
 
-  // Every button it offered has been pressed: nothing is left to wait for.
+  // Every button it offered has been pressed (or, of a modal spell, the
+  // option its caster chose): nothing is left to wait for.
   const asked = prompts.length > 0 && !asking;
   useEffect(() => {
     if (!asked) return;
@@ -277,11 +286,12 @@ function RevealPanel({ reveal, who, onDone }: PanelProps) {
         <div className="spell-prompts" role="group" aria-label="what it does" onClick={(e) => e.stopPropagation()}>
           {prompts.map((prompt) => {
             const done = usedKeys.includes(prompt.key);
+            const off = !done && passedOver(prompt);
             return (
               <button
                 key={prompt.key}
-                className={done ? 'spell-prompt spell-prompt--done' : 'spell-prompt'}
-                disabled={done}
+                className={done ? 'spell-prompt spell-prompt--done' : off ? 'spell-prompt spell-prompt--off' : 'spell-prompt'}
+                disabled={done || off}
                 onClick={(e) => pressed(e, prompt)}
               >
                 {done ? `✓ ${prompt.label.replace(/…$/, '')}` : prompt.label}

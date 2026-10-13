@@ -38,6 +38,9 @@ export type SpellPrompt = {
   label: string;
   /** The list it opens; null when one tap does it. */
   pick: PickFrom | null;
+  /** Which option of a modal spell it belongs to (its "•" lines, counted
+   * from 0); left out for an effect that is not one of a spell's options. */
+  mode?: number;
 } & (
   | { kind: 'damage'; n: number }
   | { kind: 'life'; n: number; gain: boolean; who: 'you' | 'opponents' | 'target' }
@@ -99,6 +102,27 @@ const BOUNCE = new RegExp(`\\breturn target ${THING} to (?:its|their) owner['’
 const SWEEP = /\b(destroy|exile) all creatures(?=\s*(?:,|$))/gi;
 const COUNTERS = new RegExp(`\\bput ${N} \\+1\\/\\+1 counters? on target creature\\b`, 'gi');
 
+/** One option of a modal spell: a line that starts with a bullet. */
+const OPTION = /^[ \t]*•[^\n]*/gm;
+const CHOOSE = /\bchoose (up to )?(one|two|three|four|five)\b( or (?:both|more)\b)?/i;
+/** Ways a "choose one" turns into more: left open, the players know. */
+const CHOOSE_MORE = /\bchoose (?:both|any number)\b|\bentwine\b|\bescalate\b/i;
+
+/** How many of a modal spell's options its caster takes: 1 for "Choose
+ * one —", 2 for "Choose two —" (and for "one or both", "up to two"). Null
+ * for a card with no list of options, and for one that lets its caster take
+ * as many as they like ("one or more", "you may choose both instead"). */
+export function modesToChoose(record: Read): number | null {
+  const text = frontText(record).replace(/\([^)]*\)/g, '');
+  const first = text.search(OPTION);
+  if (first < 0) return null;
+  const head = text.slice(0, first);
+  const m = head.match(CHOOSE);
+  if (!m || CHOOSE_MORE.test(text)) return null;
+  if (m[3]) return /both/i.test(m[3]) ? 2 : null;
+  return NUMBER_WORDS[m[2].toLowerCase()] ?? null;
+}
+
 /** Sentences whose number is worked out, not printed: left to the players. */
 const WORKED_OUT = /\bfor each\b|\bequal to\b|\bwhere X is\b/i;
 
@@ -145,12 +169,21 @@ export function spellPrompts(record: Read, opts?: { x?: number }): SpellPrompt[]
   const text = frontText(record).replace(/\([^)]*\)/g, ''); // reminder text is not an effect
   const found: { at: number; prompt: SpellPrompt }[] = [];
   const num = (word: string) => numberOf(word, opts?.x);
+  // A modal spell's options are its "•" lines: an effect read off one of
+  // them says which (see modesToChoose).
+  const options = [...text.matchAll(OPTION)].map((line) => ({
+    from: line.index ?? 0,
+    to: (line.index ?? 0) + line[0].length,
+  }));
 
   for (const s of text.matchAll(/[^.\n]+/g)) {
     const sentence = s[0];
     if (WORKED_OUT.test(sentence)) continue;
-    const add = (m: RegExpMatchArray, prompt: SpellPrompt) =>
-      found.push({ at: (s.index ?? 0) + (m.index ?? 0), prompt });
+    const add = (m: RegExpMatchArray, prompt: SpellPrompt) => {
+      const at = (s.index ?? 0) + (m.index ?? 0);
+      const mode = options.findIndex((o) => at >= o.from && at < o.to);
+      found.push({ at, prompt: mode < 0 ? prompt : { ...prompt, mode } });
+    };
 
     for (const m of sentence.matchAll(DAMAGE)) {
       const n = num(m[1]);

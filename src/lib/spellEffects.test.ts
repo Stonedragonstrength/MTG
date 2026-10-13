@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { attachCard } from './cards';
 import { createGame } from './game';
-import { effectOf, opponentsOf, planEffect, spellChoices, spellPrompts, type SpellEffect } from './spellEffects';
+import { effectOf, modesToChoose, opponentsOf, planEffect, spellChoices, spellPrompts, type SpellEffect } from './spellEffects';
 import type { BoardItem, CardInstance, CardRecord, GameConfig, GameState } from './types';
 
 const spell = (oracleText: string, typeLine = 'Instant') => ({ typeLine, oracleText });
@@ -139,6 +139,43 @@ describe('reading a spell', () => {
   test('a modal spell offers every mode it can read', () => {
     const abrade = 'Choose one —\n• Abrade deals 3 damage to target creature.\n• Destroy target artifact.';
     expect(labels(abrade)).toEqual(['Deal 3 damage…', 'Destroy an artifact…']);
+  });
+
+  test('each effect of a modal spell says which option it is; a plain spell’s say nothing', () => {
+    const tactics =
+      'Choose one —\n• Put a +1/+1 counter on target creature you control. It gains hexproof until end of turn.\n• Destroy target creature with power 4 or greater.';
+    expect(spellPrompts(spell(tactics)).map((p) => [p.label, p.mode])).toEqual([
+      ['Put a +1/+1 counter…', 0],
+      ['Destroy a creature…', 1],
+    ]);
+    // Two effects in one option belong together.
+    const charm = 'Choose one —\n• Destroy target artifact. You gain 2 life.\n• Draw two cards.';
+    expect(spellPrompts(spell(charm)).map((p) => p.mode)).toEqual([0, 0, 1]);
+    expect(spellPrompts(spell('Lightning Helix deals 3 damage to any target and you gain 3 life.')).map((p) => p.mode)).toEqual([
+      undefined,
+      undefined,
+    ]);
+  });
+
+  test('how many options a modal spell lets its caster take', () => {
+    const modes = '\n• Destroy target artifact.\n• Draw two cards.\n• You gain 4 life.';
+    expect(modesToChoose(spell(`Choose one —${modes}`))).toBe(1);
+    expect(modesToChoose(spell(`Choose two —${modes}`))).toBe(2);
+    expect(modesToChoose(spell(`Choose one or both —${modes}`))).toBe(2);
+    expect(modesToChoose(spell(`Choose up to two —${modes}`))).toBe(2);
+    // A trigger with options, on a permanent.
+    expect(modesToChoose(spell(`Whenever this creature deals combat damage to a player, choose one —${modes}`))).toBe(1);
+    // As many as the caster likes: nothing is closed off.
+    expect(modesToChoose(spell(`Choose one or more —${modes}`))).toBeNull();
+    expect(modesToChoose(spell(`Choose any number —${modes}`))).toBeNull();
+    expect(
+      modesToChoose(spell(`Choose one. If you control a commander as you cast this spell, you may choose both instead.${modes}`)),
+    ).toBeNull();
+    expect(modesToChoose(spell(`Choose one —${modes}\nEntwine {2} (Choose both if you pay the entwine cost.)`))).toBeNull();
+    // No list of options: not a modal spell, whatever it asks its caster to choose.
+    expect(modesToChoose(spell('Choose one of them. Destroy target creature.'))).toBeNull();
+    expect(modesToChoose(spell('Draw two cards.'))).toBeNull();
+    expect(modesToChoose(undefined)).toBeNull();
   });
 
   test('only the front face is read, reminder text is not, and four buttons are the most', () => {
