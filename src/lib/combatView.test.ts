@@ -517,7 +517,7 @@ describe('what the bar says', () => {
     ]);
     const clean = resolved(t, [{ unit: stack('soldiers'), target: 1 }]);
     expect(resultFlags(clean.result)).toEqual([]);
-    expect(resultFlags({ ...clean.result, failed: true })).toEqual(['this fight could not be worked out — set it in Review']);
+    expect(resultFlags({ ...clean.result, failed: true })).toEqual(['this fight could not be worked out — set it in Details']);
   });
 });
 

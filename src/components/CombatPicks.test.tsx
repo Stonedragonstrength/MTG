@@ -8,7 +8,7 @@ import { useAppStore } from '../state/store';
 import BattlefieldRow from './BattlefieldRow';
 import BoardStrip from './BoardStrip';
 import CombatBar from './CombatBar';
-import { useCombatAim } from './useCombat';
+import { useCombatAim, useCombatEdits } from './useCombat';
 
 // Picking attackers and blockers right on the battlefield: the real rows, the real bar and
 // the real store. Only the card database is stood in for.
@@ -163,6 +163,7 @@ async function hold(el: Element) {
 beforeEach(() => {
   useAppStore.setState({ game: table(), online: null, settings: { ...DEFAULT_SETTINGS } });
   useCombatAim.setState({ combatId: null, target: null, attack: null });
+  useCombatEdits.getState().clear();
 });
 
 /** Nathan's side of the table while he picks attackers, with every card read. */
@@ -431,16 +432,17 @@ describe('picking blockers on the cards', () => {
 });
 
 describe('the damage, on the board', () => {
-  test('creatures about to die are marked where they stand, on both sides', async () => {
+  /** The bears trade, and so do one soldier and one saproling: the result waits, both sides drawn. */
+  async function resultUp() {
     store().startCombat();
     store().setAttacker(card('bear'), 1, 1);
     store().setAttacker(stack('soldiers'), 1, 2);
     await store().confirmAttackers();
-    store().setBlocker(1, card('bear'), card('sbear'), 1); // the bears trade
-    store().setBlocker(1, stack('soldiers'), stack('saprolings'), 1); // one soldier and one saproling trade
+    store().setBlocker(1, card('bear'), card('sbear'), 1);
+    store().setBlocker(1, stack('soldiers'), stack('saprolings'), 1);
     store().finishBlocks(1);
     expect(fight()?.step).toBe('damage');
-    const { container } = render(
+    const view = render(
       <>
         <div data-testid="nathan">
           <BattlefieldRow playerIdx={0} />
@@ -452,14 +454,62 @@ describe('the damage, on the board', () => {
         </div>
       </>,
     );
-    await waitFor(() => expect(container.querySelectorAll('.vcard--dying')).toHaveLength(2));
-    const nathan = screen.getByTestId('nathan');
-    const sam = screen.getByTestId('sam');
-    expect(nathan.querySelector('.vcard--dying')).toHaveAttribute('aria-label', 'tap Grizzly Bears');
-    expect(nathan.querySelector('.thumb--dying .combat-mark--dies')).toHaveTextContent('☠×1');
-    expect(sam.querySelector('.vcard--dying .combat-mark--dies')).toHaveTextContent('☠');
-    expect(sam.querySelector('.thumb--dying .combat-mark--dies')).toHaveTextContent('☠×1');
-    // nothing is picked at this step: a tap is a tap again
-    expect(container.querySelector('.pick-stepper')).toBeNull();
+    await waitFor(() => expect(view.container.querySelectorAll('.vcard--dying')).toHaveLength(2));
+    return { ...view, nathan: screen.getByTestId('nathan'), sam: screen.getByTestId('sam') };
+  }
+  const deaths = () => useCombatEdits.getState().edits.dies;
+
+  test('creatures about to die wear it where they stand, on both sides; a stack says how many of how many', async () => {
+    const { nathan, sam } = await resultUp();
+    expect(nathan.querySelector('.vcard--dying')).toHaveAttribute('aria-label', 'Grizzly Bears dies — tap if it lives');
+    expect(nathan.querySelector('.vcard--dying .combat-mark--dies')).toHaveTextContent('dies');
+    expect(nathan.querySelector('.thumb--dying .combat-mark--dies')).toHaveTextContent('1 of 2 dies'); // two attacked
+    expect(sam.querySelector('.vcard--dying .combat-mark--dies')).toHaveTextContent('dies');
+    expect(sam.querySelector('.thumb--dying .combat-mark--dies')).toHaveTextContent('1 dies'); // one blocked
+  });
+
+  test('a tap on a creature that fought changes whether it dies — on this device, until Apply carries it', async () => {
+    const { nathan, sam } = await resultUp();
+    tap(within(nathan).getByRole('button', { name: 'Grizzly Bears dies — tap if it lives' })); // a trick saved it
+    expect(within(nathan).getByRole('button', { name: 'Grizzly Bears lives — tap if it dies' })).toBeInTheDocument();
+    expect(nathan.querySelector('.vcard--dying')).toBeNull();
+    expect(deaths()).toEqual({ '0|card:bear': 0 });
+    tap(within(nathan).getByRole('button', { name: 'Grizzly Bears lives — tap if it dies' })); // …no, it did not
+    expect(nathan.querySelector('.vcard--dying')).not.toBeNull();
+    // nothing on the table has moved: the fight still waits, nobody is tapped or untapped by it
+    expect(fight()?.step).toBe('damage');
+    expect(store().game!.players[1].cards!.graveyard).toEqual([]);
+    expect(sam.querySelectorAll('.vcard--dying')).toHaveLength(1);
+  });
+
+  test('a stack that fought counts its dead: the tap adds one and comes round to none, the row under it steps', async () => {
+    const { nathan } = await resultUp();
+    const soldiers = within(nathan).getByRole('button', { name: /^Soldier/ });
+    tap(soldiers); // both die
+    expect(nathan.querySelector('.thumb--dying .combat-mark--dies')).toHaveTextContent('2 of 2 die');
+    tap(soldiers); // past the last one: none
+    expect(nathan.querySelector('.thumb--dying')).toBeNull();
+    fireEvent.click(within(nathan).getByRole('button', { name: 'one more Soldier dying' }));
+    expect(nathan.querySelector('.pick-count')).toHaveTextContent('1 dying');
+    expect(within(nathan).getByRole('button', { name: 'one fewer Soldier dying' })).not.toBeDisabled();
+    // the stack itself is untouched: no token is removed by any of this
+    expect(store().game!.players[0].board.find((it) => it.id === 'soldiers')?.count).toBe(4);
+  });
+
+  test('a creature that was not in the fight keeps its ordinary tap', async () => {
+    const { nathan } = await resultUp();
+    const wall = within(nathan).getByRole('button', { name: 'tap Wall of Omens' });
+    tap(wall);
+    expect(store().game!.players[0].cards!.battlefield.find((c) => c.iid === 'wall')?.tapped).toBe(true);
+    expect(deaths()).toEqual({});
+  });
+
+  test('what was changed goes away with the result: an Undo back to the blockers starts clean', async () => {
+    const { nathan } = await resultUp();
+    tap(within(nathan).getByRole('button', { name: 'Grizzly Bears dies — tap if it lives' }));
+    expect(useCombatEdits.getState().combatId).not.toBeNull();
+    act(() => store().undo()); // Sam's Done
+    expect(fight()?.step).toBe('blockers');
+    expect(useCombatEdits.getState().combatId).toBeNull();
   });
 });

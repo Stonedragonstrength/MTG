@@ -1,15 +1,19 @@
 import { useMemo } from 'react';
 import { create } from 'zustand';
 import { actingSeat, liveCombat } from '../lib/combat';
+import { cardsRead, readSeat, readUnit, type CardRecords, type UnitRead } from '../lib/combatEngine';
 import {
-  cardsRead,
-  readSeat,
-  readUnit,
-  resolveCombat,
-  type CardRecords,
-  type CombatResult,
-  type UnitRead,
-} from '../lib/combatEngine';
+  NO_EDITS,
+  lifeAfter,
+  nextDeath,
+  nudgeDamage,
+  nudgeGain,
+  reviewCombat,
+  reviewId,
+  setDeaths,
+  type Review,
+  type ReviewEdits,
+} from '../lib/combatReview';
 import {
   attackAnyway,
   attackLess,
@@ -59,6 +63,43 @@ export const useCombatAim = create<CombatAim>()((set, get) => ({
   },
 }));
 
+/** What the players at this device changed about a fight's result before
+ * applying it: a death added or taken away on the cards, a number moved
+ * beside a life total or in Details. Like the aim it is not part of the
+ * game — never synced, never saved — and it belongs to one wait at the
+ * damage step. */
+interface CombatEdits {
+  combatId: string | null;
+  edits: ReviewEdits;
+  change(combatId: string, fn: (was: ReviewEdits) => ReviewEdits): void;
+  clear(): void;
+}
+
+export const useCombatEdits = create<CombatEdits>()((set, get) => ({
+  combatId: null,
+  edits: NO_EDITS,
+  change(combatId, fn) {
+    const was = get().combatId === combatId ? get().edits : NO_EDITS;
+    const edits = fn(was);
+    if (edits !== was || get().combatId !== combatId) set({ combatId, edits });
+  },
+  clear() {
+    if (get().combatId !== null) set({ combatId: null, edits: NO_EDITS });
+  },
+}));
+
+/** The changes that belong to this fight: another fight's are not its. */
+export const editsFor = (s: Pick<CombatEdits, 'combatId' | 'edits'>, fight: CombatState): ReviewEdits =>
+  s.combatId === fight.id ? s.edits : NO_EDITS;
+
+// Applied, called off, or taken back to the blockers by an Undo: what was
+// changed about that result is gone with it.
+useAppStore.subscribe((s) => {
+  if (useCombatEdits.getState().combatId === null) return;
+  const fight = s.game ? liveCombat(s.game) : null;
+  if (fight?.step !== 'damage') useCombatEdits.getState().clear();
+});
+
 /** One colour per seat for whatever a fight pins on a card: the opponent's
  * chip on the bar and the mark an attacker pointed at them wears. Initials
  * alone cannot tell Sam from Sal. */
@@ -91,31 +132,49 @@ export function useTableRecords(retry = 0): CardRecords {
 }
 
 // The damage is worked out once per state of the table, however many
-// zones ask (every seat marks its own dying creatures).
-let worked: { game: GameState; records: CardRecords; result: CombatResult | null } | null = null;
+// zones ask (every seat marks its own dying creatures, every life total
+// shows what it comes to).
+let worked: { game: GameState; records: CardRecords; edits: ReviewEdits; review: Review | null } | null = null;
 
-/** The fight's result while it waits at the damage step and every card in
- * it has been read on this device; otherwise null. */
-export function damageResult(game: GameState, fight: CombatState, records: CardRecords): CombatResult | null {
+/** The fight's result as Apply would carry it — the engine's, with what
+ * this device's players changed — while it waits at the damage step and
+ * every card in it has been read here; otherwise null. */
+export function damageReview(
+  game: GameState,
+  fight: CombatState,
+  records: CardRecords,
+  edits: ReviewEdits = NO_EDITS,
+): Review | null {
   if (fight.step !== 'damage') return null;
-  if (worked && worked.game === game && worked.records === records) return worked.result;
-  const result = cardsRead(game, fight, records) ? resolveCombat(game, fight, records) : null;
-  worked = { game, records, result };
-  return result;
+  if (worked && worked.game === game && worked.records === records && worked.edits === edits) return worked.review;
+  const review = cardsRead(game, fight, records) ? reviewCombat(game, fight, records, edits) : null;
+  worked = { game, records, edits, review };
+  return review;
+}
+
+/** The art of a card or a stack as this device has it. */
+export function unitArt(game: GameState, seat: number, unit: CombatUnit, records: CardRecords): string | null {
+  const player = game.players[seat];
+  if (unit.kind === 'stack') return player?.board.find((it) => it.id === unit.id)?.imageNormal ?? null;
+  const card = player?.cards?.battlefield.find((c) => c.iid === unit.id);
+  return (card && records[card.cardId]?.imageNormal) || null;
 }
 
 type PickMode = 'attack' | 'block' | null;
 
 /** One card or stack as a fight shows it and as a tap treats it. */
 export interface UnitLook {
-  /** The pick mode its seat is in, if any. */
-  mode: PickMode;
+  /** The pick mode its seat is in, if any — or 'damage': it fought, the
+   * result is waiting, and a tap says whether it dies. */
+  mode: PickMode | 'damage';
   /** A tap on it is a pick (or is ignored) instead of an ordinary tap:
-   * a creature, while its seat picks. Nothing else changes meaning. */
+   * a creature, while its seat picks; anything that fought, while the
+   * result waits. Nothing else changes meaning. */
   picks: boolean;
   /** It cannot be picked by a tap and is not picked: drawn dimmed. */
   dim: boolean;
-  /** Copies of it attacking, or blocking, in all. */
+  /** Copies of it attacking, or blocking, in all; at the damage step,
+   * the copies that die. */
   picked: number;
   /** Copies a tap may still add. */
   free: number;
@@ -157,6 +216,7 @@ export function useSeatCombat(playerIdx: number, on = true): SeatCombat | null {
   const setAttackers = useAppStore((s) => s.setAttackers);
   const setBlocker = useAppStore((s) => s.setBlocker);
   const aim = useCombatAim();
+  const changed = useCombatEdits();
   const records = useTableRecords();
   const fight = game && on ? liveCombat(game) : null;
   if (!game || !fight) return null;
@@ -195,14 +255,16 @@ export function useSeatCombat(playerIdx: number, on = true): SeatCombat | null {
     const attacker = playerIdx === fight.active;
     const attacking = attacker ? attackingCopies(fight, unit) : NOWHERE;
     const blocking = attacker ? NOWHERE : blockingCopies(fight, playerIdx, unit);
-    const death = damageResult(game!, fight, records)?.outcome.deaths.find(
-      (d) => d.seat === playerIdx && unitKey(d.unit) === unitKey(unit),
-    );
+    // At the damage step: how it comes out of the fight, if it was in it.
+    const judged =
+      damageReview(game!, fight, records, editsFor(changed, fight))?.units.find(
+        (u) => u.id === reviewId(playerIdx, unit),
+      ) ?? null;
     const base = {
       mode,
       attacking: attacking.at,
       blocking: blocking.at,
-      dying: death ? (death.n ?? 1) : 0,
+      dying: judged?.dies ?? 0,
     };
     if (mode === 'attack') {
       const target = litTarget(game!, fight, mine ? aim.target : null);
@@ -239,6 +301,23 @@ export function useSeatCombat(playerIdx: number, on = true): SeatCombat | null {
         stop: out ? () => stand(out) : null,
       };
     }
+    if (judged) {
+      // The result is on the cards, and is put right there: a tap on
+      // anything that fought says whether it dies — on every seat's side,
+      // whoever's move it is. Kept on this device until Apply carries it.
+      return {
+        ...base,
+        mode: 'damage',
+        picks: true,
+        picked: judged.dies,
+        free: judged.n - judged.dies,
+        dim: false,
+        tap: () => changed.change(fight.id, (e) => nextDeath(e, judged)),
+        less: () => changed.change(fight.id, (e) => setDeaths(e, judged, judged.dies - 1)),
+        anyway: null,
+        stop: null,
+      };
+    }
     return {
       ...base,
       picks: false,
@@ -263,5 +342,47 @@ export function useSeatCombat(playerIdx: number, on = true): SeatCombat | null {
         return null;
       }
     },
+  };
+}
+
+/** What the fight waiting at its damage step is about to do to one seat's
+ * life, and the press that puts the number right. */
+export interface LifeAtStake {
+  /** Their life once the result is applied. */
+  after: number;
+  /** They were attacked: the press moves the damage. Otherwise they only
+   * gain (lifelink), and it moves that. */
+  defending: boolean;
+  /** `by` as a life counter says it: +1 is one more life afterwards. */
+  nudge(by: number): void;
+}
+
+/** A seat's life total while a result waits: null when no fight is at its
+ * damage step, its cards are not read yet, or it leaves this seat alone. */
+export function useLifeAtStake(playerIdx: number): LifeAtStake | null {
+  const game = useAppStore((s) => s.game);
+  const changed = useCombatEdits();
+  const records = useTableRecords();
+  const fight = game ? liveCombat(game) : null;
+  if (!game || !fight) return null;
+  // The zone header asks, outside the combat bar's boundary: a fight that
+  // cannot be read leaves the life total as it always is.
+  let review: Review | null = null;
+  try {
+    review = damageReview(game, fight, records, editsFor(changed, fight));
+  } catch (err) {
+    console.error('The fight could not be read for a life total', err);
+  }
+  const result = review;
+  const after = result ? lifeAfter(game, result, playerIdx) : null;
+  if (!result || after === null) return null;
+  const defending = result.defenders.some((d) => d.seat === playerIdx);
+  return {
+    after,
+    defending,
+    nudge: (by) =>
+      changed.change(fight.id, (e) =>
+        defending ? nudgeDamage(result, e, playerIdx, -by) : nudgeGain(result, e, playerIdx, by),
+      ),
   };
 }

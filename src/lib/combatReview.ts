@@ -304,3 +304,87 @@ export function reviewCombat(
     return EMPTY;
   }
 }
+
+// ---- what a press on the board changes ----
+// The result is shown on the cards and beside the life totals, and put
+// right there: each of these takes the edits and gives back the next ones
+// (the SAME ones when the press changes nothing).
+
+type Dying = Pick<ReviewUnit, 'id' | 'n' | 'dies'>;
+
+/** How many copies of a card or stack die: no fewer than none, no more
+ * than fought. */
+export function setDeaths(edits: ReviewEdits, unit: Dying, dies: number): ReviewEdits {
+  const n = Math.min(unit.n, atLeastZero(whole(dies)));
+  if (n === unit.dies) return edits;
+  return { ...edits, dies: { ...edits.dies, [unit.id]: n } };
+}
+
+/** A tap on a creature in the fight: one more copy of it dies, and past
+ * the last copy none does — for a card that is dies / lives. */
+export function nextDeath(edits: ReviewEdits, unit: Dying): ReviewEdits {
+  return setDeaths(edits, unit, unit.dies >= unit.n ? 0 : unit.dies + 1);
+}
+
+/** More (by > 0) or less damage for one defender, from the buttons beside
+ * their life total — where nobody says which attacker it belongs to. So it
+ * goes on the one number that can be meant: the commander's when only
+ * commanders are coming at them (that damage is counted apart), otherwise
+ * the damage of all the other attackers. Taking damage away empties that
+ * number first, then the others, and stops at nothing. An infect
+ * commander's damage is poison: it is not life, and is left alone. */
+export function nudgeDamage(review: Review, edits: ReviewEdits, seat: number, by: number): ReviewEdits {
+  const d = review.defenders.find((x) => x.seat === seat);
+  const step = whole(by);
+  if (!d || step === 0) return edits;
+  interface Gauge {
+    now: number;
+    add: (e: ReviewEdits, n: number) => ReviewEdits;
+  }
+  const other: Gauge = {
+    now: d.other,
+    add: (e, n) => ({ ...e, other: { ...e.other, [seat]: whole(e.other?.[seat]) + n } }),
+  };
+  const commanders: Gauge[] = d.commanders
+    .filter((cmd) => !cmd.infect)
+    .map((cmd) => {
+      const id = reviewId(seat, cmd.key);
+      return {
+        now: cmd.damage,
+        add: (e, n) => ({ ...e, commander: { ...e.commander, [id]: whole(e.commander?.[id]) + n } }),
+      };
+    });
+  const plain = review.result.attacks.some(
+    (row) => row.present && row.target === seat && row.commander === null,
+  );
+  const gauges = plain || commanders.length === 0 ? [other, ...commanders] : [...commanders, other];
+  if (step > 0) return gauges[0].add(edits, step);
+  let left = -step;
+  let out = edits;
+  for (const gauge of gauges) {
+    const take = Math.min(left, gauge.now);
+    if (take <= 0) continue;
+    out = gauge.add(out, -take);
+    left -= take;
+  }
+  return out;
+}
+
+/** More or less life gained by a seat with lifelink in the fight; never
+ * below none. A seat that gains nothing here has no number to move. */
+export function nudgeGain(review: Review, edits: ReviewEdits, seat: number, by: number): ReviewEdits {
+  const gain = review.gains.find((x) => x.seat === seat);
+  if (!gain) return edits;
+  const step = Math.max(whole(by), -gain.life);
+  if (step === 0) return edits;
+  return { ...edits, gain: { ...edits.gain, [seat]: whole(edits.gain?.[seat]) + step } };
+}
+
+/** A seat's life once the result is applied; null when the fight leaves
+ * it alone (nobody attacked them, and they gain nothing). */
+export function lifeAfter(g: GameState, review: Review, seat: number): number | null {
+  const d = review.defenders.find((x) => x.seat === seat);
+  const gain = review.gains.find((x) => x.seat === seat);
+  if (!d && !gain) return null;
+  return (g.players[seat]?.life ?? 0) + (gain?.life ?? 0) - (d?.lost ?? 0);
+}

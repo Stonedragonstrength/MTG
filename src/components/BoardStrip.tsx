@@ -17,9 +17,16 @@ import { useSeatCombat, type UnitLook } from './useCombat';
 import { useLongPress } from './useLongPress';
 import { useSeatTexts } from './useSeatTexts';
 
+/** What the copies a pick counts are doing: going in, standing in the way,
+ * or — once the result waits — dying. */
+const jobOf = (look: UnitLook | null) =>
+  look?.mode === 'attack' ? 'attacking' : look?.mode === 'damage' ? 'dying' : 'blocking';
+
 /** Tap = tap one copy (like a land); hold = card details. While its seat
  * picks attackers or blockers a creature stack's tap sends one more copy
- * in instead (and stops at the last free copy); the hold is unchanged. */
+ * in instead (and stops at the last free copy); the hold is unchanged.
+ * While a fight's result waits, a stack that fought counts its dead the
+ * same way. */
 function TokenCard({
   item,
   seatTexts,
@@ -56,7 +63,7 @@ function TokenCard({
       : sick >= item.count
         ? ', summoning sick'
         : `, ${sick} of ${item.count} summoning sick`;
-  const job = look?.mode === 'attack' ? 'attacking' : 'blocking';
+  const job = jobOf(look);
   const label =
     `${item.name}` +
     (tapped > 0 ? `, ${tapped} of ${item.count} tapped` : '') +
@@ -71,7 +78,13 @@ function TokenCard({
         .filter(Boolean)
         .join(' ') + combatClasses('thumb', look)}
       aria-label={label}
-      title={picks ? `Tap to send one more ${job} · hold for details` : 'Tap to tap one · hold for details'}
+      title={
+        look?.mode === 'damage'
+          ? 'Tap for one more that dies · hold for details'
+          : picks
+            ? `Tap to send one more ${job} · hold for details`
+            : 'Tap to tap one · hold for details'
+      }
       {...press}
     >
       {item.imageNormal ? (
@@ -196,7 +209,7 @@ export default function BoardStrip({ playerIdx }: Props) {
     <div className={`board-strip board-strip--${size}${deckSeat ? ' board-strip--shelf' : ''}`}>
       {entries.map(({ live, item, at }) => {
         const look = live ? (combat?.look({ kind: 'stack', id: item.id }) ?? null) : null;
-        const job = combat?.mode === 'attack' ? 'attacking' : 'blocking';
+        const job = jobOf(look);
         return live ? (
           <div className="board-item" key={item.id}>
             <TokenCard
@@ -213,7 +226,7 @@ export default function BoardStrip({ playerIdx }: Props) {
               // A pick mode is on: the row under a creature stack counts
               // the copies going in, not the copies there are — a slipped
               // tap on "−" or "✕" must not delete a token mid-fight.
-              <div className="count-controls pick-stepper">
+              <div className={`count-controls pick-stepper${look.mode === 'damage' ? ' pick-stepper--dying' : ''}`}>
                 <button
                   aria-label={`one fewer ${item.name} ${job}`}
                   disabled={look.picked <= 0}

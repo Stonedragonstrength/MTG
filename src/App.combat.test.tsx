@@ -210,18 +210,28 @@ test('a whole combat on a two-player table: declare, block, review, apply — an
       'Nathan: Soldier dies',
     ]),
   );
-  expect(screen.queryByRole('button', { name: 'Apply' })).not.toBeInTheDocument(); // a death: it goes through Review
-  fireEvent.click(screen.getByRole('button', { name: 'Review…' }));
+  // The result lies on the table: Sam's life shows what it comes to, the soldiers wear their dead.
+  expect(document.querySelector('.seat-1 .life-total')).toHaveTextContent('40→35');
+  expect(document.querySelector('.seat-0 .life-total')).toHaveTextContent(/^40$/);
+  expect(document.querySelector('.seat-0 .thumb--dying .combat-mark--dies')).toHaveTextContent('1 of 2 dies');
+  // Details… is the long way round: the same result, attack by attack.
+  fireEvent.click(screen.getByRole('button', { name: 'Details…' }));
   const sheet = within(document.querySelector<HTMLElement>('.sheet')!);
   expect(sheet.getByLabelText('damage to Sam', { selector: '.review-value' })).toHaveTextContent('5');
   expect(sheet.getByLabelText("Nathan's Soldier dying", { selector: '.review-value' })).toHaveTextContent('1 dies');
-  // For its first moment the sheet takes no tap as an answer: the other half of the tap on Review…
+  // For its first moment the sheet takes no tap as an answer: the other half of the tap on Details…
   fireEvent.click(sheet.getByRole('button', { name: 'Apply' }));
   expect(fight()?.step).toBe('damage');
   await sleep(400);
-  // The table knows better than the app: a trick finished off the giant's blocker — the wall dies too.
-  fireEvent.click(sheet.getByRole('checkbox', { name: "Sam's Wall of Omens dies" }));
-  fireEvent.click(sheet.getByRole('button', { name: 'Apply' }));
+  fireEvent.click(sheet.getByRole('button', { name: 'Back' }));
+  // The table knows better than the app: a trick finished off the giant's blocker — a tap on the wall says so.
+  tap(screen.getByRole('button', { name: 'Wall of Omens lives — tap if it dies' }));
+  expect(document.querySelector('.combat-result li')).toHaveTextContent('Sam −5 · Wall of Omens dies');
+  // …and the wall's toughness was not all: one more got through. The buttons beside Sam's life say it.
+  tap(screen.getByRole('button', { name: 'Sam loses one more in this fight' }));
+  expect(document.querySelector('.seat-1 .life-total')).toHaveTextContent('40→34');
+  tap(screen.getByRole('button', { name: 'Sam loses one less in this fight' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
 
   // ---- applied: life, graveyard and the feed are right, the bar is gone, the button is back
   expect(lives()).toEqual([40, 35]);

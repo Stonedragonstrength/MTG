@@ -24,34 +24,49 @@ interface Props {
 
 /** What a creature wears in a fight: the opponent it is pointed at (their
  * initial, in their colour — with two players just the swords), the number
- * of the attacker it stands in front of, and at the end whether it dies. */
+ * of the attacker it stands in front of, and at the end — across the whole
+ * card, it is the news — whether it dies. */
 export default function CombatMarks({ look, names, counts = false }: Props) {
   if (!look || (look.attacking.length === 0 && look.blocking.length === 0 && look.dying === 0)) return null;
   const pod = names.length > 2;
   const times = (n: number) => (counts || n > 1 ? `×${n}` : '');
+  // At the damage step `picked` are the copies that die and `free` the ones
+  // that live: a stack says how many of how many.
+  const fought = look.picked + look.free;
   return (
-    <span className="combat-marks" aria-hidden="true">
-      {look.attacking.map(([seat, n]) => (
-        <span
-          key={`at-${seat}`}
-          className="combat-mark combat-mark--attack"
-          style={{ '--tint': seatTint(seat) } as CSSProperties}
-        >
-          ⚔{pod ? (names[seat] ?? '?').slice(0, 1).toUpperCase() : ''}
-          {times(n)}
-        </span>
-      ))}
-      {look.blocking.map(([no, n]) => (
-        <span key={`in-${no}`} className="combat-mark combat-mark--block">
-          🛡{no}
-          {times(n)}
-        </span>
-      ))}
+    <>
+      <span className="combat-marks" aria-hidden="true">
+        {look.attacking.map(([seat, n]) => (
+          <span
+            key={`at-${seat}`}
+            className="combat-mark combat-mark--attack"
+            style={{ '--tint': seatTint(seat) } as CSSProperties}
+          >
+            ⚔{pod ? (names[seat] ?? '?').slice(0, 1).toUpperCase() : ''}
+            {times(n)}
+          </span>
+        ))}
+        {look.blocking.map(([no, n]) => (
+          <span key={`in-${no}`} className="combat-mark combat-mark--block">
+            🛡{no}
+            {times(n)}
+          </span>
+        ))}
+      </span>
+      {/* The result, before it lands: a band across the card. A tap on the
+          card takes it off again (or, on a stack, adds one more). */}
       {look.dying > 0 && (
-        <span className="combat-mark combat-mark--dies">
-          ☠{times(look.dying)}
+        <span className="combat-mark--dies" aria-hidden="true">
+          {/* In two parts: a small tile on the shelf keeps the number and drops the word. */}
+          {counts && (
+            <span className="dies-n">
+              {look.dying}
+              {fought > 1 ? ` of ${fought}` : ''}{' '}
+            </span>
+          )}
+          <span className="dies-word">{counts && look.dying !== 1 ? 'die' : 'dies'}</span>
         </span>
       )}
-    </span>
+    </>
   );
 }

@@ -1,7 +1,18 @@
 import { describe, expect, test } from 'vitest';
 import { applyCombat } from './combat';
 import { resolveCombat, type CardRecords } from './combatEngine';
-import { NO_EDITS, reviewCombat, reviewId, type ReviewEdits } from './combatReview';
+import {
+  NO_EDITS,
+  lifeAfter,
+  nextDeath,
+  nudgeDamage,
+  nudgeGain,
+  reviewCombat,
+  reviewId,
+  setDeaths,
+  type ReviewEdits,
+} from './combatReview';
+import { reviewLines, resultLines } from './combatView';
 import { createGame } from './game';
 import type {
   BoardItem,
@@ -434,5 +445,123 @@ describe('what the sheet shows', () => {
     const review = reviewCombat({ ...g, combat: broken }, broken!, records, NO_EDITS);
     expect(review.outcome).toEqual({ players: [], deaths: [] });
     expect(review.units).toEqual([]);
+  });
+});
+
+describe('what a press on the board changes', () => {
+  /** The bears trade, the giant and three soldiers get through: Sam loses 6. */
+  const brawl = () =>
+    fight(
+      [{ cards: { bear: BEAR, giant: GIANT }, stacks: [tokens('soldiers', 3)] }, { cards: { sbear: BEAR } }],
+      [
+        { unit: card('bear'), target: 1, blockers: [card('sbear')] },
+        { unit: card('giant'), target: 1 },
+        { unit: stack('soldiers'), target: 1, n: 3 },
+      ],
+    );
+  const unitOf = (t: ReturnType<typeof fight>, e: ReviewEdits, seat: number, unit: CombatUnit) =>
+    reviewCombat(t.g, t.c, t.records, e).units.find((u) => u.id === reviewId(seat, unit))!;
+
+  test('a tap on a card is dies / lives, and what it shows already changes nothing', () => {
+    const t = brawl();
+    const bear = unitOf(t, NO_EDITS, 0, card('bear'));
+    expect(bear.dies).toBe(1);
+    const saved = nextDeath(NO_EDITS, bear);
+    expect(unitOf(t, saved, 0, card('bear')).dies).toBe(0);
+    const again = nextDeath(saved, unitOf(t, saved, 0, card('bear')));
+    expect(unitOf(t, again, 0, card('bear')).dies).toBe(1);
+    expect(setDeaths(NO_EDITS, bear, 1)).toBe(NO_EDITS); // the same edits: nothing to redraw
+    // the giant was not hurt: a tap kills it all the same — the table knows why
+    expect(unitOf(t, nextDeath(NO_EDITS, unitOf(t, NO_EDITS, 0, card('giant'))), 0, card('giant')).dies).toBe(1);
+  });
+
+  test('a tap on a stack is one more dead, and past the last copy none; the number never leaves what fought', () => {
+    const t = brawl();
+    let e = NO_EDITS;
+    const seen: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      e = nextDeath(e, unitOf(t, e, 0, stack('soldiers')));
+      seen.push(unitOf(t, e, 0, stack('soldiers')).dies);
+    }
+    expect(seen).toEqual([1, 2, 3, 0, 1]);
+    const soldiers = unitOf(t, NO_EDITS, 0, stack('soldiers'));
+    expect(unitOf(t, setDeaths(NO_EDITS, soldiers, 9), 0, stack('soldiers')).dies).toBe(3);
+    expect(setDeaths(NO_EDITS, soldiers, -4)).toBe(NO_EDITS);
+  });
+
+  test('the buttons beside a life total move the damage: more goes on, less empties it and stops at nothing', () => {
+    const t = brawl();
+    const lost = (e: ReviewEdits) => reviewCombat(t.g, t.c, t.records, e).defenders[0].lost;
+    const nudge = (e: ReviewEdits, by: number) => nudgeDamage(reviewCombat(t.g, t.c, t.records, e), e, 1, by);
+    expect(lost(NO_EDITS)).toBe(6);
+    const more = nudge(NO_EDITS, 2);
+    expect(lost(more)).toBe(8);
+    const none = nudge(more, -20);
+    expect(lost(none)).toBe(0);
+    expect(nudge(none, -1)).toBe(none); // nothing left to take away
+    expect(nudge(NO_EDITS, 0)).toBe(NO_EDITS);
+    expect(nudgeDamage(reviewCombat(t.g, t.c, t.records), NO_EDITS, 0, 1)).toBe(NO_EDITS); // nobody attacked Nathan
+    // what Apply carries is what the total shows
+    expect(reviewCombat(t.g, t.c, t.records, more).outcome.players).toEqual([{ seat: 1, life: -8 }]);
+    expect(lifeAfter(t.g, reviewCombat(t.g, t.c, t.records, more), 1)).toBe(32);
+    expect(lifeAfter(t.g, reviewCombat(t.g, t.c, t.records, more), 0)).toBeNull();
+  });
+
+  test('with only a commander coming at them the damage moved is commander damage; beside others it is theirs', () => {
+    const alone = fight(
+      [{ cards: { atraxa: ATRAXA }, cmd: ['atraxa'] }, { cards: {} }],
+      [{ unit: card('atraxa'), target: 1 }],
+      config(2, ["Atraxa, Praetors' Voice"]),
+    );
+    const r = reviewCombat(alone.g, alone.c, alone.records);
+    const pumped = reviewCombat(alone.g, alone.c, alone.records, nudgeDamage(r, NO_EDITS, 1, 2));
+    expect(pumped.defenders[0]).toMatchObject({ commanders: [{ damage: 6 }], other: 0, lost: 6 });
+    expect(pumped.outcome.players[0]).toMatchObject({ seat: 1, life: -6, commander: { p0: 6 } });
+    // taking it all away empties the commander's number too
+    const none = reviewCombat(alone.g, alone.c, alone.records, nudgeDamage(r, NO_EDITS, 1, -9));
+    expect(none.defenders[0]).toMatchObject({ commanders: [{ damage: 0 }], other: 0, lost: 0 });
+
+    const beside = fight(
+      [{ cards: { atraxa: ATRAXA, bear: BEAR }, cmd: ['atraxa'] }, { cards: {} }],
+      [
+        { unit: card('atraxa'), target: 1 },
+        { unit: card('bear'), target: 1 },
+      ],
+      config(2, ["Atraxa, Praetors' Voice"]),
+    );
+    const both = reviewCombat(beside.g, beside.c, beside.records);
+    const more = reviewCombat(beside.g, beside.c, beside.records, nudgeDamage(both, NO_EDITS, 1, 1));
+    expect(more.defenders[0]).toMatchObject({ commanders: [{ damage: 4 }], other: 3, lost: 7 });
+    // less: the others' damage first, then the commander's
+    const less = reviewCombat(beside.g, beside.c, beside.records, nudgeDamage(both, NO_EDITS, 1, -3));
+    expect(less.defenders[0]).toMatchObject({ commanders: [{ damage: 3 }], other: 0, lost: 3 });
+  });
+
+  test('a seat that only gains (lifelink) has that moved instead, never below none', () => {
+    const t = fight([{ cards: { hawk: NIGHTHAWK } }, { cards: {} }], [{ unit: card('hawk'), target: 1 }]);
+    const r = reviewCombat(t.g, t.c, t.records);
+    expect(lifeAfter(t.g, r, 0)).toBe(42);
+    const more = nudgeGain(r, NO_EDITS, 0, 1);
+    expect(lifeAfter(t.g, reviewCombat(t.g, t.c, t.records, more), 0)).toBe(43);
+    const none = nudgeGain(r, NO_EDITS, 0, -5);
+    expect(lifeAfter(t.g, reviewCombat(t.g, t.c, t.records, none), 0)).toBe(40);
+    expect(nudgeGain(reviewCombat(t.g, t.c, t.records, none), none, 0, -1)).toBe(none);
+    expect(nudgeGain(r, NO_EDITS, 1, 1)).toBe(NO_EDITS); // Sam gains nothing here: no number to move
+  });
+
+  test('the bar tells the result as it was put right; left alone, exactly as the engine worked it out', () => {
+    for (const [, t] of FIGHTS) {
+      expect(reviewLines(t.g, reviewCombat(t.g, t.c, t.records))).toEqual(
+        resultLines(t.g, resolveCombat(t.g, t.c, t.records)),
+      );
+    }
+    const t = brawl();
+    const bear = unitOf(t, NO_EDITS, 0, card('bear'));
+    const changed = nudgeDamage(reviewCombat(t.g, t.c, t.records), nextDeath(NO_EDITS, bear), 1, 1);
+    expect(reviewLines(t.g, reviewCombat(t.g, t.c, t.records, changed))).toEqual(['Sam −7 · Grizzly Bears dies']);
+    expect(reviewLines(t.g, reviewCombat(t.g, t.c, t.records))).toEqual([
+      'Sam −6 · Grizzly Bears dies',
+      'Nathan: Grizzly Bears dies',
+    ]);
   });
 });

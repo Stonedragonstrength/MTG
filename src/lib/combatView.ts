@@ -1,5 +1,6 @@
 import { copiesOf, liveCombat, sameUnit } from './combat';
 import { hasKeyword, type CombatResult, type Fighter, type UnitRead } from './combatEngine';
+import type { Review } from './combatReview';
 import type { CombatAttack, CombatState, CombatUnit, GameState } from './types';
 
 /** Combat on the cards, the screen's half of the thinking: what a tap on a
@@ -326,9 +327,46 @@ export function resultLines(g: GameState, result: CombatResult): string[] {
   return lines;
 }
 
+/** The same lines for the result as the table has put it right: what
+ * Apply is about to carry, with every death moved on the cards and every
+ * number moved beside a life total. Left alone it reads as `resultLines`. */
+export function reviewLines(g: GameState, review: Review): string[] {
+  const lines: string[] = [];
+  const gainOf = (seat: number) => review.gains.find((x) => x.seat === seat)?.life ?? 0;
+  const deadOf = (seat: number) =>
+    deathWords(
+      review.units
+        .filter((u) => u.seat === seat && u.dies > 0)
+        .map((u) => ({ name: u.name || 'a creature', n: u.dies, commander: u.commander })),
+    );
+  const defending = new Set(review.defenders.map((d) => d.seat));
+  for (const d of review.defenders) {
+    const from = d.commanders
+      .filter((cmd) => cmd.damage > 0)
+      .map((cmd) => `${cmd.damage} from ${cmd.name || 'a commander'}`);
+    const parts = [`${seatName(g, d.seat)} −${d.lost}${from.length > 0 ? ` (${from.join(', ')})` : ''}`];
+    if (gainOf(d.seat) > 0) parts.push(`+${gainOf(d.seat)} life`);
+    if ((d.poison ?? 0) > 0) parts.push(`${d.poison} poison`);
+    const deaths = deadOf(d.seat);
+    if (deaths) parts.push(deaths);
+    lines.push(parts.join(' · '));
+  }
+  const others = new Set<number>();
+  for (const x of review.gains) if (!defending.has(x.seat)) others.add(x.seat);
+  for (const u of review.units) if (!defending.has(u.seat) && u.dies > 0) others.add(u.seat);
+  for (const seat of others) {
+    const gain = gainOf(seat);
+    const deaths = deadOf(seat);
+    if (gain <= 0 && !deaths) continue;
+    const name = seatName(g, seat);
+    lines.push(gain > 0 ? [`${name} +${gain} life`, ...(deaths ? [deaths] : [])].join(' · ') : `${name}: ${deaths}`);
+  }
+  return lines;
+}
+
 /** What the engine could not do by itself, said out loud. */
 export function resultFlags(result: CombatResult): string[] {
-  if (result.failed) return ['this fight could not be worked out — set it in Review'];
+  if (result.failed) return ['this fight could not be worked out — set it in Details'];
   const flags: string[] = [];
   if (result.unread.length > 0) {
     const names = result.unread.slice(0, 3).map((u) => u.name || 'a creature');

@@ -2,7 +2,6 @@ import { Component, useEffect, useState, type CSSProperties, type ReactNode } fr
 import { actingSeat, attackersStopped, copiesOf, liveCombat } from '../lib/combat';
 import {
   COMBAT_KEYWORDS,
-  cardsRead,
   hasKeyword,
   readSeat,
   readUnit,
@@ -11,7 +10,6 @@ import {
   type CombatKeyword,
   type UnitRead,
 } from '../lib/combatEngine';
-import { NO_EDITS, reviewCombat } from '../lib/combatReview';
 import {
   allAttack,
   attackTargets,
@@ -21,14 +19,22 @@ import {
   litAttack,
   litTarget,
   resultFlags,
-  resultLines,
+  reviewLines,
   type Incoming,
 } from '../lib/combatView';
 import type { CardRecord, CombatState, CombatUnit, GameState } from '../lib/types';
 import { useAppStore } from '../state/store';
 import CardZoomSheet from './CardZoomSheet';
 import CombatReviewSheet from './CombatReviewSheet';
-import { seatTint, useCombatAim, useTableRecords } from './useCombat';
+import {
+  damageReview,
+  editsFor,
+  seatTint,
+  unitArt,
+  useCombatAim,
+  useCombatEdits,
+  useTableRecords,
+} from './useCombat';
 import { useConfirmTap } from './useConfirmTap';
 import { useLongPress } from './useLongPress';
 
@@ -149,14 +155,6 @@ function keywordMarks(read: UnitRead | null): { key: string; text: string; full:
   }));
   if (read.toxic > 0) out.push({ key: 'toxic', text: `toxic ${read.toxic}`, full: `toxic ${read.toxic}` });
   return out;
-}
-
-/** The art of a card or a stack as this device has it. */
-function unitArt(game: GameState, seat: number, unit: CombatUnit, records: CardRecords): string | null {
-  const player = game.players[seat];
-  if (unit.kind === 'stack') return player?.board.find((it) => it.id === unit.id)?.imageNormal ?? null;
-  const card = player?.cards?.battlefield.find((c) => c.iid === unit.id);
-  return (card && records[card.cardId]?.imageNormal) || null;
 }
 
 /** What the large view shows for a card or a stack: the card's record, or
@@ -325,27 +323,30 @@ function BlockersBar({ game, fight, defender }: { game: GameState; fight: Combat
 
 // ---- damage ----
 
+/** The result is not hidden in a sheet: it lies on the table — every
+ * creature that dies wears it, every life total shows what it comes to —
+ * and is put right there, by a tap on a creature or the two buttons beside
+ * a life total. So the bar only says it in words and carries it out.
+ * Details… is the long way round, for what the board has no place for
+ * (which commander the damage was, poison, a blocker that is not on the
+ * tablet). */
 function DamageBar({ game, fight }: { game: GameState; fight: CombatState }) {
   const applyCombat = useAppStore((s) => s.applyCombat);
+  const changed = useCombatEdits();
   const [reviewing, setReviewing] = useState(false);
   const [retry, setRetry] = useState(0);
   const records = useTableRecords(retry);
   // A late record changes sizes, and a late Whip of Erebos changes who
   // gains: until every card in the fight has answered, nothing is shown as
   // a result and nothing can be applied. A read that failed is asked again.
-  const read = cardsRead(game, fight, records);
+  const review = damageReview(game, fight, records, editsFor(changed, fight));
+  const read = review !== null;
   useEffect(() => {
     if (read) return;
     const t = window.setInterval(() => setRetry((k) => k + 1), REREAD_MS);
     return () => window.clearInterval(t);
   }, [read]);
-  const review = read ? reviewCombat(game, fight, records, NO_EDITS) : null;
   const name = (seat: number) => game.config.profiles[seat]?.name ?? '?';
-  // A wrong death strips counters or sends a commander home, and a defeat
-  // ends someone's game: those are confirmed in Review, where the list of
-  // deaths is the confirmation. Plain damage keeps a one-tap Apply.
-  const serious =
-    !!review && (review.outcome.deaths.length > 0 || review.defeats.length > 0 || !!review.result.failed);
   const attacked = [...new Set((fight.attacks ?? []).map((a) => a.target))].length;
   return (
     <div className="combat-bar combat-bar--damage" role="group" aria-label="combat">
@@ -355,14 +356,12 @@ function DamageBar({ game, fight }: { game: GameState; fight: CombatState }) {
           <CancelButton asks />
           {review && (
             <>
-              <button className={`combat-review${serious ? ' primary combat-go' : ''}`} onClick={() => setReviewing(true)}>
-                Review…
+              <button className="combat-review" onClick={() => setReviewing(true)}>
+                Details…
               </button>
-              {!serious && (
-                <button className="primary combat-go" onClick={() => applyCombat(review.outcome)}>
-                  Apply
-                </button>
-              )}
+              <button className="primary combat-go" onClick={() => applyCombat(review.outcome)}>
+                Apply
+              </button>
             </>
           )}
         </span>
@@ -370,7 +369,7 @@ function DamageBar({ game, fight }: { game: GameState; fight: CombatState }) {
       {/* Room for a line per defender from the start, so the result arriving does not move the cards. */}
       <ul className="combat-result" style={{ minHeight: `${Math.max(1, attacked) * 1.4}em` }}>
         {!review && <li className="combat-reading">Reading the cards…</li>}
-        {review && resultLines(game, review.result).map((line, i) => <li key={`line-${i}`}>{line}</li>)}
+        {review && reviewLines(game, review).map((line, i) => <li key={`line-${i}`}>{line}</li>)}
         {review?.defeats.map((seat) => (
           <li key={`out-${seat}`} className="combat-flag combat-flag--defeat">
             this defeats {name(seat)}
@@ -383,6 +382,11 @@ function DamageBar({ game, fight }: { game: GameState; fight: CombatState }) {
             </li>
           ))}
       </ul>
+      {review && (
+        <p className="combat-hint">
+          Tap a creature to change whether it dies · − and + by a life total change the damage
+        </p>
+      )}
       {reviewing && <CombatReviewSheet onClose={() => setReviewing(false)} />}
     </div>
   );

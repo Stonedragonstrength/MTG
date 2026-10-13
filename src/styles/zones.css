@@ -169,6 +169,34 @@
   text-align: center;
 }
 
+/* A fight's result is waiting: "40 → 32". What it comes to is the number
+   the buttons move, so it is the big one; what it was stands small. */
+.life-total--stake {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.2em;
+  white-space: nowrap;
+}
+
+.life-was {
+  font-size: 0.6em;
+  font-weight: 600;
+  opacity: 0.6;
+}
+
+.life-arrow {
+  font-size: 0.6em;
+  opacity: 0.6;
+}
+
+.life-after--down {
+  color: #ff6b5e;
+}
+
+.life-after--up {
+  color: #5fcf8b;
+}
+
 .life-btn {
   width: 44px;
   height: 44px;
@@ -1802,6 +1830,15 @@ input[type='checkbox'] {
   font-style: italic;
 }
 
+/* How the result is put right, said once under it. */
+.combat-hint {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: 0.78rem;
+  line-height: 1.3;
+  color: #9fb6cf;
+}
+
 /* What a creature wears in a fight. Outlines and dimming sit on the card;
    the marks are a child of it. Nothing here puts a transform on .vcard or
    .thumb — a tapped card is already turned with one. */
@@ -1863,9 +1900,40 @@ input[type='checkbox'] {
   --tint: #9ccdf2;
 }
 
+/* It dies: a band right across the card, the art dimmed under it. A tap
+   on the card takes it off. The band's own tilt: never the card's. */
 .combat-mark--dies {
-  --tint: #ff6b5e;
-  background: rgba(64, 4, 4, 0.92);
+  position: absolute;
+  top: 50%;
+  left: -2px;
+  right: -2px;
+  transform: translateY(-50%) rotate(-9deg);
+  padding: 3px 0;
+  background: #8f2a20;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-family: var(--font-display);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  line-height: 1.25;
+  text-align: center;
+  text-transform: uppercase;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.vcard--dying img,
+.vcard--dying .vcard-placeholder,
+.thumb--dying img,
+.thumb--dying .thumb-placeholder {
+  opacity: 0.45;
+  filter: grayscale(0.6);
+}
+
+/* With an attacker's or a blocker's mark in the middle, the band sits lower. */
+.combat-marks + .combat-mark--dies {
+  top: 72%;
 }
 
 /* A deck seat's own cards are drawn large: the marks keep up. */
@@ -1874,11 +1942,22 @@ input[type='checkbox'] {
   font-size: 1.1rem;
 }
 
+.zone--cards.zone--focused .vcard .combat-mark--dies {
+  padding: 5px 0;
+  font-size: 1.25rem;
+}
+
 /* A collapsed player's minis are 30px wide: a small mark, a thin outline. */
 .focus-mode .zone:not(.zone--focused) .combat-mark {
   padding: 0 3px;
   font-size: 0.55rem;
   line-height: 1.25;
+}
+
+.focus-mode .zone:not(.zone--focused) .combat-mark--dies {
+  padding: 1px 0;
+  font-size: 0.5rem;
+  letter-spacing: 0.04em;
 }
 
 .focus-mode .zone:not(.zone--focused) .vcard--attacking,
@@ -3731,6 +3810,22 @@ input[type='checkbox'] {
   margin-right: 1px;
   font-size: 0.7rem;
   opacity: 0.85;
+}
+
+/* …and once the result waits, how many of them die. */
+.zone--cards.zone--focused .board-strip .pick-stepper--dying .pick-count::before {
+  content: '☠';
+}
+
+/* A shelf tile is a few fingers wide: its band keeps "1 of 2", not the word. */
+.board-strip--shelf .combat-mark--dies {
+  padding: 1px 0;
+  font-size: 0.55rem;
+  letter-spacing: 0.02em;
+}
+
+.board-strip--shelf .combat-mark--dies .dies-word {
+  display: none;
 }
 
 /* Narrow seats have height to spare and no width. The lands (and rocks)

@@ -7,8 +7,9 @@ interface Props {
   /** `why` is 'back' when the tablet's back button closed it — a caller
    * that would open something next must not do so on a Back press. */
   onClose: (why?: 'back') => void;
-  /** 'regular' fits content; 'wide' is a near-fullscreen workspace (rules, search). */
-  size?: 'regular' | 'wide';
+  /** 'regular' fits content; 'roomy' fits content too, with room for two
+   * things side by side; 'wide' is a near-fullscreen workspace (rules, search). */
+  size?: 'regular' | 'roomy' | 'wide';
   children: ReactNode;
   /** Optional footer action row, pinned under the body. */
   footer?: ReactNode;

@@ -224,7 +224,7 @@ describe('what it shows', () => {
     expect(value("Nathan's Soldier dying")).toBe('2 die');
     expect(value("Sam's Saproling dying")).toBe('2 die');
     // attackers first, each followed by what stood in its way
-    expect([...document.querySelectorAll('.review-unit-name')].map((el) => el.textContent!.replace(/\s+/g, ' ').trim())).toEqual([
+    expect([...document.querySelectorAll('.fight-name')].map((el) => el.textContent!.replace(/\s+/g, ' ').trim())).toEqual([
       '⚔ Grizzly Bears 2/2',
       '🛡 Wall of Omens 0/4',
       '⚔ Hill Giant 3/3',

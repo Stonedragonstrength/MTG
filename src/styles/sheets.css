@@ -11,6 +11,10 @@
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.7);
 }
 
+.sheet--roomy {
+  width: min(720px, 94vw);
+}
+
 .sheet--wide {
   width: min(900px, 96vw);
   height: min(640px, 90vh);
@@ -313,6 +317,156 @@ button.primary {
 
 .review-dies .review-value {
   min-width: 3.6em;
+}
+
+/* The fight, attack by attack: the attacker, an arrow, and what stood in
+   its way — or what got through. On a phone the two sides stack. */
+.fight {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.15fr);
+  align-items: center;
+  gap: 6px 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.fight-arrow {
+  color: #6f6f7c;
+  font-size: 1.3rem;
+}
+
+.fight-way {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.fight-unit {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.fight-art {
+  flex: 0 0 auto;
+  width: 46px;
+  height: 64px;
+  border-radius: 5px;
+  overflow: hidden;
+  background: #2b2b33;
+}
+
+.fight-art img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.fight-unit--dying .fight-art {
+  outline: 2px solid #ff3b30;
+}
+
+.fight-unit--dying .fight-art img {
+  opacity: 0.5;
+  filter: grayscale(0.6);
+}
+
+.fight-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+
+.fight-name {
+  overflow-wrap: anywhere;
+}
+
+.fight-again {
+  color: #a8a8b4;
+  font-size: 0.85rem;
+}
+
+.fight-end {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2px 12px;
+}
+
+.fight-through strong {
+  color: #ff8a80;
+  font-size: 1.15rem;
+}
+
+.fight-through--none {
+  color: #a8a8b4;
+  font-size: 0.85rem;
+}
+
+/* "lives | dies": one switch with both answers on it, the lit one true.
+   The checkbox itself lies over the whole of it, unseen. */
+.dies-switch {
+  position: relative;
+  gap: 0;
+  border: 1px solid #3a3a44;
+  border-radius: 999px;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.dies-switch input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.dies-side {
+  min-width: 3.4em;
+  padding: 0 12px;
+  line-height: 38px;
+  text-align: center;
+  color: #8c8c99;
+}
+
+.dies-switch:not(.dies-switch--on) .dies-side--lives {
+  background: #2c2c36;
+  color: var(--fg);
+  font-weight: 700;
+}
+
+.dies-switch--on .dies-side--dies {
+  background: #8f2a20;
+  color: #fff;
+  font-weight: 700;
+}
+
+.dies-switch:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+@media (max-width: 560px) {
+  .fight {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .fight-arrow {
+    display: none;
+  }
+
+  .fight-way {
+    padding-left: 16px;
+  }
 }
 
 .review-warning {

@@ -31,19 +31,31 @@ export default function VCard({ card, art, sick, look, names, attached = 0, onTa
   const press = useLongPress(picks ? look.tap : onTap, onDetail);
   const p1p1 = card.counters?.p1p1 ?? 0;
   const job = look?.mode === 'attack' ? 'attack' : 'block';
+  // The result is waiting and it fought: the tap says whether it dies.
+  const judged = picks && look.mode === 'damage';
   const label = !picks
     ? `tap ${card.name}${sick ? ', summoning sick' : ''}`
-    : look.picked > 0
-      ? `${card.name} ${job}s — tap to take it back`
-      : look.dim
-        ? `${card.name} cannot ${job}`
-        : `${job} with ${card.name}`;
+    : judged
+      ? look.picked > 0
+        ? `${card.name} dies — tap if it lives`
+        : `${card.name} lives — tap if it dies`
+      : look.picked > 0
+        ? `${card.name} ${job}s — tap to take it back`
+        : look.dim
+          ? `${card.name} cannot ${job}`
+          : `${job} with ${card.name}`;
   return (
     <button
       className={`vcard${card.tapped ? ' vcard--tapped' : ''}${combatClasses('vcard', look)}`}
       aria-label={label}
       aria-pressed={picks ? look.picked > 0 : undefined}
-      title={picks ? `Tap to ${job} · hold for options` : 'Tap to tap · hold for options'}
+      title={
+        judged
+          ? 'Tap to change whether it dies · hold for options'
+          : picks
+            ? `Tap to ${job} · hold for options`
+            : 'Tap to tap · hold for options'
+      }
       {...press}
     >
       {art ? (

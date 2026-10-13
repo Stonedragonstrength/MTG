@@ -6,7 +6,7 @@ import { adjustLife, createGame } from '../lib/game';
 import type { BoardItem, CardInstance, CardRecord, CombatUnit, GameConfig, GameState } from '../lib/types';
 import { useAppStore } from '../state/store';
 import CombatBar, { CombatBoundary } from './CombatBar';
-import { useCombatAim, useTableRecords } from './useCombat';
+import { useCombatAim, useCombatEdits, useTableRecords } from './useCombat';
 
 // The combat bar through the real store: what it says and offers in each step.
 
@@ -484,11 +484,12 @@ describe('damage', () => {
     );
   });
 
-  test('plain damage keeps a one-tap Apply beside Review', async () => {
+  test('Apply is one tap, with Details… beside it for the long way round', async () => {
     await atDamage();
     const { container } = render(<CombatBar playerIdx={0} />);
     await screen.findByRole('button', { name: 'Apply' });
-    expect(buttons(container)).toEqual(['Cancel', 'Review…', 'Apply']);
+    expect(buttons(container)).toEqual(['Cancel', 'Details…', 'Apply']);
+    expect(container.querySelector('.combat-hint')).toHaveTextContent('Tap a creature to change whether it dies');
     fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
     expect(store().game!.players.map((p) => p.life)).toEqual([42, 28]);
     expect(feed().at(-1)).toBe('Combat: Sam takes 12 · Nathan gains 2');
@@ -496,29 +497,47 @@ describe('damage', () => {
     expect(container).toBeEmptyDOMElement(); // the bar is gone
   });
 
-  test('a result that kills a creature has no one-tap Apply: Review is the main button, and the dead are named', async () => {
+  test('a result that kills a creature is one tap too — the dead are on the cards, and named on the bar', async () => {
     await atDamage(() => store().setBlocker(1, card('giant'), card('sbear'), 1)); // the giant kills Sam's bear
     const { container } = render(<CombatBar playerIdx={0} />);
-    await screen.findByRole('button', { name: 'Review…' });
-    expect(buttons(container)).toEqual(['Cancel', 'Review…']);
-    expect(screen.getByRole('button', { name: 'Review…' }).className).toContain('primary');
+    await screen.findByRole('button', { name: 'Apply' });
+    expect(buttons(container)).toEqual(['Cancel', 'Details…', 'Apply']);
+    expect(screen.getByRole('button', { name: 'Apply' }).className).toContain('primary');
     // the giant has trample from the Uprising: 2 to the bear, 1 over
     expect(container.querySelector('.combat-result li')).toHaveTextContent('Sam −10 · Grizzly Bears dies');
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    expect(store().game!.players[1].cards!.graveyard.map((c) => c.name)).toEqual(['Grizzly Bears']);
   });
 
-  test('a result that defeats a player has no one-tap Apply either, and says so', async () => {
+  test('a result that defeats a player says so, in red, before it is applied', async () => {
     useAppStore.setState({ game: adjustLife(table(), 1, -30) }); // Sam is at 10
     await atDamage();
     const { container } = render(<CombatBar playerIdx={0} />);
-    await screen.findByRole('button', { name: 'Review…' });
-    expect(buttons(container)).toEqual(['Cancel', 'Review…']);
+    await screen.findByRole('button', { name: 'Apply' });
     expect(container.querySelector('.combat-flag--defeat')).toHaveTextContent('this defeats Sam');
   });
 
-  test('Review opens the sheet, and Apply lives inside it', async () => {
+  test('what the table changed on the board is what the bar says and what Apply carries', async () => {
+    await atDamage(() => store().setBlocker(1, card('giant'), card('sbear'), 1));
+    const { container } = render(<CombatBar playerIdx={0} />);
+    await screen.findByRole('button', { name: 'Apply' });
+    const id = fight()!.id;
+    // a trick saved the bear, and two more got through
+    act(() =>
+      useCombatEdits.getState().change(id, (e) => ({ ...e, dies: { '1|card:sbear': 0 }, other: { 1: 2 } })),
+    );
+    expect(container.querySelector('.combat-result li')).toHaveTextContent('Sam −12');
+    expect(container.querySelector('.combat-result li')).not.toHaveTextContent('dies');
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    expect(store().game!.players[1].life).toBe(28);
+    expect(store().game!.players[1].cards!.graveyard).toEqual([]);
+    expect(useCombatEdits.getState().combatId).toBeNull(); // gone with its fight
+  });
+
+  test('Details… opens the sheet, which shows the same result and can apply it', async () => {
     await atDamage(() => store().setBlocker(1, card('giant'), card('sbear'), 1));
     render(<CombatBar playerIdx={0} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Review…' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Details…' }));
     const sheet = within(document.querySelector<HTMLElement>('.sheet')!);
     expect(sheet.getByRole('heading', { name: 'Review the damage' })).toBeInTheDocument();
     expect(sheet.getByRole('checkbox', { name: "Sam's Grizzly Bears dies" })).toBeChecked();

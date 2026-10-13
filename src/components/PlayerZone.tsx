@@ -13,6 +13,7 @@ import LandsRow from './LandsRow';
 import LifeCounter from './LifeCounter';
 import PlayerSheet from './PlayerSheet';
 import SideShelf from './SideShelf';
+import { useLifeAtStake } from './useCombat';
 
 const ACCENTS: Record<string, string> = {
   W: '#e8e3d0',
@@ -63,6 +64,7 @@ export default function PlayerZone({
   const [sheetOpen, setSheetOpen] = useState(false);
   const zoneRef = useRef<HTMLElement>(null);
   const narrow = useNarrowerThan(zoneRef, ONE_SHELF_LINE_PX);
+  const stake = useLifeAtStake(playerIdx);
   if (!game) return null;
 
   const player = game.players[playerIdx];
@@ -172,7 +174,20 @@ export default function PlayerZone({
           </span>
         )}
         <span className="lifewrap" onClick={(e) => e.stopPropagation()}>
-          <LifeCounter life={player.life} onAdjust={(delta) => adjustLife(playerIdx, delta)} />
+          {/* While a fight's result waits the total shows what it comes to,
+              and the same two buttons put that number right. */}
+          <LifeCounter
+            life={player.life}
+            after={stake?.after}
+            labels={
+              stake
+                ? stake.defending
+                  ? { lose: `${profile.name} loses one more in this fight`, gain: `${profile.name} loses one less in this fight` }
+                  : { lose: `${profile.name} gains one less in this fight`, gain: `${profile.name} gains one more in this fight` }
+                : undefined
+            }
+            onAdjust={(delta) => (stake ? stake.nudge(delta) : adjustLife(playerIdx, delta))}
+          />
           {game.config.format === 'commander' && <CommanderDamage playerIdx={playerIdx} />}
         </span>
       </header>
