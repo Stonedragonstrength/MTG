@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { boostOf, hostChoices, hostKind, hostOf, isEquipment } from '../lib/attach';
+import { hostChoices, hostKind, hostOf, isEquipment, sizeGiven, sizeWords } from '../lib/attach';
 import { useAppStore } from '../state/store';
 import Sheet from './Sheet';
 import { useTableRecords } from './useCombat';
@@ -21,7 +21,6 @@ export default function AttachSheet({ playerIdx, iid, onClose }: Props) {
   const game = useAppStore((s) => s.game);
   const attachVirtualCard = useAppStore((s) => s.attachVirtualCard);
   const [tab, setTab] = useState(playerIdx);
-  const [counters, setCounters] = useState(true);
   // After playing an Aura it opens under the finger that played it: the
   // rest of that tap must not pick a row.
   useSettleTaps();
@@ -37,7 +36,7 @@ export default function AttachSheet({ playerIdx, iid, onClose }: Props) {
   const record = records[card.cardId];
   const equipment = isEquipment(record);
   const current = hostOf(game, card);
-  const boost = boostOf(record);
+  const given = sizeGiven(record);
   // Your own side first, then the others in turn order.
   const seats = game.players.map((_, i) => (playerIdx + i) % game.players.length);
   const shown = seats.includes(tab) ? tab : playerIdx;
@@ -81,13 +80,12 @@ export default function AttachSheet({ playerIdx, iid, onClose }: Props) {
           ))}
         </div>
       )}
-      {boost > 0 && (
-        // The table can show a plain +N/+N: as counters on the creature,
-        // where the fight reads its size. They come off with the card.
-        <label className="attach-boost">
-          <input type="checkbox" checked={counters} onChange={(e) => setCounters(e.target.checked)} />
-          Show its +{boost}/+{boost} as counters on the creature
-        </label>
+      {given && (
+        // Nothing to switch on: the creature is that much bigger for as long
+        // as this is on it, on the board and in a fight (lib/attach.ts).
+        <p className="hint attach-boost">
+          It gives {sizeWords(given)} to what it is on, for as long as it is on it.
+        </p>
       )}
       {nowhere ? (
         <p className="hint">It enchants a player: there is nothing on the board to put it on.</p>
@@ -105,12 +103,7 @@ export default function AttachSheet({ playerIdx, iid, onClose }: Props) {
                   aria-label={here ? `${host.name} — it is on this now` : `put it on ${host.name}`}
                   aria-pressed={here}
                   onClick={() => {
-                    attachVirtualCard(
-                      playerIdx,
-                      iid,
-                      { seat: host.seat, kind: host.kind, id: host.id },
-                      counters ? boost : 0,
-                    );
+                    attachVirtualCard(playerIdx, iid, { seat: host.seat, kind: host.kind, id: host.id });
                     onClose();
                   }}
                 >

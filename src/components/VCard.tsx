@@ -1,3 +1,4 @@
+import { sizeWords, type Size } from '../lib/attach';
 import type { CardInstance } from '../lib/types';
 import CombatMarks, { combatClasses } from './CombatMarks';
 import FaceMark from './FaceMark';
@@ -15,6 +16,9 @@ interface Props {
   /** How many Auras and Equipment sit on it, where they are not drawn
    * beside it (a small card on a shelf): a count on its corner. */
   attached?: number;
+  /** What its Auras and Equipment add to its size (lib/attach.ts sizeWorn):
+   * the badge on the card says it together with its +1/+1 counters. */
+  worn?: Size;
   /** What a tap does when that is not tapping the card, in one word: an
    * Equipment lying unattached is tapped to 'equip' it. The card wears the
    * word, and its label says it. */
@@ -31,10 +35,12 @@ interface Props {
  * a tap picks it (or is ignored, dimmed, when it cannot fight — the hold
  * still opens the sheet, where "Attack anyway" and a plain Tap live).
  * Anything that is no creature keeps its ordinary tap. */
-export default function VCard({ card, art, sick, look, names, attached = 0, use, onTap, onDetail }: Props) {
+export default function VCard({ card, art, sick, look, names, attached = 0, worn, use, onTap, onDetail }: Props) {
   const picks = look?.picks === true;
   const press = useLongPress(picks ? look.tap : onTap, onDetail);
   const p1p1 = card.counters?.p1p1 ?? 0;
+  // How much bigger (or smaller) than printed: counters and what it wears.
+  const change: Size = { power: p1p1 + (worn?.power ?? 0), toughness: p1p1 + (worn?.toughness ?? 0) };
   const job = look?.mode === 'attack' ? 'attack' : 'block';
   // The result is waiting and it fought: the tap says whether it dies.
   const judged = picks && look.mode === 'damage';
@@ -73,10 +79,8 @@ export default function VCard({ card, art, sick, look, names, attached = 0, use,
           💤
         </span>
       )}
-      {p1p1 !== 0 && (
-        <span className="count-badge vcard-counter">
-          {p1p1 > 0 ? `+${p1p1}/+${p1p1}` : `${p1p1}/${p1p1}`}
-        </span>
+      {(change.power !== 0 || change.toughness !== 0) && (
+        <span className="count-badge vcard-counter">{sizeWords(change)}</span>
       )}
       {attached > 0 && (
         <span className="attached-badge" aria-label={`${attached} attached`}>

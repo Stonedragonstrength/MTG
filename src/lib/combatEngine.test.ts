@@ -255,7 +255,7 @@ describe('who is what', () => {
     expect([is('soldiers'), is('treasure'), is('half'), is('arbor'), is('gone')]).toEqual([true, false, false, false, false]);
   });
 
-  test('size is the printed front-face size plus +1/+1 counters, and nothing else', () => {
+  test('size is the printed front-face size plus +1/+1 counters; an anthem is not read', () => {
     const t = table({
       cards: { bear: BEAR, big: BEAR, anthem: rec('Glorious Anthem', null, null, 'Creatures you control get +1/+1.', 'Enchantment') },
       wear: { big: { counters: { p1p1: 3, oil: 2 } } },
@@ -264,6 +264,48 @@ describe('who is what', () => {
     expect(readUnit(t.g, 0, card('bear'), t.records)).toMatchObject({ power: 2, toughness: 2, unread: false });
     expect(readUnit(t.g, 0, card('big'), t.records)).toMatchObject({ power: 5, toughness: 5 });
     expect(readUnit(t.g, 0, stack('soldiers'), t.records)).toMatchObject({ power: 3, toughness: 3, count: 3 });
+  });
+
+  test('…and what its Equipment and Auras add: each number by itself, from either side of the table', () => {
+    const SPLITTER = rec('Bonesplitter', null, null, 'Equipped creature gets +2/+0.\nEquip {1}', 'Artifact — Equipment');
+    const CLAMP = rec('Skullclamp', null, null, 'Equipped creature gets +1/-1.\nEquip {1}', 'Artifact — Equipment');
+    const WEAKNESS = rec('Weakness', null, null, 'Enchant creature\nEnchanted creature gets -2/-1.', 'Enchantment — Aura');
+    const on = (seat: number, kind: 'card' | 'stack', id: string) => ({ on: { seat, kind, id } });
+    const t = table(
+      {
+        cards: { bear: BEAR, giant: GIANT, splitter: SPLITTER, clamp: CLAMP, spare: SPLITTER, loose: SPLITTER },
+        wear: {
+          bear: { counters: { p1p1: 1 } },
+          splitter: on(0, 'card', 'bear'),
+          clamp: on(0, 'card', 'bear'),
+          spare: on(0, 'stack', 'germ'),
+        },
+        stacks: [tokens('germ', 1, 0, 1, { counters: { p1p1: 1 } }), tokens('soldiers', 3, 1, 1)],
+      },
+      { cards: { weakness: WEAKNESS, hex: WEAKNESS }, wear: { weakness: on(0, 'card', 'giant'), hex: on(0, 'card', 'bear') } },
+    );
+    // 2/2, one counter, +2/+0, +1/-1 and an opponent's -2/-1.
+    expect(readUnit(t.g, 0, card('bear'), t.records)).toMatchObject({ power: 4, toughness: 1 });
+    expect(readUnit(t.g, 0, card('giant'), t.records)).toMatchObject({ power: 1, toughness: 2 });
+    // A token of one wears it; a stack of three does not all wear one Equipment.
+    expect(readUnit(t.g, 0, stack('germ'), t.records)).toMatchObject({ power: 3, toughness: 2 });
+    expect(readUnit(t.g, 0, stack('soldiers'), t.records)).toMatchObject({ power: 1, toughness: 1 });
+    const crowd = { ...t.g, players: t.g.players.map((p, i) => (i === 0 ? { ...p, cards: { ...p.cards!, battlefield: p.cards!.battlefield.map((c) => (c.iid === 'loose' ? { ...c, ...on(0, 'stack', 'soldiers') } : c)) } } : p)) };
+    expect(readUnit(crowd, 0, stack('soldiers'), t.records)).toMatchObject({ power: 1, toughness: 1 });
+    // Power never goes below nothing.
+    const weak = table({ cards: { bear: BEAR } }, { cards: { a: WEAKNESS, b: WEAKNESS }, wear: { a: on(0, 'card', 'bear'), b: on(0, 'card', 'bear') } });
+    expect(readUnit(weak.g, 0, card('bear'), weak.records)).toMatchObject({ power: 0, toughness: 0 });
+  });
+
+  test('a creature with an Equipment on it fights at that size', () => {
+    const SPLITTER = rec('Bonesplitter', null, null, 'Equipped creature gets +2/+0.\nEquip {1}', 'Artifact — Equipment');
+    const t = table(
+      { cards: { bear: BEAR, splitter: SPLITTER }, wear: { splitter: { on: { seat: 0, kind: 'card', id: 'bear' } } } },
+      { cards: { wurm: WURM } },
+    );
+    // A 4/2 bear into a 6/4 wurm: both die, where a plain bear would only have scratched it.
+    const { result } = fight(t, [{ unit: card('bear'), target: 1, blockers: [card('wurm')] }]);
+    expect(deathsOf(result).sort()).toEqual(['0:bear', '1:wurm']);
   });
 
   test('unread: a star, a size that is not a number, 0/0 without counters, a record that is missing or late', () => {

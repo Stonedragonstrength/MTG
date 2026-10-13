@@ -139,7 +139,7 @@ test('a tap on a row attaches it there and closes the sheet', async () => {
   const onClose = vi.fn();
   render(<AttachSheet playerIdx={0} iid="fear" onClose={onClose} />);
   tap(await screen.findByRole('button', { name: 'put it on Hill Giant' }));
-  expect(attachVirtualCard).toHaveBeenCalledWith(0, 'fear', { seat: 0, kind: 'card', id: 'giant' }, 0);
+  expect(attachVirtualCard).toHaveBeenCalledWith(0, 'fear', { seat: 0, kind: 'card', id: 'giant' });
   expect(onClose).toHaveBeenCalled();
 });
 
@@ -148,10 +148,10 @@ test('an opponent’s tab lists their creatures — cards and stacks — and a t
   tap(screen.getByRole('tab', { name: 'Sam' }));
   await waitFor(() => expect(rows()).toEqual(['put it on Grizzly Bears', 'put it on Soldier ×2']));
   tap(screen.getByRole('button', { name: 'put it on Soldier ×2' }));
-  expect(attachVirtualCard).toHaveBeenCalledWith(0, 'fear', { seat: 1, kind: 'stack', id: 'soldiers' }, 0);
+  expect(attachVirtualCard).toHaveBeenCalledWith(0, 'fear', { seat: 1, kind: 'stack', id: 'soldiers' });
   attachVirtualCard.mockClear();
   tap(screen.getByRole('button', { name: 'put it on Grizzly Bears' }));
-  expect(attachVirtualCard).toHaveBeenCalledWith(0, 'fear', { seat: 1, kind: 'card', id: 'sbear' }, 0);
+  expect(attachVirtualCard).toHaveBeenCalledWith(0, 'fear', { seat: 1, kind: 'card', id: 'sbear' });
 });
 
 test('a player with nothing it can go on says so', async () => {
@@ -160,22 +160,41 @@ test('a player with nothing it can go on says so', async () => {
   expect(await screen.findByText('Nothing here it can go on.')).toBeInTheDocument();
 });
 
-test('a plain +N/+N is offered as counters on the creature: on unless the player says no', async () => {
+test('the sheet says what size it gives; there is nothing to switch on, and no counters are asked for', async () => {
   render(<AttachSheet playerIdx={0} iid="might" onClose={() => {}} />);
-  const box = await screen.findByRole('checkbox', { name: /\+2\/\+2 as counters/i });
-  expect(box).toBeChecked();
+  expect(await screen.findByText(/It gives \+2\/\+2 to what it is on/)).toBeInTheDocument();
+  expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
   tap(await screen.findByRole('button', { name: 'put it on Grizzly Bears' }));
-  expect(attachVirtualCard).toHaveBeenLastCalledWith(0, 'might', { seat: 0, kind: 'card', id: 'bear' }, 2);
-  tap(box); // a deliberate tap, like the rows': the sheet's first moment takes none
-  expect(box).not.toBeChecked();
-  tap(screen.getByRole('button', { name: 'put it on Hill Giant' }));
-  expect(attachVirtualCard).toHaveBeenLastCalledWith(0, 'might', { seat: 0, kind: 'card', id: 'giant' }, 0);
+  expect(attachVirtualCard).toHaveBeenLastCalledWith(0, 'might', { seat: 0, kind: 'card', id: 'bear' });
 });
 
-test('a card with no such boost offers no counters', async () => {
+test('a card that changes no size says nothing about one', async () => {
   render(<AttachSheet playerIdx={0} iid="fear" onClose={() => {}} />);
   await screen.findByRole('button', { name: 'put it on Hill Giant' });
-  expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  expect(screen.queryByText(/It gives/)).not.toBeInTheDocument();
+});
+
+test('the creature wears what is on it: its badge says how much bigger it is, and loses it with the card', async () => {
+  RECORDS['c-splitter'] = rec('c-splitter', 'Bonesplitter', 'Artifact — Equipment', 'Equipped creature gets +2/+0.\nEquip {1}');
+  const start = table();
+  start.players[0].cards!.battlefield.push(card('splitter', 'c-splitter'));
+  let g = attachCard(start, 0, 'splitter', { seat: 0, kind: 'card', id: 'bear' });
+  useAppStore.setState({ game: g });
+  render(<BattlefieldRow playerIdx={0} />);
+  const bear = await screen.findByRole('button', { name: 'tap Grizzly Bears' });
+  await waitFor(() => expect(bear.querySelector('.vcard-counter')).toHaveTextContent('+2/+0'));
+  // An Aura on top of it, and a +1/+1 counter: one badge, added up.
+  g = attachCard(g, 0, 'might', { seat: 0, kind: 'card', id: 'bear' });
+  g.players[0].cards!.battlefield = g.players[0].cards!.battlefield.map((c) =>
+    c.iid === 'bear' ? { ...c, counters: { p1p1: 1 } } : c,
+  );
+  act(() => useAppStore.setState({ game: { ...g } }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'tap Grizzly Bears' }).querySelector('.vcard-counter')).toHaveTextContent('+5/+3'));
+  // The giant wears nothing and has no badge.
+  expect(screen.getByRole('button', { name: 'tap Hill Giant' }).querySelector('.vcard-counter')).toBeNull();
+  // Taken off, the size goes with them (the counter stays).
+  act(() => useAppStore.setState({ game: attachCard(attachCard(g, 0, 'splitter', null), 0, 'might', null) }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'tap Grizzly Bears' }).querySelector('.vcard-counter')).toHaveTextContent('+1/+1'));
 });
 
 test('an Equipment that is on something shows where, and can be taken off or moved', async () => {

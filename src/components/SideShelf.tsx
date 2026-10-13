@@ -1,5 +1,5 @@
 import { useState, type CSSProperties } from 'react';
-import { attachedTo, isAttached, isAura, isEquipment } from '../lib/attach';
+import { attachedTo, isAttached, isAura, isEquipment, sizeWorn } from '../lib/attach';
 import { isSummoningSick, permanentTexts } from '../lib/keywords';
 import { shelfOf } from '../lib/shelf';
 import { useAppStore } from '../state/store';
@@ -67,6 +67,7 @@ export default function SideShelf({ playerIdx, picks = true }: Props) {
                 look={combat?.look({ kind: 'card', id: c.iid }) ?? null}
                 names={names}
                 attached={attachedTo(game, { seat: playerIdx, kind: 'card', id: c.iid }).length}
+                worn={sizeWorn(game, { seat: playerIdx, kind: 'card', id: c.iid }, records)}
                 use={use}
                 onTap={() => (use ? setAttachFor(c.iid) : tapVirtualCard(playerIdx, c.iid))}
                 onDetail={() => setCardSheet(c.iid)}

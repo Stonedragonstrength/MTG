@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { attachedTo, isAttached } from '../lib/attach';
+import { attachedTo, isAttached, sizeWorn } from '../lib/attach';
 import { commanderTax, owesDraw } from '../lib/cards';
 import { isSummoningSick, permanentTexts } from '../lib/keywords';
 import { affordable, castCosts, sourcesFrom } from '../lib/pay';
@@ -160,6 +160,7 @@ export default function BattlefieldRow({ playerIdx, picks = true }: Props) {
               sick={isSummoningSick(c, records[c.cardId], texts)}
               look={combat?.look({ kind: 'card', id: c.iid }) ?? null}
               names={names}
+              worn={sizeWorn(game, { seat: playerIdx, kind: 'card', id: c.iid }, tableRecords)}
               onTap={() => tapVirtualCard(playerIdx, c.iid)}
               onDetail={() => setCardSheet({ seat: playerIdx, iid: c.iid })}
             />

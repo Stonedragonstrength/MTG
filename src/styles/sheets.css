@@ -533,18 +533,11 @@ button.primary {
   padding: 8px 18px;
 }
 
+/* What size it gives the creature it goes on. */
 .attach-boost {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  margin: 0;
   font-family: var(--font-body);
   font-size: 0.92rem;
-}
-
-.attach-boost input {
-  width: 22px;
-  height: 22px;
-  flex: 0 0 auto;
 }
 
 .attach-list {

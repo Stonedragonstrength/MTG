@@ -32,13 +32,34 @@ export function hostKind(record: Read): HostKind {
   return 'permanent';
 }
 
-/** The size an Aura or Equipment adds when it says "gets +N/+N" with one
- * number for both: what the table can show as +1/+1 counters on the host.
- * Anything else (+2/+0, -1/-1, "for each…") is 0: the players keep it. */
-export function boostOf(record: Read): number {
-  const m = frontText(record).match(/\b(?:enchanted|equipped) (?:creature|permanent) gets \+(\d+)\/\+(\d+)(?! for each)/i);
-  return m && m[1] === m[2] ? Number(m[1]) : 0;
+/** A change of size: so much power, so much toughness (either may be below zero). */
+export interface Size {
+  power: number;
+  toughness: number;
 }
+
+const GETS = /\b(?:enchanted|equipped) (?:creature|permanent) gets ([+-]\d+)\/([+-]\d+)/i;
+/** A size that depends on something: left to the players. */
+const DEPENDS = /\bfor each\b|\bas long as\b|\buntil end of turn\b|\bwhere X is\b/i;
+
+/** What an Aura or Equipment adds to the size of what it sits on, where its
+ * text says so in plain numbers: "Equipped creature gets +2/+0", "Enchanted
+ * creature gets -1/-1 and has…". Null when it changes no size, or by an
+ * amount that has to be worked out ("+1/+1 for each…", "+X/+0", "as long
+ * as…"): the players keep that. */
+export function sizeGiven(record: Read): Size | null {
+  for (const sentence of frontText(record).match(/[^.\n]+/g) ?? []) {
+    const m = sentence.match(GETS);
+    if (m && !DEPENDS.test(sentence)) return { power: Number(m[1]), toughness: Number(m[2]) };
+  }
+  return null;
+}
+
+/** "+2/+0", "-1/-1": a change of size as the table writes it. */
+export const sizeWords = (size: Size): string => {
+  const signed = (n: number) => (n < 0 ? `${n}` : `+${n}`);
+  return `${signed(size.power)}/${signed(size.toughness)}`;
+};
 
 /** The host this card sits on right now, or null: not attached, or its
  * host has left the table. */
@@ -72,6 +93,24 @@ export function attachedTo(g: GameState, host: Host): Attached[] {
     }
   });
   return out;
+}
+
+/** What everything attached to that host adds to its size, whoever each
+ * belongs to: 0/0 when nothing does (or nothing this device has read).
+ * It is never stored: take the Equipment off, or let its creature leave,
+ * and the size is gone with it. An attachment from a game begun before
+ * this — one that put its bonus on the host as +1/+1 counters (`on.plus`)
+ * — is left out: those counters already say it. */
+export function sizeWorn(g: GameState, host: Host, records: Records): Size {
+  const total: Size = { power: 0, toughness: 0 };
+  for (const { card } of attachedTo(g, host)) {
+    if (card.on?.plus) continue;
+    const given = sizeGiven(records[card.cardId]);
+    if (!given) continue;
+    total.power += given.power;
+    total.toughness += given.toughness;
+  }
+  return total;
 }
 
 /** Is this card drawn tucked under a host (and so not on its own shelf)? */

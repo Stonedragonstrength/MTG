@@ -1,3 +1,4 @@
+import { sizeWorn, type Size } from './attach';
 import { computedPT } from './board';
 import { copiesOf, type CombatOutcome } from './combat';
 import { commanderKey } from './commanders';
@@ -25,8 +26,9 @@ import type {
  * is, what it can do, and what a declared fight does to everyone in it.
  *
  * Pure, and it never throws: anything it cannot read becomes "unread",
- * not an error. It reads the printed card and the +1/+1 counters on it
- * and nothing else — no anthems, no lords, no equipment, no tricks. The
+ * not an error. It reads the printed card, the +1/+1 counters on it and
+ * what its Auras and Equipment add in plain numbers ("gets +2/+0"), and
+ * nothing else — no anthems, no lords, no tricks. The
  * players put the result right in Review before it is applied; this
  * module's job is to be right about what it does read and to say out loud
  * what it could not. */
@@ -83,7 +85,9 @@ export interface UnitRead {
    * unread unit may attack and block, deals nothing by itself and is never
    * killed automatically. */
   unread: boolean;
-  /** Printed front-face size plus +1/+1 counters; a star reads as 0. */
+  /** Printed front-face size, plus +1/+1 counters, plus what is attached
+   * to it adds (lib/attach.ts sizeWorn); a star reads as 0. Power is never
+   * below 0; a toughness below 1 is never killed automatically. */
   power: number;
   toughness: number;
   /** The combat keywords printed on it… */
@@ -155,14 +159,15 @@ function readCard(game: GameState, read: SeatRead, card: CardInstance, records: 
   const power = plainNumber(record?.power);
   const toughness = plainNumber(record?.toughness);
   const unsized = power === null || toughness === null || (power === 0 && toughness === 0);
+  const worn = sizeWorn(game, { seat: read.seat, kind: 'card', id: card.iid }, records);
   return {
     unit,
     seat: read.seat,
     name: record?.name ?? card.name,
     creature,
     unread: !record || (unsized && plus === 0),
-    power: (power ?? 0) + plus,
-    toughness: (toughness ?? 0) + plus,
+    power: Math.max(0, (power ?? 0) + plus + worn.power),
+    toughness: (toughness ?? 0) + plus + worn.toughness,
     ...keywordsFor(record?.oracleText ?? '', unitKey(unit), read.grants),
     commander: commanderKey(game, read.seat, unit),
     count: 1,
@@ -171,7 +176,9 @@ function readCard(game: GameState, read: SeatRead, card: CardInstance, records: 
   };
 }
 
-function readStack(game: GameState, read: SeatRead, item: BoardItem): UnitRead {
+const NO_SIZE: Size = { power: 0, toughness: 0 };
+
+function readStack(game: GameState, read: SeatRead, item: BoardItem, records: CardRecords): UnitRead {
   const unit: CombatUnit = { kind: 'stack', id: item.id };
   const sized = computedPT({ ...item, counters: item.counters ?? {} }) !== null;
   const creature = sized && item.zone !== 'lands';
@@ -179,14 +186,16 @@ function readStack(game: GameState, read: SeatRead, item: BoardItem): UnitRead {
   const unsized = !sized || (item.basePower === 0 && item.baseToughness === 0);
   const count = Math.max(0, item.count);
   const standing = Math.max(0, count - (item.tapped ?? 0));
+  // One Equipment is on one token: a stack of several does not all wear it.
+  const worn = count === 1 ? sizeWorn(game, { seat: read.seat, kind: 'stack', id: item.id }, records) : NO_SIZE;
   return {
     unit,
     seat: read.seat,
     name: item.name,
     creature,
     unread: unsized && plus === 0,
-    power: (item.basePower ?? 0) + plus,
-    toughness: (item.baseToughness ?? 0) + plus,
+    power: Math.max(0, (item.basePower ?? 0) + plus + worn.power),
+    toughness: (item.baseToughness ?? 0) + plus + worn.toughness,
     ...keywordsFor(item.oracleText ?? '', unitKey(unit), read.grants),
     commander: commanderKey(game, read.seat, unit),
     count,
@@ -213,7 +222,7 @@ export function readUnit(
   }
   if (unit.kind === 'stack') {
     const item = player.board.find((it) => it.id === unit.id);
-    return item ? readStack(game, read, item) : null;
+    return item ? readStack(game, read, item, records) : null;
   }
   return null;
 }
@@ -233,7 +242,7 @@ export function readUnits(
     ...(player.cards?.battlefield ?? [])
       .filter((c) => c.row !== 'lands')
       .map((c) => readCard(game, read, c, records)),
-    ...player.board.filter((it) => it.zone !== 'lands').map((it) => readStack(game, read, it)),
+    ...player.board.filter((it) => it.zone !== 'lands').map((it) => readStack(game, read, it, records)),
   ];
 }
 

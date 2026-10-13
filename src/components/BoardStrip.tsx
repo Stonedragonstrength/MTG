@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { attachedTo } from '../lib/attach';
+import { attachedTo, sizeWorn, type Size } from '../lib/attach';
 import { computedPT } from '../lib/board';
 import { sickCopies } from '../lib/keywords';
 import { COLOR_NAMES, effectiveManaColors } from '../lib/mana';
@@ -13,7 +13,7 @@ import CardDetail from './CardDetail';
 import CardSearch from './CardSearch';
 import CombatMarks, { combatClasses } from './CombatMarks';
 import TokenChips from './TokenChips';
-import { useSeatCombat, type UnitLook } from './useCombat';
+import { useSeatCombat, useTableRecords, type UnitLook } from './useCombat';
 import { useLongPress } from './useLongPress';
 import { useSeatTexts } from './useSeatTexts';
 
@@ -33,6 +33,7 @@ function TokenCard({
   look,
   names,
   attached,
+  worn,
   onTap,
   onDetail,
 }: {
@@ -45,13 +46,19 @@ function TokenCard({
   names: string[];
   /** How many Auras and Equipment sit on the stack. */
   attached: number;
+  /** What they add to its size (a stack of one: one Equipment is on one token). */
+  worn: Size | null;
   onTap: () => void;
   onDetail: () => void;
 }) {
   const picks = look?.picks === true;
   const press = useLongPress(picks ? look.tap : onTap, onDetail);
   const tapped = item.tapped ?? 0;
-  const pt = computedPT(item);
+  const own = computedPT(item);
+  const pt =
+    own && worn
+      ? { power: Math.max(0, own.power + worn.power), toughness: own.toughness + worn.toughness }
+      : own;
   const mana = effectiveManaColors(item);
   // Only a creature gets summoning sick, and a stack is one when it has a
   // power and toughness. The copies that arrived this turn wear the badge;
@@ -164,6 +171,8 @@ export default function BoardStrip({ playerIdx }: Props) {
   useEffect(() => () => deathTimers.current.forEach((t) => window.clearTimeout(t)), []);
   const seatTexts = useSeatTexts(playerIdx).own;
   const combat = useSeatCombat(playerIdx);
+  // What sits on a stack is a card on some seat's battlefield: its size is read off that.
+  const tableRecords = useTableRecords();
   const names = (game?.config.profiles ?? []).map((p) => p.name);
 
   if (!game) return null;
@@ -218,6 +227,7 @@ export default function BoardStrip({ playerIdx }: Props) {
               look={look}
               names={names}
               attached={attachedTo(game, { seat: playerIdx, kind: 'stack', id: item.id }).length}
+              worn={item.count === 1 ? sizeWorn(game, { seat: playerIdx, kind: 'stack', id: item.id }, tableRecords) : null}
               onTap={() => tapItem(playerIdx, item.id, 1)}
               onDetail={() => setDetailId(item.id)}
             />

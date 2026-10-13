@@ -1,5 +1,17 @@
 import { describe, expect, test } from 'vitest';
-import { attachedTo, boostOf, hostChoices, hostKind, hostName, hostOf, isAttached, isAura, isEquipment } from './attach';
+import {
+  attachedTo,
+  hostChoices,
+  hostKind,
+  hostName,
+  hostOf,
+  isAttached,
+  isAura,
+  isEquipment,
+  sizeGiven,
+  sizeWords,
+  sizeWorn,
+} from './attach';
 import { attachCard, moveCard, type Host } from './cards';
 import { createGame } from './game';
 import type { BoardItem, CardInstance, CardRecord, GameConfig, GameState } from './types';
@@ -123,12 +135,61 @@ describe('reading the cards', () => {
     expect(hostKind(rec('x', 'Darksteel Mutation', 'Enchantment — Aura', 'Enchant permanent'))).toBe('permanent');
   });
 
-  test('only a plain +N/+N is a boost the table can show as counters', () => {
-    expect(boostOf(RECORDS.might)).toBe(2);
-    expect(boostOf(RECORDS.sword)).toBe(1);
-    expect(boostOf(RECORDS.rancor)).toBe(0); // +2/+0
-    expect(boostOf(RECORDS.fear)).toBe(0);
-    expect(boostOf(rec('x', 'Blanchwood Armor', 'Enchantment — Aura', 'Enchant creature\nEnchanted creature gets +1/+1 for each Forest you control.'))).toBe(0);
+  test('the size it gives, where the card says it in plain numbers', () => {
+    expect(sizeGiven(RECORDS.might)).toEqual({ power: 2, toughness: 2 });
+    expect(sizeGiven(RECORDS.sword)).toEqual({ power: 1, toughness: 1 });
+    expect(sizeGiven(RECORDS.rancor)).toEqual({ power: 2, toughness: 0 }); // the two numbers need not match
+    const aura = (text: string) => rec('x', 'X', 'Enchantment — Aura', `Enchant creature\n${text}`);
+    expect(sizeGiven(aura('Enchanted creature gets -2/-1.'))).toEqual({ power: -2, toughness: -1 });
+    expect(sizeGiven(rec('x', 'Skullclamp', 'Artifact — Equipment', 'Equipped creature gets +1/-1.\nEquip {1}'))).toEqual({
+      power: 1,
+      toughness: -1,
+    });
+    // No size at all, or one that has to be worked out: the players keep it.
+    expect(sizeGiven(RECORDS.fear)).toBeNull();
+    expect(sizeGiven(RECORDS.greaves)).toBeNull();
+    expect(sizeGiven(aura('Enchanted creature gets +1/+1 for each Forest you control.'))).toBeNull();
+    expect(sizeGiven(aura('As long as you control a Swamp, enchanted creature gets +2/+2.'))).toBeNull();
+    expect(sizeGiven(aura('Whenever enchanted creature attacks, it gets +2/+0 until end of turn.'))).toBeNull();
+    expect(sizeGiven(undefined)).toBeNull();
+  });
+
+  test('a size is written the way a card writes it', () => {
+    expect(sizeWords({ power: 2, toughness: 0 })).toBe('+2/+0');
+    expect(sizeWords({ power: 1, toughness: -1 })).toBe('+1/-1');
+    expect(sizeWords({ power: -2, toughness: -2 })).toBe('-2/-2');
+  });
+});
+
+describe('sizeWorn', () => {
+  test('a host wears what is attached to it, added up, from whoever it belongs to', () => {
+    let g = attachCard(table(), 0, 'might', BEAR);
+    expect(sizeWorn(g, BEAR, RECORDS)).toEqual({ power: 2, toughness: 2 });
+    expect(sizeWorn(g, GIANT, RECORDS)).toEqual({ power: 0, toughness: 0 });
+    // Fear and Greaves change no size.
+    g = attachCard(attachCard(g, 0, 'fear', BEAR), 0, 'greaves', BEAR);
+    expect(sizeWorn(g, BEAR, RECORDS)).toEqual({ power: 2, toughness: 2 });
+    // Nothing is stored on the host: no counters.
+    expect(onField(g, 0, 'bear').counters).toBeUndefined();
+    // Moved, the size goes with it; taken off, it is gone.
+    g = attachCard(g, 0, 'might', THEIRS);
+    expect(sizeWorn(g, BEAR, RECORDS)).toEqual({ power: 0, toughness: 0 });
+    expect(sizeWorn(g, THEIRS, RECORDS)).toEqual({ power: 2, toughness: 2 });
+    g = attachCard(g, 0, 'might', null);
+    expect(sizeWorn(g, THEIRS, RECORDS)).toEqual({ power: 0, toughness: 0 });
+  });
+
+  test('a stack can wear it too, and a card this device has not read adds nothing', () => {
+    const g = attachCard(table(), 0, 'might', STACK);
+    expect(sizeWorn(g, STACK, RECORDS)).toEqual({ power: 2, toughness: 2 });
+    expect(sizeWorn(g, STACK, {})).toEqual({ power: 0, toughness: 0 });
+  });
+
+  test('an attachment that already put counters on its host is not counted twice', () => {
+    // A game begun before sizes were read off what is attached.
+    const g = attachCard(table(), 0, 'might', BEAR, 2);
+    expect(onField(g, 0, 'bear').counters).toEqual({ p1p1: 2 });
+    expect(sizeWorn(g, BEAR, RECORDS)).toEqual({ power: 0, toughness: 0 });
   });
 });
 
