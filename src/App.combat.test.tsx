@@ -157,12 +157,14 @@ afterEach(() => {
 test('a whole combat on a two-player table: declare, block, review, apply — and Undo steps back through it', async () => {
   render(<App />);
 
-  // ---- 0. the Attack button rides the active seat's lands line
-  const attack = await screen.findByRole('button', { name: 'attack' });
-  expect(attack.closest('.zone')!.className).toContain('seat-0');
+  // ---- 0. the long way in: pick the attackers one by one (the card sheet's
+  // "Pick attackers…" asks the store for exactly this)
   expect(document.querySelector('.combat-bar')).toBeNull();
   await screen.findByRole('button', { name: 'tap Hill Giant' }); // nothing is a pick yet
-  fireEvent.click(attack);
+  // Nothing is tapped: the lands line only says how an attack is made.
+  expect(await screen.findByLabelText('tap your creatures to attack')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /^attack with/ })).not.toBeInTheDocument();
+  act(() => store().startCombat());
 
   // ---- 1. attackers, on Nathan's board
   expect(say()).toBe('Nathan: pick attackers');
@@ -234,7 +236,7 @@ test('a whole combat on a two-player table: declare, block, review, apply — an
   expect(document.querySelector('.sheet')).toBeNull();
   expect(document.querySelector('.combat-bar')).toBeNull();
   expect(document.querySelector('.chip-attack')).toBeNull();
-  expect(screen.getByRole('button', { name: 'attack' })).toBeEnabled();
+  expect(screen.queryByRole('button', { name: 'in combat' })).not.toBeInTheDocument();
 
   // ---- Undo steps back through it, one move at a time
   const undo = () => fireEvent.click(screen.getByRole('button', { name: 'undo' }));
@@ -261,5 +263,69 @@ test('a whole combat on a two-player table: declare, block, review, apply — an
   undo(); // the Attack press itself
   expect(document.querySelector('.combat-bar')).toBeNull();
   expect(store().game!.combat).toBeUndefined();
-  expect(screen.getByRole('button', { name: 'attack' })).toBeEnabled();
+  expect(screen.queryByRole('button', { name: 'in combat' })).not.toBeInTheDocument();
+});
+
+test('attacking the way it is done at a table: turn the creatures sideways, then one press declares exactly those', async () => {
+  render(<App />);
+  const line = () => within(document.querySelector<HTMLElement>('.zone.seat-0')!);
+  tap(await screen.findByRole('button', { name: 'tap Hill Giant' }));
+  // One creature is tapped: the line offers the attack, and says with what.
+  const one = await line().findByRole('button', { name: 'attack with Hill Giant' });
+  expect(one).toHaveTextContent('Attack with 1');
+  expect(fight()).toBeNull(); // offering is not declaring
+  tap(screen.getByRole('button', { name: 'tap Serra Angel' }));
+  tap(screen.getByRole('button', { name: /^Soldier/ }));
+  tap(screen.getByRole('button', { name: /^Soldier/ }));
+  tap(screen.getByRole('button', { name: 'Forest' })); // a land is no attacker
+  const go = await line().findByRole('button', { name: 'attack with Hill Giant, Serra Angel and 2 Soldier' });
+  expect(go).toHaveTextContent('Attack with 4');
+  // A creature stood back up is out of it again.
+  tap(screen.getByRole('button', { name: 'tap Serra Angel' }));
+  expect(await line().findByRole('button', { name: 'attack with Hill Giant and 2 Soldier' })).toBeInTheDocument();
+
+  fireEvent.click(line().getByRole('button', { name: /^attack with/ }));
+  // Two players: nothing left to choose — it is declared, and the board is Sam's to block.
+  await waitFor(() => expect(say()).toBe('Sam: block 3 from Nathan'));
+  expect(focusedSeat()).toBe('seat-1');
+  expect(feed()).toEqual(['Nathan attacks Sam with 3 creatures']);
+  expect(fight()!.attacks!.map((a) => `${a.unit.id}×${a.n ?? 1}`)).toEqual(['giant×1', 'soldiers×2']);
+  expect(tappedOf(0)).toEqual(['Hill Giant', 'Forest']); // as they were tapped: the declaration tapped nothing more
+  expect(store().game!.players[0].board[0].tapped).toBe(2);
+
+  // One Undo takes the whole declaration back; the creatures stay as the player turned them.
+  fireEvent.click(screen.getByRole('button', { name: 'undo' }));
+  expect(fight()).toBeNull();
+  expect(store().game!.combat).toBeUndefined();
+  expect(focusedSeat()).toBe('seat-0');
+  expect(tappedOf(0)).toEqual(['Hill Giant', 'Forest']);
+  expect(await line().findByRole('button', { name: 'attack with Hill Giant and 2 Soldier' })).toBeInTheDocument();
+});
+
+test('a creature that arrived this turn, or was tapped for mana that got spent, is not offered as an attacker', async () => {
+  const g = table();
+  const mine = g.players[0].cards!;
+  useAppStore.setState({
+    game: {
+      ...g,
+      players: [
+        {
+          ...g.players[0],
+          cards: {
+            ...mine,
+            battlefield: mine.battlefield.map((c) =>
+              c.iid === 'ogre' ? { ...c, tapped: true as const, sick: true as const } : c.iid === 'giant' ? { ...c, tapped: true as const, spent: 1 } : c,
+            ),
+          },
+        },
+        g.players[1],
+      ],
+    },
+  });
+  render(<App />);
+  await screen.findByRole('button', { name: /^tap Serra Angel/ });
+  await sleep(50); // the records are in
+  expect(screen.queryByRole('button', { name: /^attack with/ })).not.toBeInTheDocument();
+  tap(screen.getByRole('button', { name: 'tap Serra Angel' }));
+  expect(await screen.findByRole('button', { name: 'attack with Serra Angel' })).toBeInTheDocument();
 });

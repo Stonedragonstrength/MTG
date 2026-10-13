@@ -7,6 +7,8 @@ import { useCardRecords } from './useCardRecords';
 
 /** How long it stays in view before it puts itself away. */
 const SHOW_MS = 12_000;
+/** A spell being cast is one card everybody knows the look of: shorter. */
+const CAST_SHOW_MS = 7_000;
 const TICK_MS = 1000;
 /** A tap this soon after it came up was aimed at the board it now covers. */
 const SETTLE_MS = 350;
@@ -119,10 +121,10 @@ function RevealPanel({ reveal, who, onDone }: PanelProps) {
       // more, never less.
       if (!isCovered && !wasCovered) inView += TICK_MS;
       wasCovered = isCovered;
-      if (inView >= SHOW_MS) doneRef.current();
+      if (inView >= (reveal.from === 'cast' ? CAST_SHOW_MS : SHOW_MS)) doneRef.current();
     }, TICK_MS);
     return () => window.clearInterval(timer);
-  }, [reveal.id, reveal.t]);
+  }, [reveal.id, reveal.t, reveal.from]);
 
   // It comes up unannounced in the middle of the table, quite possibly under
   // a finger on its way to a card. A tap in its first moment (and a new
@@ -142,13 +144,29 @@ function RevealPanel({ reveal, who, onDone }: PanelProps) {
     '--reveal-max': n === 1 ? '280px' : n === 2 ? '220px' : '170px',
   } as CSSProperties;
 
+  // A spell on its way to the graveyard: the same banner, lit in the
+  // spell's own color. One color wears it, two or more wear gold, none
+  // (an artifact spell, a card this device cannot read) wears steel.
+  const cast = reveal.from === 'cast';
+  const colors = cast ? (records[reveal.cards[0].cardId]?.colors ?? []) : [];
+  const spellColor = colors.length === 1 ? colors[0] : colors.length > 1 ? 'M' : 'C';
+
   return (
-    <div className="reveal-banner" role="status" title="Tap to put away" onClick={tapped}>
+    <div
+      className={cast ? `reveal-banner reveal-banner--cast spell-${spellColor}` : 'reveal-banner'}
+      role="status"
+      title="Tap to put away"
+      onClick={tapped}
+    >
       <p className="reveal-title">
-        <strong>{who}</strong> reveals
+        <strong>{who}</strong> {cast ? 'casts' : 'reveals'}
       </p>
       <p className="reveal-from">
-        {reveal.from === 'hand' ? 'from their hand' : 'from the top of their library'}
+        {cast
+          ? reveal.cards.map((c) => c.name).join(', ')
+          : reveal.from === 'hand'
+            ? 'from their hand'
+            : 'from the top of their library'}
       </p>
       <ul className="reveal-cards" style={sizing}>
         {reveal.cards.map((c, i) => {

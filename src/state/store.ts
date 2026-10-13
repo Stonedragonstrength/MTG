@@ -11,6 +11,7 @@ import { hasKeyword, readSeat, readUnit } from '../lib/combatEngine';
 import { attackerLabel } from '../lib/commanders';
 import { isValidGame, migrateGame } from '../lib/migrate';
 import { DEFAULT_SETTINGS, getSettings, saveSettings, type Settings } from '../data/settings';
+import { opponentsOf, tappedToAttack } from '../lib/attackDraft';
 import * as boardLib from '../lib/board';
 import * as gameLib from '../lib/game';
 import * as payLib from '../lib/pay';
@@ -28,6 +29,7 @@ import type {
   GameState,
   GarageCard,
   PlayerProfile,
+  Reveal,
 } from '../lib/types';
 
 export interface LogEntry {
@@ -96,6 +98,8 @@ export interface AppStore {
   // ---- combat on the cards (lib/combat.ts; read the fight with liveCombat) ----
   /** Opens a fight for the active seat. */
   startCombat(): void;
+  /** Declares the active player's tapped creatures as the attack (lib/attackDraft.ts). */
+  attackWithTapped(): Promise<void>;
   /** Attackers step: `n` copies of `unit` attack `target` (a card: 1 or 0; 0 takes it back). */
   setAttacker(unit: CombatUnit, target: number, n: number): void;
   /** Several of those picks made by one press ("All attack"): one move, one Undo. */
@@ -127,6 +131,10 @@ export interface AppStore {
   tapItem(playerIdx: number, itemId: string, delta: number): void;
   untapAll(playerIdx: number): void;
   changeCount(playerIdx: number, itemId: string, delta: number): void;
+  /** A real card on the battlefield is sacrificed: to the graveyard, and the table is told so. */
+  sacrificeCard(seat: number, iid: string): void;
+  /** One copy of a stack is sacrificed, and the table is told so. */
+  sacrificeToken(seat: number, itemId: string): void;
   splitItem(playerIdx: number, itemId: string, moveCount: number): void;
   setCounter(playerIdx: number, itemId: string, counterName: string, value: number): void;
   setManaMode(playerIdx: number, itemId: string, mode: BoardItem['manaMode']): void;
@@ -667,6 +675,22 @@ export function createAppStore() {
         const counters = !isSpell && x > 0 && payLib.entersWithX(record?.oracleText ?? '');
         const records = await seatRecords(g, seat);
         const castIn = { turn: g.turnNumber, active: g.activePlayerIndex };
+        // An instant or sorcery is gone to the graveyard the moment it is
+        // cast, and used to vanish there unseen. So the cast is SHOWN to the
+        // table the way a reveal is — on every device, until it is tapped
+        // away — while the card itself already lies where it ends up. (The
+        // app carries out no spell effects: answering it, and what it does,
+        // stay with the players.) Minted here: a replay is the same showing,
+        // and one that lands long after is too old to come up at all.
+        const shown: Reveal | null = isSpell
+          ? {
+              id: `r${cardsLib.newIid()}`,
+              seat,
+              from: 'cast',
+              cards: [{ cardId: card.cardId, name: card.name }],
+              t: Date.now(),
+            }
+          : null;
         cardMutate(
           (base) => {
             const pay = payFrom(base, seat, priced, records, castIn);
@@ -674,6 +698,7 @@ export function createAppStore() {
               ? cardsLib.moveCard(base, seat, iid, 'hand', 'graveyard')
               : cardsLib.moveCard(base, seat, iid, 'hand', 'battlefield', { row });
             if (moved === base) return base;
+            if (shown) moved = cardsLib.setReveal(moved, shown);
             // The land drop is counted in the same op as the move, so undo
             // and a rebase take both or neither — and only for the turn it
             // was made in: arriving a round late, it is not this turn's land.
@@ -972,6 +997,51 @@ export function createAppStore() {
         );
       },
 
+      // Attacking the way it is done at a table: the creatures the active
+      // player has turned sideways ARE the attack (lib/attackDraft.ts reads
+      // them off the board). One press declares them, in one op — one Undo
+      // takes the whole declaration back. With a single opponent there is
+      // nothing left to choose and it goes straight on to their blocks; in
+      // a pod it stops at the attackers step with every one of them picked
+      // and pointed at the first opponent, to be re-pointed there.
+      async attackWithTapped() {
+        const seen = get().game;
+        if (!seen || combatLib.liveCombat(seen)) return;
+        const stamp = {
+          id: cardsLib.newIid(),
+          turn: seen.turnNumber,
+          active: seen.activePlayerIndex,
+        };
+        // Who is a creature, and who only just arrived, is on the cards.
+        const records = await seatRecords(seen, stamp.active);
+        const g = get().game;
+        if (!g || !isTurn(g, stamp) || combatLib.liveCombat(g)) return;
+        const picks = tappedToAttack(g, records);
+        const targets = opponentsOf(g);
+        if (picks.length === 0 || targets.length === 0) return;
+        const declare = (base: GameState) => {
+          let next = combatLib.startCombat(base, stamp);
+          if (next === base) return base;
+          for (const pick of picks) {
+            next = combatLib.setAttack(next, stamp.id, pick.unit, targets[0], pick.n);
+            // Tapped to attack, not for mana: nothing of it is left floating.
+            if (pick.unit.kind === 'card') next = cardsLib.useUpTap(next, stamp.active, pick.unit.id);
+          }
+          // Everything it was aimed at has left meanwhile: no fight at all.
+          if (!combatLib.liveCombat(next)?.attacks?.length) return base;
+          // They are tapped already: the declaration itself taps nothing.
+          return targets.length === 1
+            ? combatLib.confirmAttackers(next, stamp.id, { cards: [], stacks: {} })
+            : next;
+        };
+        const after = combatLib.liveCombat(declare(g));
+        cardMutate(
+          declare,
+          targets.length === 1 && after ? combatLib.attackLine(g, after) : null,
+          (base, orig) => isTurn(base, stamp) && combatLib.sameRecord(base, orig),
+        );
+      },
+
       setAttacker(unit, target, n) {
         const g = get().game;
         const fight = g && combatLib.liveCombat(g);
@@ -1243,6 +1313,35 @@ export function createAppStore() {
               ? `${playerName(prev, playerIdx)}: ${before.name} ×${after.count}`
               : `${playerName(prev, playerIdx)}: ${before.name} removed`;
           },
+        );
+      },
+
+      // A sacrifice ends where a death does, but it is said as what it was:
+      // the table has to see that a permanent was given up, not killed
+      // (Innocent Traveler asks every opponent for one at each upkeep). Any
+      // device may make it for any seat, as with every card move.
+      sacrificeCard(seat, iid) {
+        const g = get().game;
+        const card = g?.players[seat]?.cards?.battlefield.find((c) => c.iid === iid);
+        if (!g || !card) return;
+        cardMutate(
+          // To the graveyard: a commander may go home from there afterwards.
+          (base) => cardsLib.moveCard(base, seat, iid, 'battlefield', 'graveyard'),
+          `${seatName(g, seat)} sacrifices ${card.name}`,
+          (base) => !!base.players[seat]?.cards?.battlefield.some((c) => c.iid === iid),
+        );
+      },
+
+      sacrificeToken(seat, itemId) {
+        const g = get().game;
+        const item = g?.players[seat]?.board.find((it) => it.id === itemId);
+        if (!g || !item || item.count < 1) return;
+        const article = /^[aeiou]/i.test(item.name) ? 'an' : 'a';
+        cardMutate(
+          // One copy leaves its stack; the last one takes the stack with it.
+          (base) => boardLib.changeCount(base, seat, itemId, -1),
+          `${seatName(g, seat)} sacrifices ${article} ${item.name}`,
+          (base) => (base.players[seat]?.board.find((it) => it.id === itemId)?.count ?? 0) >= 1,
         );
       },
 

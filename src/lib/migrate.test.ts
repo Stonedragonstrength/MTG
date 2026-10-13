@@ -75,6 +75,13 @@ describe('reveals', () => {
     expect(migrateGame(save).reveal).toEqual(GOOD); // every remote state passes here
   });
 
+  test('a spell shown while it is cast is a reveal like any other, and is kept', () => {
+    const cast = { ...GOOD, from: 'cast' };
+    expect(migrateGame(withReveal(cast)).reveal).toEqual(cast);
+    // A place it could not have come from is still refused.
+    expect('reveal' in migrateGame(withReveal({ ...GOOD, from: 'graveyard' }))).toBe(false);
+  });
+
   test('a malformed reveal is dropped, and the game around it still loads', () => {
     const broken: unknown[] = [
       null,

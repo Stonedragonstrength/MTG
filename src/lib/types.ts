@@ -102,7 +102,11 @@ export interface FeedEntry {
 export interface Reveal {
   id: string; // minted when it is made: each device puts a reveal away by id
   seat: number;
-  from: 'hand' | 'library';
+  /** Where the cards are shown from. 'cast' is a spell on its way to the
+   * graveyard: an instant or sorcery pauses in front of the table, so
+   * everyone sees what was cast and can answer it. (A build that does not
+   * know 'cast' drops such a reveal, which is harmless.) */
+  from: 'hand' | 'library' | 'cast';
   cards: { cardId: string; name: string }[];
   t: number; // when it was made, by the revealing device's clock
 }

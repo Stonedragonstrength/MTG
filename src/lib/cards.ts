@@ -308,6 +308,21 @@ export function tapSpent(g: GameState, seat: number, iid: string): GameState {
   });
 }
 
+/** A card the player turned sideways by hand turns out to be attacking:
+ * whatever mana its tap was floating is gone (a Llanowar Elves that
+ * attacks pays for nothing). Only a tapped card with nothing spent yet;
+ * anything else is left exactly as it is. */
+export function useUpTap(g: GameState, seat: number, iid: string): GameState {
+  return updateSeat(g, seat, (cards) => {
+    const card = cards.battlefield.find((c) => c.iid === iid);
+    if (!card || !card.tapped || (card.spent ?? 0) > 0) return null;
+    return {
+      ...cards,
+      battlefield: cards.battlefield.map((c) => (c.iid === iid ? { ...c, spent: USED_UP } : c)),
+    };
+  });
+}
+
 export function setCardCounter(
   g: GameState,
   seat: number,

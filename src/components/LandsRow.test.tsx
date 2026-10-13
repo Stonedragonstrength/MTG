@@ -483,90 +483,137 @@ test('holding a virtual land stack opens its card sheet', async () => {
   expect(await screen.findByRole('heading', { name: 'Command Tower' })).toBeInTheDocument();
 });
 
-// ---- combat on the cards: the Attack button rides the lands line ----
+// ---- combat on the cards: an attack is the creatures turned sideways ----
+// The lands line offers to declare what the active player has tapped; until
+// something is, it only says how an attack is made.
 
-/** A creature tile, as a tracker seat keeps them. */
 const knights: BoardItem = { ...landItem('Knight', '', 2), id: 'tok-knight', zone: 'board', basePower: 2, baseToughness: 2 };
 const ELF: CardInstance = { iid: 'e1', cardId: 'c-elves', name: 'Llanowar Elves', row: 'front' };
+const hint = () => screen.queryByLabelText('tap your creatures to attack');
+const offer = () => screen.queryByRole('button', { name: /^attack with/ });
 
-test('the active seat with a creature on the tablet has "⚔ Attack" on its lands line, and pressing it opens the fight', async () => {
+test('with a creature that could attack and nothing tapped, the line says how an attack is made and offers no button', async () => {
   useAppStore.setState({ game: cardsGame(seatWith([FOREST, ELF])) });
-  const user = userEvent.setup();
   const { container } = render(<LandsRow playerIdx={0} />);
-  const attack = screen.getByRole('button', { name: 'attack' });
-  expect(attack).toHaveTextContent('⚔ Attack');
-  expect(attack.parentElement).toBe(container.querySelector('.mana-summary')); // in the line, like the dice: never positioned
-  await user.click(attack);
-  const { liveCombat } = await import('../lib/combat');
-  expect(liveCombat(useAppStore.getState().game!)).toMatchObject({ step: 'attackers', active: 0 });
+  expect(hint()).toHaveTextContent('tap creatures to attack');
+  expect(offer()).toBeNull();
+  // In flow at the player's own edge, never positioned: the board turns to face each seat.
+  expect(hint()!.parentElement).toBe(container.querySelector('.mana-summary'));
 });
 
-test('while its fight is on the button keeps its place and only says so: it cannot be pressed', async () => {
-  useAppStore.setState({ game: cardsGame(seatWith([FOREST, ELF])) });
+test('creatures turned sideways are offered as the attack, and pressing the offer asks the store to declare them', async () => {
+  const attackWithTapped = vi.fn(async () => {});
+  useAppStore.setState({ game: cardsGame(seatWith([FOREST, { ...ELF, tapped: true }])), attackWithTapped });
   const user = userEvent.setup();
   const { container } = render(<LandsRow playerIdx={0} />);
-  const before = [...container.querySelector('.mana-summary')!.children].map((el) => el.className);
-  await user.click(screen.getByRole('button', { name: 'attack' }));
+  const go = await screen.findByRole('button', { name: 'attack with Llanowar Elves' }); // its record is in
+  expect(go).toHaveTextContent('⚔ Attack with 1 →');
+  expect(go.parentElement).toBe(container.querySelector('.mana-summary'));
+  expect(hint()).toBeNull(); // the offer has taken the hint's place
+  await user.click(go);
+  expect(attackWithTapped).toHaveBeenCalledTimes(1);
+});
+
+test('a creature whose tap paid for a spell is not offered: it was tapped for mana', async () => {
+  useAppStore.setState({
+    game: cardsGame(seatWith([FOREST, { ...ELF, tapped: true, spent: 1 }])),
+  });
+  render(<LandsRow playerIdx={0} />);
+  expect(await screen.findByLabelText('1 mana ready')).toBeInTheDocument(); // the lookups have answered
+  expect(offer()).toBeNull();
+});
+
+test('while a fight is on the line only says so: nothing to press, nothing offered', async () => {
+  useAppStore.setState({ game: cardsGame(seatWith([FOREST, ELF])) });
+  const user = userEvent.setup();
+  render(<LandsRow playerIdx={0} />);
+  const { act } = await import('@testing-library/react');
+  act(() => useAppStore.getState().startCombat());
   const during = screen.getByRole('button', { name: 'in combat' });
   expect(during).toHaveTextContent('⚔ In combat');
   expect(during).toBeDisabled();
-  expect(during.className).toBe('attack-btn');
-  expect([...container.querySelector('.mana-summary')!.children].map((el) => el.className)).toEqual(before); // nothing joined or left the line
+  expect(hint()).toBeNull();
+  expect(offer()).toBeNull();
   const fight = useAppStore.getState().game!.combat;
   await user.click(during);
-  expect(useAppStore.getState().game!.combat).toBe(fight); // a second press starts nothing
-  // called off: the button is back
-  const { act } = await import('@testing-library/react');
+  expect(useAppStore.getState().game!.combat).toBe(fight); // a press starts nothing
+  // called off: the line says how again
   act(() => useAppStore.getState().cancelCombat());
-  expect(screen.getByRole('button', { name: 'attack' })).toBeEnabled();
+  expect(hint()).not.toBeNull();
+  expect(screen.queryByRole('button', { name: 'in combat' })).not.toBeInTheDocument();
 });
 
-test('a tracker seat attacks with its creature tiles', () => {
+test('a tracker seat is offered its tapped creature tiles, copy by copy', () => {
   const game = createGame(config);
   game.players[0] = { ...game.players[0], board: [landItem('Forest', '({T}: Add {G}.)', 3), knights] };
   useAppStore.setState({ game });
+  const untapped = render(<LandsRow playerIdx={0} />);
+  expect(hint()).not.toBeNull();
+  expect(offer()).toBeNull();
+  untapped.unmount();
+
+  game.players[0] = { ...game.players[0], board: [{ ...landItem('Forest', '({T}: Add {G}.)', 3), tapped: 3 }, { ...knights, tapped: 2 }] };
+  useAppStore.setState({ game: { ...game } });
   render(<LandsRow playerIdx={0} />);
-  expect(screen.getByRole('button', { name: 'attack' })).toBeInTheDocument();
+  // Tapped lands are no attackers; both knights are.
+  expect(screen.getByRole('button', { name: 'attack with 2 Knight' })).toHaveTextContent('Attack with 2');
 });
 
-test('no creature on the tablet, no button: lands, a mana rock and a treasure are nothing to attack with', async () => {
-  const treasure: BoardItem = { ...landItem('Treasure', '', 2), id: 'tok-treasure', zone: 'board' };
-  const game = cardsGame(seatWith([FOREST, { iid: 'x1', cardId: 'c-exploration', name: 'Exploration', row: 'front' }]));
+test('copies of a stack that only just arrived are not offered', () => {
+  const game = createGame(config);
+  game.players[0] = { ...game.players[0], board: [{ ...knights, count: 3, tapped: 3, sick: 2 }] };
+  useAppStore.setState({ game });
+  render(<LandsRow playerIdx={0} />);
+  expect(screen.getByRole('button', { name: 'attack with Knight' })).toHaveTextContent('Attack with 1');
+});
+
+test('no creature on the tablet: nothing is said and nothing offered — lands, a mana rock and a treasure are nothing to attack with', async () => {
+  const treasure: BoardItem = { ...landItem('Treasure', '', 2), id: 'tok-treasure', zone: 'board', tapped: 1 };
+  const game = cardsGame(seatWith([{ ...FOREST, tapped: true }, { iid: 'x1', cardId: 'c-exploration', name: 'Exploration', row: 'front', tapped: true }]));
   game.players[0] = { ...game.players[0], board: [treasure] };
   useAppStore.setState({ game });
   render(<LandsRow playerIdx={0} />);
   // Once the enchantment is read (until then it is taken on trust) there is nothing to attack with.
   const { waitFor } = await import('@testing-library/react');
-  await waitFor(() => expect(screen.queryByRole('button', { name: 'attack' })).not.toBeInTheDocument());
+  await waitFor(() => expect(hint()).toBeNull());
+  expect(offer()).toBeNull();
 });
 
-test('a front-row card this device cannot read is taken on trust: what the app cannot read never blocks a play', async () => {
-  useAppStore.setState({
-    game: cardsGame(seatWith([FOREST, { iid: 'm1', cardId: 'c-not-in-this-database', name: 'Mystery', row: 'front' }])),
-  });
-  render(<LandsRow playerIdx={0} />);
+test('a card this device cannot read is taken on trust for the hint, but is never offered as an attacker', async () => {
+  const mystery: CardInstance = { iid: 'm1', cardId: 'c-not-in-this-database', name: 'Mystery', row: 'front' };
+  useAppStore.setState({ game: cardsGame(seatWith([FOREST, mystery])) });
+  const first = render(<LandsRow playerIdx={0} />);
   expect(await screen.findByLabelText('1 mana ready')).toBeInTheDocument(); // the lookups have answered
-  expect(screen.getByRole('button', { name: 'attack' })).toBeInTheDocument();
+  expect(hint()).not.toBeNull(); // what the app cannot read never blocks a play
+  first.unmount();
+
+  useAppStore.setState({ game: cardsGame(seatWith([FOREST, { ...mystery, tapped: true }])) });
+  render(<LandsRow playerIdx={0} />);
+  expect(await screen.findByLabelText('1 mana ready')).toBeInTheDocument();
+  expect(offer()).toBeNull(); // its own sheet starts the fight instead
 });
 
 test('only the player whose turn it is may attack, and never a defeated one', () => {
   const game = createGame(config);
-  game.players[0] = { ...game.players[0], board: [knights] };
-  game.players[1] = { ...game.players[1], board: [{ ...knights, id: 'tok-knight-b' }] };
+  game.players[0] = { ...game.players[0], board: [{ ...knights, tapped: 1 }] };
+  game.players[1] = { ...game.players[1], board: [{ ...knights, id: 'tok-knight-b', tapped: 1 }] };
   useAppStore.setState({ game });
   const other = render(<LandsRow playerIdx={1} />);
-  expect(screen.queryByRole('button', { name: 'attack' })).not.toBeInTheDocument();
+  expect(offer()).toBeNull();
+  expect(hint()).toBeNull();
   other.unmount();
   game.players[0] = { ...game.players[0], eliminated: true };
   useAppStore.setState({ game: { ...game } });
   render(<LandsRow playerIdx={0} />);
-  expect(screen.queryByRole('button', { name: 'attack' })).not.toBeInTheDocument();
+  expect(offer()).toBeNull();
+  expect(hint()).toBeNull();
 });
 
-test('the phone’s hand view has no Attack button: the fight is declared on the table', () => {
-  useAppStore.setState({ game: cardsGame(seatWith([FOREST, ELF])) });
+test('the phone’s hand view offers no attack: the fight is declared on the table', () => {
+  useAppStore.setState({ game: cardsGame(seatWith([FOREST, { ...ELF, tapped: true }])) });
   render(<LandsRow playerIdx={0} attackButton={false} />);
-  expect(screen.queryByRole('button', { name: 'attack' })).not.toBeInTheDocument();
+  expect(offer()).toBeNull();
+  expect(hint()).toBeNull();
   expect(screen.getByRole('button', { name: /dice roller/i })).toBeInTheDocument(); // the rest of the line is as it was
 });
 

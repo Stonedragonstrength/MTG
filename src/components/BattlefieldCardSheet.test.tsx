@@ -172,3 +172,34 @@ test('a card kept on a shelf by hand is offered the way back to the battlefield'
   fireEvent.click(screen.getByRole('button', { name: 'On the battlefield' }));
   expect(moveVirtualCard).toHaveBeenLastCalledWith(0, iid, 'battlefield', 'battlefield', { row: 'field' });
 });
+
+test('Sacrifice is in the sheet: the card goes as a sacrifice, not as a plain move', async () => {
+  const { fireEvent } = await import('@testing-library/react');
+  const { g, iid } = gameWithBear();
+  const sacrificeCard = vi.fn();
+  const moveVirtualCard = vi.fn();
+  const onClose = vi.fn();
+  useAppStore.setState({ game: g, sacrificeCard, moveVirtualCard });
+  render(<BattlefieldCardSheet playerIdx={0} iid={iid} onClose={onClose} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Sacrifice' }));
+  expect(sacrificeCard).toHaveBeenCalledWith(0, iid);
+  expect(moveVirtualCard).not.toHaveBeenCalled();
+  expect(onClose).toHaveBeenCalled();
+});
+
+test('on its own turn, with no fight on, the sheet offers the long way into one; never on another seat’s turn', async () => {
+  const { fireEvent } = await import('@testing-library/react');
+  const { g, iid } = gameWithBear();
+  const startCombat = vi.fn();
+  const onClose = vi.fn();
+  useAppStore.setState({ game: g, startCombat });
+  const mine = render(<BattlefieldCardSheet playerIdx={0} iid={iid} onClose={onClose} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Pick attackers…' }));
+  expect(startCombat).toHaveBeenCalledTimes(1);
+  expect(onClose).toHaveBeenCalled();
+  mine.unmount();
+
+  useAppStore.setState({ game: { ...g, activePlayerIndex: 1 } });
+  render(<BattlefieldCardSheet playerIdx={0} iid={iid} onClose={onClose} />);
+  expect(screen.queryByRole('button', { name: 'Pick attackers…' })).not.toBeInTheDocument();
+});

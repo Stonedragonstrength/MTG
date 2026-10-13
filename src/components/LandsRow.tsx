@@ -3,6 +3,7 @@ import { randomBasicArt } from '../data/images';
 import { findBasicLand } from '../data/scryfall';
 import { createBoardItem } from '../lib/board';
 import { landsPlayed } from '../lib/cards';
+import { draftSize, draftWords, tappedToAttack } from '../lib/attackDraft';
 import { liveCombat } from '../lib/combat';
 import { readUnits } from '../lib/combatEngine';
 import { COLOR_NAMES, isOneShotSource, landSummary, MANA_COLORS, type ManaColor } from '../lib/mana';
@@ -197,7 +198,7 @@ interface Props {
 
 export default function LandsRow({ playerIdx, attackButton = true, part }: Props) {
   const game = useAppStore((s) => s.game);
-  const startCombat = useAppStore((s) => s.startCombat);
+  const attackWithTapped = useAppStore((s) => s.attackWithTapped);
   const addItem = useAppStore((s) => s.addItem);
   const changeCount = useAppStore((s) => s.changeCount);
   const tapItem = useAppStore((s) => s.tapItem);
@@ -252,21 +253,26 @@ export default function LandsRow({ playerIdx, attackButton = true, part }: Props
       {ready} ready
     </span>
   );
-  // Combat starts here, on the line every layout draws at the player's own
-  // edge: the active seat may attack once it has a creature on the tablet
-  // (one whose card is not read yet counts: what the app cannot read never
-  // blocks a play). While its fight is on, the button keeps its place and
-  // only says so — nothing moves under the finger that pressed it.
+  // Combat starts on the board, the way it does at a table: the active
+  // player turns creatures sideways, and this line — the one every layout
+  // draws at the player's own edge — offers to declare exactly those
+  // ("⚔ Attack with 3 →"). Until something is tapped it only says how, and
+  // only while there is something that could attack (a card not read yet
+  // counts: what the app cannot read never blocks a play). While the fight
+  // is on, the same place says so.
   const myTurn = game.activePlayerIndex === playerIdx && !game.players[playerIdx].eliminated;
   const inCombat = myTurn && liveCombat(game) !== null;
-  const hasCreature = () => {
+  const offer = attackButton && myTurn && !inCombat;
+  const draft = offer ? tappedToAttack(game, records) : [];
+  const attackers = draftSize(draft);
+  const couldAttack = () => {
     try {
-      return readUnits(game, playerIdx, records).some((unit) => unit.creature);
+      return readUnits(game, playerIdx, records).some((unit) => unit.creature && unit.canAttack > 0);
     } catch {
       return false; // a board the engine cannot read offers no fight; nothing else changes
     }
   };
-  const attack = attackButton && myTurn && (inCombat || hasCreature());
+  const attackHint = offer && attackers === 0 && couldAttack();
 
   async function quickAdd(name: string) {
     const existing = lands.find((it) => it.name === name);
@@ -325,17 +331,28 @@ export default function LandsRow({ playerIdx, attackButton = true, part }: Props
           </span>
         )}
         {/* In flow like the dice, never positioned: the board turns to face each
-            seat. Ahead of the untap button, which comes and goes as things tap
-            (the declaration taps the attackers): this one must not be pushed
-            along the line while its fight is on. */}
-        {attack && (
+            seat. Ahead of the untap button, which comes and goes as things tap:
+            this one must not be pushed along the line. It is never over the
+            creatures themselves — a tap meant for the next attacker must not
+            land on "Attack". */}
+        {attackers > 0 && (
           <button
-            className="attack-btn"
-            aria-label={inCombat ? 'in combat' : 'attack'}
-            disabled={inCombat}
-            onClick={() => startCombat()}
+            className="attack-btn attack-btn--go"
+            aria-label={`attack with ${draftWords(draft)}`}
+            title="Declare the creatures you have tapped as attackers"
+            onClick={() => void attackWithTapped()}
           >
-            ⚔ {inCombat ? 'In combat' : 'Attack'}
+            ⚔ Attack with {attackers} →
+          </button>
+        )}
+        {attackHint && (
+          <span className="attack-hint" aria-label="tap your creatures to attack">
+            ⚔ tap creatures to attack
+          </span>
+        )}
+        {attackButton && inCombat && (
+          <button className="attack-btn" aria-label="in combat" disabled>
+            ⚔ In combat
           </button>
         )}
         {anyTapped && (

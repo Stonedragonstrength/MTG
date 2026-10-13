@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { getDb, kvGet, kvSet } from '../data/db';
 import * as tableSync from '../data/onlineTable';
 import { createGame } from '../lib/game';
-import type { GameConfig, GameState } from '../lib/types';
+import type { BoardItem, GameConfig, GameState } from '../lib/types';
 import { createAppStore, flushPersistence } from './store';
 
 vi.mock('../lib/sound', () => ({
@@ -610,6 +610,68 @@ describe('cards mode', () => {
     const after = store.getState().game!.players[0].cards!;
     expect(after.graveyard.some((c) => c.iid === 'h-bolt')).toBe(true); // instant resolved
     expect(after.battlefield.some((c) => c.tapped)).toBe(false); // no half-payments
+    // The spell does not vanish into the graveyard unseen: it is shown to the table.
+    expect(store.getState().game!.reveal).toMatchObject({
+      seat: 0,
+      from: 'cast',
+      cards: [{ cardId: 'c-bolt', name: 'Lightning Bolt' }],
+    });
+    // One undo takes the card back to hand and the showing with it.
+    store.getState().undo();
+    expect(store.getState().game!.reveal).toBeUndefined();
+    expect(store.getState().game!.players[0].cards!.hand.some((c) => c.iid === 'h-bolt')).toBe(true);
+  });
+
+  test('a permanent played from hand is not shown like a spell: it is there on the table to see', async () => {
+    const store = await cardsStore();
+    const iid = store.getState().game!.players[0].cards!.hand[0].iid; // the deck is all permanents
+    await store.getState().playCard(0, iid);
+    expect(store.getState().game!.players[0].cards!.battlefield.some((c) => c.iid === iid)).toBe(true);
+    expect(store.getState().game!.reveal).toBeUndefined();
+  });
+
+  test('a sacrifice ends in the graveyard like a death, and the table is told it was one', async () => {
+    const store = await cardsStore();
+    const iid = store.getState().game!.players[0].cards!.hand[0].iid;
+    const name = store.getState().game!.players[0].cards!.hand[0].name;
+    await store.getState().playCard(0, iid);
+    store.getState().sacrificeCard(0, iid);
+    const seat = store.getState().game!.players[0].cards!;
+    expect(seat.battlefield.some((c) => c.iid === iid)).toBe(false);
+    expect(seat.graveyard.some((c) => c.iid === iid)).toBe(true);
+    expect(store.getState().game!.feed?.some((e) => e.text === `A sacrifices ${name}`)).toBe(true);
+    const settled = store.getState().game;
+    store.getState().sacrificeCard(0, iid); // it is gone: nothing more to give up
+    expect(store.getState().game).toBe(settled);
+  });
+
+  test('sacrificing a token takes one copy off its stack and says so; the last one takes the stack', async () => {
+    const store = await cardsStore();
+    const treasure: BoardItem = {
+      id: 'treasure',
+      cardId: null,
+      name: 'Treasure',
+      imageNormal: null,
+      imageArtCrop: null,
+      typeLine: 'Token Artifact — Treasure',
+      oracleText: '',
+      basePower: null,
+      baseToughness: null,
+      count: 2,
+      counters: {},
+      color: null,
+      zone: 'board',
+    };
+    store.getState().addItem(1, treasure);
+    store.getState().addItem(1, { ...treasure, id: 'elf', name: 'Elf Warrior', count: 1 });
+    const board = () => store.getState().game!.players[1].board;
+    const feed = () => (store.getState().game!.feed ?? []).map((e) => e.text);
+    store.getState().sacrificeToken(1, 'treasure');
+    expect(board().find((it) => it.id === 'treasure')!.count).toBe(1);
+    expect(feed()).toContain('B sacrifices a Treasure');
+    store.getState().sacrificeToken(1, 'elf');
+    expect(board().some((it) => it.id === 'elf')).toBe(false);
+    expect(feed()).toContain('B sacrifices an Elf Warrior');
   });
 
   test('casting the commander taps its mana too', async () => {
@@ -1683,6 +1745,64 @@ describe('cards mode', () => {
     expect(await liveOf(empty)).toBeNull();
     expect(empty.getState().game!.combat?.step).toBe('done');
     expect(empty.getState().game!.feed ?? []).toEqual([]);
+  });
+
+  test('attacking with what is tapped: in a duel one press declares it, taps nothing more, and one Undo takes it back', async () => {
+    const store = await fightStore();
+    store.getState().tapVirtualCard(0, 'bear', true);
+    store.getState().tapVirtualCard(0, 'elves', true);
+    store.getState().tapItem(0, 'soldiers', 2);
+    const turned = store.getState().game!;
+    await store.getState().attackWithTapped();
+    const fight = (await liveOf(store))!;
+    expect(fight).toMatchObject({ step: 'blockers', defender: 1, active: 0 });
+    expect(fight.attacks).toEqual([
+      { unit: unitCard('bear'), target: 1 },
+      { unit: unitCard('elves'), target: 1 },
+      { unit: unitStack('soldiers'), n: 2, target: 1 },
+    ]); // no `tapped` marks: the declaration tapped nothing itself
+    expect(feedOf(store)).toEqual(['A attacks B with 4 creatures']);
+    const seat = seat0(store);
+    expect(seat.battlefield.filter((c) => c.tapped).map((c) => c.iid)).toEqual(['bear', 'elves']);
+    expect(store.getState().game!.players[0].board[0].tapped).toBe(2);
+    // The elf was turned sideways to attack: its {G} is not floating in the pool.
+    const { sourcesFrom } = await import('../lib/pay');
+    const { getCardById } = await import('../data/scryfall');
+    const records = { 'c-elves': await getCardById('c-elves'), 'c-bear': await getCardById('c-bear'), 'c-angel': await getCardById('c-angel') };
+    expect(sourcesFrom(seat.battlefield, records, []).map((s) => s.key)).not.toContain('elves');
+
+    store.getState().undo(); // the whole declaration, in one
+    expect(await liveOf(store)).toBeNull();
+    expect(store.getState().game).toBe(turned);
+  });
+
+  test('attacking with what is tapped in a pod stops at the attackers step: all picked, pointed at the first opponent', async () => {
+    const pod = await fightStore(3);
+    pod.getState().tapVirtualCard(0, 'bear', true);
+    pod.getState().tapItem(0, 'soldiers', 1);
+    await pod.getState().attackWithTapped();
+    const fight = (await liveOf(pod))!;
+    expect(fight.step).toBe('attackers'); // who attacks whom is still to be said
+    expect(fight.attacks).toEqual([
+      { unit: unitCard('bear'), target: 1 },
+      { unit: unitStack('soldiers'), target: 1 },
+    ]);
+    expect(pod.getState().game!.feed ?? []).toEqual([]); // nothing is declared yet
+    pod.getState().setAttacker(unitCard('bear'), 2, 1); // re-pointed
+    await pod.getState().confirmAttackers();
+    expect(feedOf(pod)).toEqual(['A attacks C (1) and B (1)']); // in the order they were turned
+  });
+
+  test('attacking with what is tapped does nothing when nothing is, or while a fight is on', async () => {
+    const store = await fightStore();
+    const idle = store.getState().game;
+    await store.getState().attackWithTapped();
+    expect(store.getState().game).toBe(idle);
+    store.getState().tapVirtualCard(0, 'bear', true);
+    store.getState().startCombat();
+    const open = store.getState().game;
+    await store.getState().attackWithTapped();
+    expect(store.getState().game).toBe(open);
   });
 
   test('blocks are silent until the defender is done; then the feed counts the attackers stopped', async () => {

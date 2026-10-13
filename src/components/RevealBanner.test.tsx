@@ -501,3 +501,36 @@ describe('stacking, as the app stylesheets have it', () => {
     }
   });
 });
+
+// ---- a spell being cast pauses on the table ----
+
+test('a cast spell is shown as a cast: who cast what, in the spell’s color', async () => {
+  render(<RevealBanner />);
+  tableShows(reveal({ from: 'cast' }));
+  await settle();
+  const shown = banner()!;
+  expect(shown).toHaveTextContent('Nathan casts');
+  expect(shown).toHaveTextContent('Lightning Bolt');
+  expect(shown).not.toHaveTextContent(/reveals|from their hand/);
+  // Lightning Bolt is red: the banner wears it.
+  await waitFor(() => expect(banner()!.className).toContain('spell-R'));
+  expect(banner()!.className).toContain('reveal-banner--cast');
+});
+
+test('a spell of several colors wears gold, and one this device cannot read wears steel', async () => {
+  RECORDS['c-charm'] = { ...RECORDS['c-bolt'], id: 'c-charm', name: 'Izzet Charm', colors: ['U', 'R'] };
+  render(<RevealBanner />);
+  tableShows(reveal({ from: 'cast', cards: [{ cardId: 'c-charm', name: 'Izzet Charm' }] }));
+  await waitFor(() => expect(banner()!.className).toContain('spell-M'));
+  tableShows(reveal({ from: 'cast', cards: [{ cardId: 'c-nowhere', name: 'Mystery Spell' }] }));
+  await settle();
+  expect(banner()!.className).toContain('spell-C');
+  expect(banner()).toHaveTextContent('Mystery Spell'); // still named, still shown
+});
+
+test('an ordinary reveal wears no spell color', async () => {
+  render(<RevealBanner />);
+  tableShows(reveal());
+  await settle();
+  expect(banner()!.className).toBe('reveal-banner');
+});

@@ -29,6 +29,8 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose, picks = 
   const setVirtualCounter = useAppStore((s) => s.setVirtualCounter);
   const commanderDiedAction = useAppStore((s) => s.commanderDiedAction);
   const tapVirtualCard = useAppStore((s) => s.tapVirtualCard);
+  const sacrificeCard = useAppStore((s) => s.sacrificeCard);
+  const startCombat = useAppStore((s) => s.startCombat);
   const [counterName, setCounterName] = useState('');
   const seat = game?.players[playerIdx]?.cards;
   const card = seat?.battlefield.find((c) => c.iid === iid);
@@ -62,6 +64,7 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose, picks = 
   // front row fights — a card on the lands shelf moves there first.
   const look = card.row !== 'lands' && combat?.mode ? combat.look({ kind: 'card', id: iid }) : null;
   const job = look?.mode === 'attack' ? 'Attack' : 'Block';
+  const myTurn = game.activePlayerIndex === playerIdx && !game.players[playerIdx].eliminated;
   const shelf = shelfOf(card, record);
 
   return (
@@ -83,6 +86,15 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose, picks = 
             <button className="chip" onClick={go(look.anyway)}>
               {/* "anyway" when a tap on the card would have refused */}
               {look.picks && look.free > 0 ? job : `${job} anyway`}
+            </button>
+          )}
+          {/* No fight on and it is this seat's turn: the long way into one —
+              pick the attackers one by one — for whatever the board cannot
+              offer by itself (a card it cannot read, a Vehicle, a creature
+              that should attack without being tapped first). */}
+          {picks && !combat && myTurn && card.row !== 'lands' && (
+            <button className="chip" onClick={go(startCombat)}>
+              Pick attackers…
             </button>
           )}
           {/* Always here: the plain tap, and the way back from one made by
@@ -131,6 +143,9 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose, picks = 
       <div className="detail-section">
         <span className="section-label">Move</span>
         <div className="chip-row">
+          {/* To the graveyard as well, but said as what it was: a card that
+              asks for a sacrifice wants the table to see one. */}
+          <button className="chip" onClick={go(() => sacrificeCard(playerIdx, iid))}>Sacrifice</button>
           <button className="chip" onClick={go(() => moveVirtualCard(playerIdx, iid, 'battlefield', 'graveyard'))}>Graveyard</button>
           <button className="chip" onClick={go(() => moveVirtualCard(playerIdx, iid, 'battlefield', 'exile'))}>Exile</button>
           <button className="chip" onClick={go(() => moveVirtualCard(playerIdx, iid, 'battlefield', 'hand'))}>Hand</button>

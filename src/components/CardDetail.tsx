@@ -44,6 +44,8 @@ export default function CardDetail({ playerIdx, itemId, onClose }: Props) {
   const splitItemAction = useAppStore((s) => s.splitItem);
   const removeItemAction = useAppStore((s) => s.removeItem);
   const tapItem = useAppStore((s) => s.tapItem);
+  const sacrificeToken = useAppStore((s) => s.sacrificeToken);
+  const startCombat = useAppStore((s) => s.startCombat);
   const combat = useSeatCombat(playerIdx);
 
   const [glossary, setGlossary] = useState<GlossaryEntry[]>([]);
@@ -177,6 +179,26 @@ export default function CardDetail({ playerIdx, itemId, onClose }: Props) {
         </div>
       )}
 
+      {/* No fight on and it is this seat's turn: the long way into one, for
+          whatever the board cannot offer by itself (tapping copies offers
+          the attack on the lands line). */}
+      {!combat && pt && item.zone !== 'lands' && game?.activePlayerIndex === playerIdx && (
+        <div className="detail-section">
+          <span className="section-label">Combat</span>
+          <div className="chip-row">
+            <button
+              className="chip"
+              onClick={() => {
+                startCombat();
+                onClose();
+              }}
+            >
+              Pick attackers…
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="detail-section">
         <span className="section-label">Stack</span>
         <div className="detail-row">
@@ -190,6 +212,20 @@ export default function CardDetail({ playerIdx, itemId, onClose }: Props) {
               +
             </button>
           </div>
+        </div>
+        {/* The same as one fewer copy — but the table is told it was a
+            sacrifice, which is what a card that asks for one wants to see. */}
+        <div className="detail-row">
+          <span>Give one up</span>
+          <button
+            className="chip"
+            onClick={() => {
+              sacrificeToken(playerIdx, itemId);
+              if (item.count <= 1) onClose(); // the last copy takes the stack, and this sheet, with it
+            }}
+          >
+            Sacrifice one
+          </button>
         </div>
         {item.count > 1 && (
           <div className="detail-row">

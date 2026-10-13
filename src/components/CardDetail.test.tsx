@@ -123,3 +123,25 @@ test('remove deletes the item and closes', async () => {
   expect(spy).toHaveBeenCalledWith(0, 'item-a');
   expect(onClose).toHaveBeenCalled();
 });
+
+test('"Sacrifice one" gives up one copy as a sacrifice, and the last copy closes the sheet', async () => {
+  const sacrificeToken = vi.fn();
+  const changeCount = vi.fn();
+  const onClose = vi.fn();
+  useAppStore.setState({ sacrificeToken, changeCount });
+  const user = userEvent.setup();
+  const first = render(<CardDetail playerIdx={0} itemId="item-a" onClose={onClose} />);
+  await user.click(screen.getByRole('button', { name: 'Sacrifice one' }));
+  expect(sacrificeToken).toHaveBeenCalledWith(0, 'item-a');
+  expect(changeCount).not.toHaveBeenCalled(); // not a plain "one fewer"
+  expect(onClose).not.toHaveBeenCalled(); // one Angel is left
+  first.unmount();
+
+  const game = createGame(config);
+  game.players[0] = { ...game.players[0], board: [{ ...angel, count: 1 }] };
+  useAppStore.setState({ game });
+  render(<CardDetail playerIdx={0} itemId="item-a" onClose={onClose} />);
+  await user.click(screen.getByRole('button', { name: 'Sacrifice one' }));
+  expect(sacrificeToken).toHaveBeenCalledTimes(2);
+  expect(onClose).toHaveBeenCalledTimes(1);
+});
