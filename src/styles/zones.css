@@ -3156,6 +3156,75 @@ input[type='checkbox'] {
   color: var(--accent);
 }
 
+/* ---- Auras and Equipment on their host ----
+   A creature with something attached is drawn in a frame of its own size:
+   the card, and along its lower edge its attachments as small cards, each
+   a button (tap = look at it, move it, take it off). They lie OVER the
+   card's text box, so the creature takes no more room than any other. */
+.vcard-host {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.vcard-attached {
+  position: absolute;
+  left: 5%;
+  right: 30%; /* clear of the +1/+1 badge in the corner */
+  bottom: 4%;
+  display: flex;
+  gap: 4%;
+  pointer-events: none; /* only the minis take taps: the card under them still does */
+}
+
+.attached-mini {
+  pointer-events: auto;
+  flex: 0 1 34%;
+  min-width: 0;
+  aspect-ratio: 63 / 88;
+  padding: 0;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  overflow: hidden;
+  background: #22222a;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
+}
+
+.attached-mini img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.attached-name {
+  display: block;
+  padding: 2px;
+  font-size: 0.5rem;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+/* A small card (a shelf, a stack) says how many it carries instead. */
+.attached-badge {
+  position: absolute;
+  left: 2px;
+  bottom: 2px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.82);
+  border: 1px solid rgba(200, 168, 75, 0.6);
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+/* A bar has no room for them: the host's own mini says enough. */
+.focus-mode .zone--cards:not(.zone--focused) .vcard-attached,
+.focus-mode .zone--cards:not(.zone--focused) .attached-badge {
+  display: none;
+}
+
 /* Permanents that are neither creatures nor mana: a row of their own. */
 .bf-side {
   display: flex;

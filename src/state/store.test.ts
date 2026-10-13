@@ -630,6 +630,40 @@ describe('cards mode', () => {
     expect(store.getState().game!.reveal).toBeUndefined();
   });
 
+  test('attaching puts one battlefield card on another and tells the table; taking it off says so too', async () => {
+    const store = await cardsStore();
+    const [a, b] = store.getState().game!.players[0].cards!.hand;
+    await store.getState().playCard(0, a.iid);
+    await store.getState().playCard(0, b.iid);
+    const host = { seat: 0, kind: 'card' as const, id: b.iid };
+    store.getState().attachVirtualCard(0, a.iid, host, 2);
+    const field = () => store.getState().game!.players[0].cards!.battlefield;
+    expect(field().find((c) => c.iid === a.iid)!.on).toEqual({ ...host, plus: 2 });
+    expect(field().find((c) => c.iid === b.iid)!.counters).toEqual({ p1p1: 2 });
+    expect(feedOf(store)).toContain(`A puts ${a.name} on ${b.name}`);
+    // One Undo takes the attachment and its counters back together.
+    store.getState().undo();
+    expect(field().find((c) => c.iid === a.iid)!.on).toBeUndefined();
+    expect(field().find((c) => c.iid === b.iid)!.counters).toBeUndefined();
+
+    store.getState().attachVirtualCard(0, a.iid, host);
+    store.getState().attachVirtualCard(0, a.iid, null);
+    expect(field().find((c) => c.iid === a.iid)!.on).toBeUndefined();
+    expect(feedOf(store)).toContain(`A takes ${a.name} off ${b.name}`);
+  });
+
+  test('attaching to something that is not there, or taking off what is on nothing, changes nothing', async () => {
+    const store = await cardsStore();
+    const [a] = store.getState().game!.players[0].cards!.hand;
+    await store.getState().playCard(0, a.iid);
+    const before = store.getState().game;
+    store.getState().attachVirtualCard(0, a.iid, { seat: 0, kind: 'card', id: 'nope' });
+    store.getState().attachVirtualCard(0, a.iid, { seat: 1, kind: 'stack', id: 'nope' });
+    store.getState().attachVirtualCard(0, a.iid, null);
+    store.getState().attachVirtualCard(0, 'nope', { seat: 0, kind: 'card', id: a.iid });
+    expect(store.getState().game).toBe(before);
+  });
+
   test('a sacrifice ends in the graveyard like a death, and the table is told it was one', async () => {
     const store = await cardsStore();
     const iid = store.getState().game!.players[0].cards!.hand[0].iid;
@@ -994,6 +1028,56 @@ describe('cards mode', () => {
     expect(onField(store, 'h-hydra')?.counters).toEqual({ p1p1: 3 });
     expect(lands(store).filter((c) => c.tapped)).toHaveLength(4); // {X}{G} with X = 3
     expect(feedOf(store)).toContain('A plays Hungering Hydra (X=3)');
+  });
+
+  // ---- optional extra costs: kicker and its relatives ----
+  async function kickerRecords() {
+    await getDb().cards.bulkPut([
+      {
+        ...deckRecord('c-spout', 'Waterspout Elemental', 'Creature — Elemental'),
+        manaCost: '{3}{G}{G}',
+        oracleText: 'Kicker {G} (You may pay an additional {G} as you cast this spell.)\nFlying',
+      },
+      { ...deckRecord('c-chalice', 'Everflowing Chalice', 'Artifact'), manaCost: '{0}', oracleText: 'Multikicker {2}' },
+      { ...deckRecord('c-capsize', 'Capsize', 'Instant'), manaCost: '{1}{G}{G}', oracleText: "Buyback {3}\nReturn target permanent to its owner's hand." },
+    ]);
+  }
+  const SPOUT = { iid: 'h-spout', cardId: 'c-spout', name: 'Waterspout Elemental' };
+
+  test('a kicked spell pays its kicker on top and says so; unkicked it costs what is printed', async () => {
+    const kicked = await tableWith([SPOUT], 7);
+    await kickerRecords();
+    await kicked.getState().playCard(0, 'h-spout', { extras: [1] });
+    expect(onField(kicked, 'h-spout')).toBeDefined();
+    expect(lands(kicked).filter((c) => c.tapped)).toHaveLength(6); // {3}{G}{G} + {G}
+    expect(feedOf(kicked)).toContain('A plays Waterspout Elemental, kicked');
+
+    const plain = await tableWith([SPOUT], 7);
+    await plain.getState().playCard(0, 'h-spout'); // nobody asked: not kicked
+    expect(lands(plain).filter((c) => c.tapped)).toHaveLength(5);
+    expect(feedOf(plain)).toContain('A plays Waterspout Elemental');
+  });
+
+  test('a multikicker is paid as often as it was asked for', async () => {
+    const store = await tableWith([{ iid: 'h-chalice', cardId: 'c-chalice', name: 'Everflowing Chalice' }], 7);
+    await kickerRecords();
+    await store.getState().playCard(0, 'h-chalice', { extras: [3] });
+    expect(lands(store).filter((c) => c.tapped)).toHaveLength(6);
+    expect(feedOf(store)).toContain('A plays Everflowing Chalice, kicked 3 times');
+  });
+
+  test('a spell bought back is paid for, shown to the table, and never leaves the hand', async () => {
+    const store = await tableWith([{ iid: 'h-capsize', cardId: 'c-capsize', name: 'Capsize' }], 7);
+    await kickerRecords();
+    await store.getState().playCard(0, 'h-capsize', { extras: [1] });
+    expect(seat0(store).hand.some((c) => c.iid === 'h-capsize')).toBe(true);
+    expect(seat0(store).graveyard).toEqual([]);
+    expect(lands(store).filter((c) => c.tapped)).toHaveLength(6); // {1}{G}{G} + {3}
+    expect(feedOf(store)).toContain('A casts Capsize, with buyback');
+    expect(store.getState().game!.reveal).toMatchObject({ from: 'cast', cards: [{ name: 'Capsize' }] });
+    // Cast again without it, it goes to the graveyard like any spell.
+    await store.getState().playCard(0, 'h-capsize');
+    expect(seat0(store).graveyard.some((c) => c.iid === 'h-capsize')).toBe(true);
   });
 
   test('an X spell is paid the same way and says its X too', async () => {

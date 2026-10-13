@@ -11,6 +11,7 @@ import { hasKeyword, readSeat, readUnit } from '../lib/combatEngine';
 import { attackerLabel } from '../lib/commanders';
 import { isValidGame, migrateGame } from '../lib/migrate';
 import { DEFAULT_SETTINGS, getSettings, saveSettings, type Settings } from '../data/settings';
+import { hostName, hostOf } from '../lib/attach';
 import { opponentsOf, tappedToAttack } from '../lib/attackDraft';
 import * as boardLib from '../lib/board';
 import * as gameLib from '../lib/game';
@@ -71,7 +72,13 @@ export interface AppStore {
   drawCards(seat: number, n: number): void;
   /** `x`: the value chosen for a card with {X} in its cost (the X sheet asks).
    * `asLand`: play the land on the card's back face instead of casting it. */
-  playCard(seat: number, iid: string, opts?: { x?: number; asLand?: true }): Promise<void>;
+  /** `extras`: how often each optional extra cost of the card is paid, in
+   * the order `pay.extraCosts` reads them (kicker, multikicker, buyback…). */
+  playCard(
+    seat: number,
+    iid: string,
+    opts?: { x?: number; asLand?: true; extras?: number[] },
+  ): Promise<void>;
   tapVirtualCard(seat: number, iid: string, wantTapped?: boolean): void;
   setVirtualCounter(seat: number, iid: string, name: string, value: number): void;
   moveVirtualCard(
@@ -135,6 +142,9 @@ export interface AppStore {
   sacrificeCard(seat: number, iid: string): void;
   /** One copy of a stack is sacrificed, and the table is told so. */
   sacrificeToken(seat: number, itemId: string): void;
+  /** Puts an Aura or Equipment on a host (any seat's), or takes it off
+   * (null). `plus`: +1/+1 counters it shows on a card host while it is there. */
+  attachVirtualCard(seat: number, iid: string, host: cardsLib.Host | null, plus?: number): void;
   splitItem(playerIdx: number, itemId: string, moveCount: number): void;
   setCounter(playerIdx: number, itemId: string, counterName: string, value: number): void;
   setManaMode(playerIdx: number, itemId: string, mode: BoardItem['manaMode']): void;
@@ -671,7 +681,15 @@ export function createAppStore() {
         // one asked), and its feed line says which.
         const asksX = payLib.hasX(costs);
         const x = asksX ? wholeX(opts?.x) : 0;
-        const priced = payLib.priceX(costs, x);
+        // Kicker and its relatives: what the cast was made with goes on top
+        // of the cost, and into the feed line. Only the paying is done here —
+        // what a kicked spell does differently stays with the players.
+        const extras = isLand ? [] : payLib.extraCosts(record);
+        const times = payLib.extraTimes(extras, opts?.extras);
+        const priced = payLib.priceExtras(payLib.priceX(costs, x), extras, times);
+        // Bought back, a spell returns to its owner's hand instead of going
+        // to the graveyard: it simply never leaves.
+        const boughtBack = isSpell && extras.some((e, i) => e.kind === 'buyback' && times[i] > 0);
         const counters = !isSpell && x > 0 && payLib.entersWithX(record?.oracleText ?? '');
         const records = await seatRecords(g, seat);
         const castIn = { turn: g.turnNumber, active: g.activePlayerIndex };
@@ -694,10 +712,13 @@ export function createAppStore() {
         cardMutate(
           (base) => {
             const pay = payFrom(base, seat, priced, records, castIn);
-            let moved = isSpell
-              ? cardsLib.moveCard(base, seat, iid, 'hand', 'graveyard')
-              : cardsLib.moveCard(base, seat, iid, 'hand', 'battlefield', { row });
-            if (moved === base) return base;
+            if (!base.players[seat]?.cards?.hand.some((c) => c.iid === iid)) return base;
+            let moved = boughtBack
+              ? base
+              : isSpell
+                ? cardsLib.moveCard(base, seat, iid, 'hand', 'graveyard')
+                : cardsLib.moveCard(base, seat, iid, 'hand', 'battlefield', { row });
+            if (moved === base && !boughtBack) return base;
             if (shown) moved = cardsLib.setReveal(moved, shown);
             // The land drop is counted in the same op as the move, so undo
             // and a rebase take both or neither — and only for the turn it
@@ -708,7 +729,7 @@ export function createAppStore() {
             if (counters) moved = cardsLib.setCardCounter(moved, seat, iid, 'p1p1', x);
             return pay(moved);
           },
-          `${seatName(g, seat)} ${verb} ${card.name}${asksX ? ` (X=${x})` : ''}`,
+          `${seatName(g, seat)} ${verb} ${card.name}${asksX ? ` (X=${x})` : ''}${payLib.extrasWords(extras, times)}`,
           (base) => !!base.players[seat]?.cards?.hand.some((c) => c.iid === iid),
         );
       },
@@ -1329,6 +1350,29 @@ export function createAppStore() {
           (base) => cardsLib.moveCard(base, seat, iid, 'battlefield', 'graveyard'),
           `${seatName(g, seat)} sacrifices ${card.name}`,
           (base) => !!base.players[seat]?.cards?.battlefield.some((c) => c.iid === iid),
+        );
+      },
+
+      // An Aura or an Equipment goes onto a host (null: comes off it). The
+      // host may be another seat's card — a hostile Aura — so the guard
+      // looks for both on the table the op lands on.
+      attachVirtualCard(seat, iid, host, plus = 0) {
+        const g = get().game;
+        const card = g?.players[seat]?.cards?.battlefield.find((c) => c.iid === iid);
+        if (!g || !card) return;
+        if (host && !cardsLib.hostIsThere(g, host)) return;
+        const was = hostOf(g, card);
+        if (!host && !was) return; // nothing to take off
+        const whose = (h: cardsLib.Host) => (h.seat === seat ? '' : `${seatName(g, h.seat)}’s `);
+        const text = host
+          ? `${seatName(g, seat)} puts ${card.name} on ${whose(host)}${hostName(g, host)}`
+          : `${seatName(g, seat)} takes ${card.name} off ${whose(was!)}${hostName(g, was!)}`;
+        cardMutate(
+          (base) => cardsLib.attachCard(base, seat, iid, host, plus),
+          text,
+          (base) =>
+            !!base.players[seat]?.cards?.battlefield.some((c) => c.iid === iid) &&
+            (!host || cardsLib.hostIsThere(base, host)),
         );
       },
 

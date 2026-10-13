@@ -1,4 +1,5 @@
 import { useState, type CSSProperties } from 'react';
+import { attachedTo, isAttached } from '../lib/attach';
 import { isSummoningSick, permanentTexts } from '../lib/keywords';
 import { shelfOf } from '../lib/shelf';
 import { useAppStore } from '../state/store';
@@ -28,7 +29,11 @@ export default function SideShelf({ playerIdx, picks = true }: Props) {
   const records = useCardRecords(seat?.battlefield ?? []);
   if (!game || !player || !seat) return null;
 
-  const side = seat.battlefield.filter((c) => shelfOf(c, records[c.cardId]) === 'side');
+  // An Aura or Equipment that sits on something is drawn with its host,
+  // not here; one lying unattached (or whose host has left) is.
+  const side = seat.battlefield.filter(
+    (c) => shelfOf(c, records[c.cardId]) === 'side' && !isAttached(game, c),
+  );
   // A creature someone put here by hand still wears its summoning sickness.
   const texts = permanentTexts(seat.battlefield, records, player.board);
   const names = game.config.profiles.map((p) => p.name);
@@ -51,6 +56,7 @@ export default function SideShelf({ playerIdx, picks = true }: Props) {
               sick={isSummoningSick(c, records[c.cardId], texts)}
               look={combat?.look({ kind: 'card', id: c.iid }) ?? null}
               names={names}
+              attached={attachedTo(game, { seat: playerIdx, kind: 'card', id: c.iid }).length}
               onTap={() => tapVirtualCard(playerIdx, c.iid)}
               onDetail={() => setCardSheet(c.iid)}
             />

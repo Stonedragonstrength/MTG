@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
+import { attachedTo, attaches, hostName, hostOf, isAura, isEquipment } from '../lib/attach';
 import { isCommander } from '../lib/cards';
 import { shelfOf, type Shelf } from '../lib/shelf';
 import type { CardInstance } from '../lib/types';
 import { useAppStore } from '../state/store';
+import AttachSheet from './AttachSheet';
 import Sheet from './Sheet';
 import { useCardRecords } from './useCardRecords';
 import { useSeatCombat } from './useCombat';
@@ -31,7 +33,9 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose, picks = 
   const tapVirtualCard = useAppStore((s) => s.tapVirtualCard);
   const sacrificeCard = useAppStore((s) => s.sacrificeCard);
   const startCombat = useAppStore((s) => s.startCombat);
+  const attachVirtualCard = useAppStore((s) => s.attachVirtualCard);
   const [counterName, setCounterName] = useState('');
+  const [attaching, setAttaching] = useState(false);
   const seat = game?.players[playerIdx]?.cards;
   const card = seat?.battlefield.find((c) => c.iid === iid);
   const records = useCardRecords(card ? [card] : []);
@@ -43,8 +47,16 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose, picks = 
     if (gone) onClose();
   }, [gone, onClose]);
   if (!game || !seat || !card) return null;
+  // Choosing what it goes on takes this sheet's place; closing that closes the lot.
+  if (attaching) return <AttachSheet playerIdx={playerIdx} iid={iid} onClose={onClose} />;
 
   const record = records[card.cardId];
+  // Auras and Equipment: what it sits on (if anything), and — for any card —
+  // what sits on it, whoever those belong to.
+  const host = hostOf(game, card);
+  const canAttach = attaches(record) || host !== null;
+  const onThis = attachedTo(game, { seat: playerIdx, kind: 'card', id: iid });
+  const whose = (s: number) => (s === playerIdx ? '' : `${game.config.profiles[s]?.name ?? '?'}’s `);
   const p1p1 = card.counters?.p1p1 ?? 0;
   const named = Object.entries(card.counters ?? {}).filter(([k]) => k !== 'p1p1');
   // Only a commander goes back to the command zone — its partner being
@@ -73,6 +85,49 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose, picks = 
         {record?.imageNormal && <img className="card-image" src={record.imageNormal} alt={card.name} />}
         {record?.typeLine && <p className="type-line">{record.typeLine}</p>}
       </div>
+
+      {canAttach && (
+        <div className="detail-section">
+          <span className="section-label">{isEquipment(record) ? 'Equipped' : 'Attached'}</span>
+          <p className="attach-where">
+            {host ? `On ${whose(host.seat)}${hostName(game, host)}` : 'Not on anything'}
+          </p>
+          {!host && isAura(record) && (
+            <p className="hint">An Aura with nothing to enchant goes to the graveyard.</p>
+          )}
+          <div className="chip-row">
+            <button className="chip" onClick={() => setAttaching(true)}>
+              {host ? 'Move it…' : isEquipment(record) ? 'Equip…' : 'Attach…'}
+            </button>
+            {host && (
+              <button className="chip" onClick={go(() => attachVirtualCard(playerIdx, iid, null))}>
+                Take it off
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {onThis.length > 0 && (
+        <div className="detail-section">
+          <span className="section-label">On this card</span>
+          {onThis.map(({ seat: owner, card: a }) => (
+            <div className="detail-row" key={a.iid}>
+              <span>
+                {whose(owner)}
+                {a.name}
+              </span>
+              <button
+                className="chip"
+                aria-label={`take ${a.name} off`}
+                onClick={() => attachVirtualCard(owner, a.iid, null)}
+              >
+                Take it off
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="detail-section">
         <span className="section-label">{look ? 'Combat' : 'Tap'}</span>

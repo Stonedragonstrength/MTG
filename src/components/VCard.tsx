@@ -11,6 +11,9 @@ interface Props {
   look: UnitLook | null;
   /** The players' names by seat, for the marks. */
   names: string[];
+  /** How many Auras and Equipment sit on it, where they are not drawn
+   * beside it (a small card on a shelf): a count on its corner. */
+  attached?: number;
   onTap: () => void;
   onDetail: () => void;
 }
@@ -23,7 +26,7 @@ interface Props {
  * a tap picks it (or is ignored, dimmed, when it cannot fight — the hold
  * still opens the sheet, where "Attack anyway" and a plain Tap live).
  * Anything that is no creature keeps its ordinary tap. */
-export default function VCard({ card, art, sick, look, names, onTap, onDetail }: Props) {
+export default function VCard({ card, art, sick, look, names, attached = 0, onTap, onDetail }: Props) {
   const picks = look?.picks === true;
   const press = useLongPress(picks ? look.tap : onTap, onDetail);
   const p1p1 = card.counters?.p1p1 ?? 0;
@@ -56,6 +59,11 @@ export default function VCard({ card, art, sick, look, names, onTap, onDetail }:
       {p1p1 !== 0 && (
         <span className="count-badge vcard-counter">
           {p1p1 > 0 ? `+${p1p1}/+${p1p1}` : `${p1p1}/${p1p1}`}
+        </span>
+      )}
+      {attached > 0 && (
+        <span className="attached-badge" aria-label={`${attached} attached`}>
+          🔗{attached}
         </span>
       )}
       <CombatMarks look={look} names={names} />

@@ -3,6 +3,7 @@ import { randomBasicArt } from '../data/images';
 import { findBasicLand } from '../data/scryfall';
 import { createBoardItem } from '../lib/board';
 import { landsPlayed } from '../lib/cards';
+import { attachedTo } from '../lib/attach';
 import { draftSize, draftWords, tappedToAttack } from '../lib/attackDraft';
 import { liveCombat } from '../lib/combat';
 import { readUnits } from '../lib/combatEngine';
@@ -115,13 +116,14 @@ interface VirtualStack {
 }
 
 /** Display grouping only — the data stays per-copy. Cards carrying
- * counters break out alone so the sheet edits exactly that copy. */
-function stackVirtualLands(cards: CardInstance[]): VirtualStack[] {
+ * counters, or an Aura (`alone`), break out alone so the sheet edits
+ * exactly that copy. */
+function stackVirtualLands(cards: CardInstance[], alone: (c: CardInstance) => boolean): VirtualStack[] {
   const out: VirtualStack[] = [];
   const byId = new Map<string, VirtualStack>();
   for (const c of cards) {
     const hasCounters = Object.values(c.counters ?? {}).some((n) => n !== 0);
-    if (hasCounters) {
+    if (hasCounters || alone(c)) {
       out.push({ key: c.iid, cards: [c] });
       continue;
     }
@@ -143,12 +145,15 @@ function stackVirtualLands(cards: CardInstance[]): VirtualStack[] {
 function VirtualLandStack({
   stack,
   art,
+  attached,
   onTap,
   onUntap,
   onDetail,
 }: {
   stack: VirtualStack;
   art: string | null;
+  /** How many Auras sit on it (such a land stands alone). */
+  attached: number;
   onTap: () => void;
   onUntap: () => void;
   onDetail: () => void;
@@ -180,6 +185,11 @@ function VirtualLandStack({
           <span className="land-stack-name">{name}</span>
         )}
         {n > 1 && <span className="count-badge">×{n}</span>}
+        {attached > 0 && (
+          <span className="attached-badge" aria-label={`${attached} attached`}>
+            🔗{attached}
+          </span>
+        )}
       </button>
       {tapped > 0 && <TappedBadge tapped={tapped} name={name} onUntap={onUntap} />}
     </span>
@@ -293,7 +303,9 @@ export default function LandsRow({ playerIdx, attackButton = true, part }: Props
     );
   }
 
-  const virtualStacks = stackVirtualLands(vLands);
+  const carried = (c: CardInstance) =>
+    attachedTo(game, { seat: playerIdx, kind: 'card', id: c.iid }).length;
+  const virtualStacks = stackVirtualLands(vLands, (c) => carried(c) > 0);
 
   const summaryLine = (
       <div className="mana-summary">
@@ -389,6 +401,7 @@ export default function LandsRow({ playerIdx, attackButton = true, part }: Props
               key={s.key}
               stack={s}
               art={records[s.cards[0].cardId]?.imageNormal ?? null}
+              attached={carried(s.cards[0])}
               // Each way is said outright: a stale tile must never flip a card back.
               onTap={() => untapped && tapVirtualCard(playerIdx, untapped.iid, true)}
               onUntap={() => tapped && tapVirtualCard(playerIdx, tapped.iid, false)}

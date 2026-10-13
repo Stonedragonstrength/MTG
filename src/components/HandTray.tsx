@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
+import { isAura } from '../lib/attach';
 import { boardSeat } from '../lib/combat';
-import { affordable, castCosts, hasX, parseCosts, sourcesFrom } from '../lib/pay';
+import { affordable, asksAtCast, parseCosts, sourcesFrom } from '../lib/pay';
 import { canPlayLand, isLandCard } from '../lib/turnRules';
 import type { CardInstance } from '../lib/types';
 import { useAppStore } from '../state/store';
+import AttachSheet from './AttachSheet';
 import HandCardSheet from './HandCardSheet';
 import { useCardRecords } from './useCardRecords';
 import { useLongPress } from './useLongPress';
@@ -66,6 +68,7 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
   const [selected, setSelected] = useState<string[]>([]);
   const [showHeld, setShowHeld] = useState(false); // dead-phone escape hatch
   const [xFor, setXFor] = useState<string | null>(null); // the card the X sheet is asking about
+  const [attachFor, setAttachFor] = useState<string | null>(null); // the Aura just played, asking where it goes
 
   const activeIdx = game?.activePlayerIndex;
   // The seat holding the big board: it also changes hands mid-turn, when a
@@ -113,9 +116,15 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
       ? null
       : 'Not enough mana ready.';
   };
-  /** A tap on a card the gates let through: one with {X} asks how much first. */
+  /** A tap on a card the gates let through: one with {X}, or with a kicker
+   * to pay or not, asks first. */
   const play = (c: CardInstance) => {
-    if (hasX(castCosts(records[c.cardId], 'hand'))) setXFor(c.iid);
+    if (asksAtCast(records[c.cardId], 'hand')) setXFor(c.iid);
+    // An Aura comes into play ON something: once it has landed, the list of
+    // what it can go on comes up. (An Equipment arrives unattached; equipping
+    // is on its own sheet.) If the play did not land, that sheet finds no
+    // card and closes itself.
+    else if (isAura(records[c.cardId])) void playCard(playerIdx, c.iid).then(() => setAttachFor(c.iid));
     else void playCard(playerIdx, c.iid);
   };
   const claimed = !online || online.mySeat === playerIdx || online.mySeat === null;
@@ -255,6 +264,9 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
       )}
       {xFor && (
         <XCostSheet playerIdx={playerIdx} iid={xFor} from="hand" onClose={() => setXFor(null)} />
+      )}
+      {attachFor && (
+        <AttachSheet playerIdx={playerIdx} iid={attachFor} onClose={() => setAttachFor(null)} />
       )}
     </div>
   );

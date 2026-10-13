@@ -307,3 +307,84 @@ test('what is ready follows the table while the sheet is open', async () => {
   });
   expect(screen.getByText('Costs 1 · 3 ready')).toBeInTheDocument();
 });
+
+// ---- optional extra costs: kicker and its relatives ----
+
+const SPOUT: CardInstance = { iid: 'h-spout', cardId: 'c-spout', name: 'Waterspout Elemental' };
+const BLAST: CardInstance = { iid: 'h-blast', cardId: 'c-blast', name: 'Everflowing Chalice' };
+const WURM: CardInstance = { iid: 'h-wurm', cardId: 'c-wurm', name: 'Kicker Hydra' };
+RECORDS['c-spout'] = rec(
+  'c-spout',
+  'Waterspout Elemental',
+  'Creature — Elemental',
+  '{3}{G}{G}',
+  'Kicker {G} (You may pay an additional {G} as you cast this spell.)\nFlying',
+);
+RECORDS['c-blast'] = rec('c-blast', 'Everflowing Chalice', 'Artifact', '{0}', 'Multikicker {2}');
+RECORDS['c-wurm'] = rec('c-wurm', 'Kicker Hydra', 'Creature — Hydra', '{X}{G}', 'Kicker {2}');
+
+test('a card with a kicker asks whether it is paid: off until the player says so, and no X row', async () => {
+  useAppStore.setState({ game: table(6, [SPOUT]) });
+  await open('h-spout');
+  const kicker = screen.getByRole('switch', { name: 'Kicker {G}' });
+  expect(kicker).toHaveAttribute('aria-checked', 'false');
+  expect(kicker).toHaveTextContent('Not paid');
+  expect(screen.queryByRole('button', { name: 'raise X' })).not.toBeInTheDocument();
+  expect(screen.getByText('Costs 5 · 6 ready')).toBeInTheDocument();
+  tap(button('Cast'));
+  expect(playCard).toHaveBeenCalledWith(0, 'h-spout', { extras: [0] }); // cast as printed
+});
+
+test('switching the kicker on adds its cost, and the cast says it was paid', async () => {
+  useAppStore.setState({ game: table(6, [SPOUT]) });
+  await open('h-spout');
+  tap(screen.getByRole('switch', { name: 'Kicker {G}' }));
+  expect(screen.getByRole('switch', { name: 'Kicker {G}' })).toHaveAttribute('aria-checked', 'true');
+  expect(screen.getByText('Costs 6 · 6 ready')).toBeInTheDocument();
+  tap(button('Cast'));
+  expect(playCard).toHaveBeenCalledWith(0, 'h-spout', { extras: [1] });
+});
+
+test('a kicker the mana does not cover is still the player’s call: the button says "anyway"', async () => {
+  useAppStore.setState({ game: table(5, [SPOUT]) });
+  await open('h-spout');
+  expect(button('Cast')).toBeInTheDocument(); // five Forests pay the printed cost
+  tap(screen.getByRole('switch', { name: 'Kicker {G}' }));
+  expect(screen.getByText('Costs 6 · 5 ready')).toBeInTheDocument();
+  tap(button('Cast anyway'));
+  expect(playCard).toHaveBeenCalledWith(0, 'h-spout', { extras: [1] });
+});
+
+test('a multikicker is a count: each time adds its cost', async () => {
+  useAppStore.setState({ game: table(5, [BLAST]) });
+  await open('h-blast');
+  expect(screen.getByText('Costs 0 · 5 ready')).toBeInTheDocument();
+  expect(button('one fewer Multikicker {2}')).toBeDisabled();
+  tap(button('one more Multikicker {2}'));
+  tap(button('one more Multikicker {2}'));
+  expect(screen.getByText('Costs 4 · 5 ready')).toBeInTheDocument();
+  tap(button('one fewer Multikicker {2}'));
+  expect(screen.getByText('Costs 2 · 5 ready')).toBeInTheDocument();
+  tap(button('Cast'));
+  expect(playCard).toHaveBeenCalledWith(0, 'h-blast', { extras: [1] });
+});
+
+test('X and a kicker on one card are asked together, and Max counts the kicker in', async () => {
+  useAppStore.setState({ game: table(5, [WURM]) });
+  await open('h-wurm');
+  tap(button('Max'));
+  expect(castButton()).toHaveTextContent('Cast for X = 4'); // {X}{G}: four left for X
+  tap(screen.getByRole('switch', { name: 'Kicker {2}' }));
+  expect(castButton()).toHaveTextContent('Cast anyway (X = 4)'); // seven mana wanted, five ready
+  tap(button('Max'));
+  expect(castButton()).toHaveTextContent('Cast for X = 2');
+  tap(castButton());
+  expect(playCard).toHaveBeenCalledWith(0, 'h-wurm', { x: 2, extras: [1] });
+});
+
+test('a card with X and no extra cost is cast exactly as before', async () => {
+  await open();
+  expect(screen.queryByRole('switch')).not.toBeInTheDocument();
+  tap(castButton());
+  expect(playCard).toHaveBeenCalledWith(0, 'h-hydra', { x: 0 });
+});

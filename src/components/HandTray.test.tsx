@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { buildSeatCards, seedSeat } from '../lib/cards';
@@ -659,4 +659,70 @@ test('the device that claimed the seat keeps its own tray despite handHeld', () 
   render(<HandTray playerIdx={0} />);
   expect(screen.queryByTitle(/phone/i)).not.toBeInTheDocument();
   expect(screen.getAllByRole('button', { name: /^play / })).toHaveLength(7);
+});
+
+// ---- optional extra costs: a kicker is asked before the card is cast ----
+
+test('a card with a kicker opens the cast sheet instead of playing: the tap cannot know whether it is kicked', async () => {
+  RECORDS['c-spout'] = {
+    ...rec('c-spout', 'Waterspout Elemental', 'Creature — Elemental'),
+    manaCost: '{2}{R}',
+    oracleText: 'Kicker {R} (You may pay an additional {R} as you cast this spell.)\nFlying',
+  };
+  const playCard = vi.fn(async () => {});
+  const g = hydraInHand(4);
+  g.players[0] = {
+    ...g.players[0],
+    cards: { ...g.players[0].cards!, hand: [{ iid: 'h1', cardId: 'c-spout', name: 'Waterspout Elemental' }] },
+  };
+  useAppStore.setState({ game: g, playCard });
+  const user = userEvent.setup();
+  const card = await oneCardHand(user, /play waterspout elemental/i);
+  await lit(card); // its printed cost is payable: the kicker is not part of the gate
+  await user.click(card);
+  expect(playCard).not.toHaveBeenCalled();
+  expect(await screen.findByRole('heading', { name: 'Waterspout Elemental' })).toBeInTheDocument();
+  expect(screen.getByRole('switch', { name: 'Kicker {R}' })).toHaveAttribute('aria-checked', 'false');
+  tapLater(screen.getByRole('switch', { name: 'Kicker {R}' }));
+  tapLater(screen.getByRole('button', { name: 'Cast' }));
+  expect(playCard).toHaveBeenCalledWith(0, 'h1', { extras: [1] });
+});
+
+// ---- an Aura comes into play on something ----
+
+test('playing an Aura brings up the list of what it can go on once it has landed; an Equipment just lands', async () => {
+  RECORDS['c-fear'] = {
+    ...rec('c-fear', 'Fear', 'Enchantment — Aura'),
+    manaCost: '{R}',
+    oracleText: 'Enchant creature\nEnchanted creature has fear.',
+  };
+  RECORDS['c-greaves'] = { ...rec('c-greaves', 'Lightning Greaves', 'Artifact — Equipment'), manaCost: '{R}', oracleText: 'Equip {0}' };
+  const g = hydraInHand(2);
+  const withHand = (hand: { iid: string; cardId: string; name: string }[]) => ({
+    ...g,
+    players: g.players.map((p, i) => (i === 0 ? { ...p, cards: { ...p.cards!, hand } } : p)),
+  });
+  // The play lands the card on the battlefield, as the store's would.
+  const playCard = vi.fn(async (seat: number, iid: string) => {
+    const now = useAppStore.getState().game!;
+    const { moveCard } = await import('../lib/cards');
+    useAppStore.setState({ game: moveCard(now, seat, iid, 'hand', 'battlefield', { row: 'front' }) });
+  });
+  useAppStore.setState({ game: withHand([{ iid: 'h1', cardId: 'c-fear', name: 'Fear' }]), playCard });
+  const user = userEvent.setup();
+  const aura = await oneCardHand(user, /play fear/i);
+  await lit(aura);
+  await user.click(aura);
+  expect(playCard).toHaveBeenCalledWith(0, 'h1');
+  expect(await screen.findByRole('heading', { name: 'Attach Fear' })).toBeInTheDocument();
+  cleanup();
+
+  playCard.mockClear();
+  useAppStore.setState({ game: withHand([{ iid: 'h2', cardId: 'c-greaves', name: 'Lightning Greaves' }]), playCard });
+  const gear = await oneCardHand(user, /play lightning greaves/i);
+  await lit(gear);
+  await user.click(gear);
+  expect(playCard).toHaveBeenCalledWith(0, 'h2');
+  await sleep(50);
+  expect(screen.queryByRole('heading', { name: /equip|attach/i })).not.toBeInTheDocument();
 });

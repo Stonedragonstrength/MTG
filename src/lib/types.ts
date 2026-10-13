@@ -54,6 +54,14 @@ export interface CardInstance {
    * has drawn from this tap. A tapped card with nothing spent is floating
    * its whole yield (the player tapped it by hand). */
   spent?: number;
+  /** Battlefield only: what this card is attached to — an Aura's enchanted
+   * permanent, an Equipment's creature. The host may be on ANOTHER seat's
+   * side of the table (a hostile Aura): the one place a card points across
+   * seats. `plus` is how many +1/+1 counters the attachment put on its
+   * host, taken off again when it leaves it. A host that has left simply
+   * leaves the card unattached — read it through lib/attach.ts, never
+   * directly. Builds that do not know the field ignore it and keep it. */
+  on?: { seat: number; kind: 'card' | 'stack'; id: string; plus?: number };
   /** Battlefield only: the card arrived since its controller's last turn
    * began. Every card gets it, whatever its type — the reducers do not
    * read cards. Whether it means summoning sickness is for the table and

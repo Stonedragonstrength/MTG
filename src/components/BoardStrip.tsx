@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { attachedTo } from '../lib/attach';
 import { computedPT } from '../lib/board';
 import { sickCopies } from '../lib/keywords';
 import { COLOR_NAMES, effectiveManaColors } from '../lib/mana';
@@ -24,6 +25,7 @@ function TokenCard({
   seatTexts,
   look,
   names,
+  attached,
   onTap,
   onDetail,
 }: {
@@ -34,6 +36,8 @@ function TokenCard({
   look: UnitLook | null;
   /** The players' names by seat, for the marks. */
   names: string[];
+  /** How many Auras and Equipment sit on the stack. */
+  attached: number;
   onTap: () => void;
   onDetail: () => void;
 }) {
@@ -99,6 +103,11 @@ function TokenCard({
         </span>
       )}
       {item.count > 1 && <span className="thumb-count">×{item.count}</span>}
+      {attached > 0 && (
+        <span className="attached-badge" aria-label={`${attached} attached`}>
+          🔗{attached}
+        </span>
+      )}
       <CombatMarks look={look} names={names} counts />
     </button>
   );
@@ -195,6 +204,7 @@ export default function BoardStrip({ playerIdx }: Props) {
               seatTexts={seatTexts}
               look={look}
               names={names}
+              attached={attachedTo(game, { seat: playerIdx, kind: 'stack', id: item.id }).length}
               onTap={() => tapItem(playerIdx, item.id, 1)}
               onDetail={() => setDetailId(item.id)}
             />

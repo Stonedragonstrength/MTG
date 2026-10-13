@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { attachedTo, isAttached } from '../lib/attach';
 import { commanderTax, owesDraw } from '../lib/cards';
 import { isSummoningSick, permanentTexts } from '../lib/keywords';
 import { affordable, castCosts, sourcesFrom } from '../lib/pay';
@@ -11,7 +12,7 @@ import LibrarySheet from './LibrarySheet';
 import PileSheet from './PileSheet';
 import Sheet from './Sheet';
 import { useCardRecords } from './useCardRecords';
-import { useSeatCombat } from './useCombat';
+import { useSeatCombat, useTableRecords } from './useCombat';
 import { useFitCards } from './useFitCards';
 import { useLongPress } from './useLongPress';
 import VCard from './VCard';
@@ -69,7 +70,9 @@ export default function BattlefieldRow({ playerIdx, picks = true }: Props) {
   const drawCards = useAppStore((s) => s.drawCards);
   const peekNotice = useAppStore((s) => s.peekNotice);
   const [pile, setPile] = useState<'graveyard' | 'exile' | 'command' | null>(null);
-  const [cardSheet, setCardSheet] = useState<string | null>(null);
+  // The card whose sheet is open: usually one of this seat's, but an Aura
+  // sitting on one of its creatures may be somebody else's.
+  const [cardSheet, setCardSheet] = useState<{ seat: number; iid: string } | null>(null);
   const [commander, setCommander] = useState<string | null>(null); // the pedestal being looked at
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [armDraw, setArmDraw] = useState(false);
@@ -84,7 +87,12 @@ export default function BattlefieldRow({ playerIdx, picks = true }: Props) {
     ...(seat?.command ?? []),
     ...(seat ? seat.graveyard.slice(-1) : []),
   ]);
-  const field = (seat?.battlefield ?? []).filter((c) => shelfOf(c, records[c.cardId]) === 'field');
+  // What sits on something (a bestowed creature, say) is drawn with its host.
+  const field = (seat?.battlefield ?? []).filter(
+    (c) => shelfOf(c, records[c.cardId]) === 'field' && !(game && isAttached(game, c)),
+  );
+  // Attachments can come from any seat: their pictures too.
+  const tableRecords = useTableRecords();
   // The field fills whatever the zone leaves it, at any card count.
   const cardsRef = useRef<HTMLDivElement>(null);
   useFitCards(cardsRef, field.length, 300);
@@ -143,18 +151,45 @@ export default function BattlefieldRow({ playerIdx, picks = true }: Props) {
   return (
     <div className={`bf-row bf-row--${size}`}>
       <div className="bf-cards" ref={cardsRef}>
-        {field.map((c) => (
-          <VCard
-            key={c.iid}
-            card={c}
-            art={records[c.cardId]?.imageNormal ?? null}
-            sick={isSummoningSick(c, records[c.cardId], texts)}
-            look={combat?.look({ kind: 'card', id: c.iid }) ?? null}
-            names={names}
-            onTap={() => tapVirtualCard(playerIdx, c.iid)}
-            onDetail={() => setCardSheet(c.iid)}
-          />
-        ))}
+        {field.map((c) => {
+          const vcard = (
+            <VCard
+              key={c.iid}
+              card={c}
+              art={records[c.cardId]?.imageNormal ?? null}
+              sick={isSummoningSick(c, records[c.cardId], texts)}
+              look={combat?.look({ kind: 'card', id: c.iid }) ?? null}
+              names={names}
+              onTap={() => tapVirtualCard(playerIdx, c.iid)}
+              onDetail={() => setCardSheet({ seat: playerIdx, iid: c.iid })}
+            />
+          );
+          const on = attachedTo(game, { seat: playerIdx, kind: 'card', id: c.iid });
+          if (on.length === 0) return vcard;
+          // Its Auras and Equipment: small cards tucked along its lower edge,
+          // each one a tap away from being looked at (and moved, or taken off).
+          return (
+            <span className="vcard-host" key={c.iid}>
+              {vcard}
+              <span className="vcard-attached">
+                {on.map(({ seat: owner, card: a }) => {
+                  const art = tableRecords[a.cardId]?.imageNormal ?? null;
+                  return (
+                    <button
+                      key={a.iid}
+                      className="attached-mini"
+                      aria-label={`${a.name}, on ${c.name}`}
+                      title="Tap to look"
+                      onClick={() => setCardSheet({ seat: owner, iid: a.iid })}
+                    >
+                      {art ? <img src={art} alt="" loading="lazy" /> : <span className="attached-name">{a.name}</span>}
+                    </button>
+                  );
+                })}
+              </span>
+            </span>
+          );
+        })}
       </div>
       <div className="zone-dock">
         <div className="dock-minis">
@@ -253,8 +288,8 @@ export default function BattlefieldRow({ playerIdx, picks = true }: Props) {
       )}
       {cardSheet && (
         <BattlefieldCardSheet
-          playerIdx={playerIdx}
-          iid={cardSheet}
+          playerIdx={cardSheet.seat}
+          iid={cardSheet.iid}
           picks={picks}
           onClose={() => setCardSheet(null)}
         />

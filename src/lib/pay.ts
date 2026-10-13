@@ -112,6 +112,115 @@ export function priceX(costs: PayCost[], x: number): PayCost[] {
   return (x > 0 && open.length > 0 ? open : costs).map((cost) => withX(cost, x));
 }
 
+// ---- optional extra costs: kicker and its relatives ----
+
+/** A cost a spell MAY be cast with on top of its own, as the rules text
+ * prints it: "Kicker {U}", "Multikicker {1}{G}", "Buyback {3}". Only the
+ * paying is the table's business — what the spell then does differently
+ * stays with the players, like every spell effect. */
+export interface ExtraCost {
+  kind: 'kicker' | 'multikicker' | 'buyback' | 'entwine' | 'replicate' | 'escalate' | 'squad';
+  /** As printed, for the screen: "Kicker {U}". */
+  label: string;
+  cost: PayCost;
+  /** May be paid any number of times (multikicker, replicate, squad; escalate once per extra mode). */
+  many: boolean;
+}
+
+const EXTRA_LINE =
+  /^(Kicker|Multikicker|Buyback|Entwine|Replicate|Escalate|Squad) ((?:\{[^}]+\})+)(?: and\/or ((?:\{[^}]+\})+))?/i;
+const MANY = new Set(['multikicker', 'replicate', 'escalate', 'squad']);
+
+/** The optional extra costs printed on a card's FRONT face, in the order
+ * printed. A land has none. One the table cannot price is left out — a
+ * cost with {X} in it, or one that is not mana at all ("Kicker—Sacrifice
+ * a land"): the card then simply casts as it always did. "Kicker {1}{G}
+ * and/or {2}{U}" is two kickers. */
+export function extraCosts(
+  record: Pick<CardRecord, 'typeLine' | 'oracleText'> | null | undefined,
+): ExtraCost[] {
+  if (!record || isLandCard(record.typeLine)) return [];
+  const out: ExtraCost[] = [];
+  for (const line of record.oracleText.split('\n//\n')[0].split('\n')) {
+    const m = line.match(EXTRA_LINE);
+    if (!m) continue;
+    const kind = m[1].toLowerCase() as ExtraCost['kind'];
+    for (const printed of [m[2], m[3]]) {
+      if (!printed) continue;
+      const cost = parseCost(printed);
+      if (cost.x) continue; // nobody has said what X is
+      out.push({ kind, label: `${m[1]} ${printed}`, cost, many: MANY.has(kind) });
+    }
+  }
+  return out;
+}
+
+/** How often each extra is paid, as a cast may safely be asked for: whole
+ * numbers, none below zero, at most once for an extra that is paid once. */
+export function extraTimes(extras: ExtraCost[], asked: readonly unknown[] | undefined): number[] {
+  return extras.map((extra, i) => {
+    const n = asked?.[i];
+    const whole = typeof n === 'number' && Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+    return extra.many ? Math.min(whole, 99) : Math.min(whole, 1);
+  });
+}
+
+/** Each face's cost with the chosen extras on top. */
+export function priceExtras(costs: PayCost[], extras: ExtraCost[], times: number[]): PayCost[] {
+  if (!times.some((n) => n > 0)) return costs;
+  return costs.map((cost) => {
+    let generic = cost.generic;
+    const pips = [...cost.pips];
+    extras.forEach((extra, i) => {
+      for (let k = 0; k < (times[i] ?? 0); k++) {
+        generic += extra.cost.generic;
+        pips.push(...extra.cost.pips);
+      }
+    });
+    return { ...cost, generic, pips };
+  });
+}
+
+const PAID: Record<ExtraCost['kind'], string> = {
+  kicker: 'kicked',
+  multikicker: 'kicked',
+  buyback: 'with buyback',
+  entwine: 'entwined',
+  replicate: 'replicated',
+  escalate: 'escalated',
+  squad: 'with squad',
+};
+
+/** What the table is told about them: ", kicked", ", kicked 3 times",
+ * ", with buyback" — nothing when none was paid. */
+export function extrasWords(extras: ExtraCost[], times: number[]): string {
+  const said: string[] = [];
+  extras.forEach((extra, i) => {
+    const n = times[i] ?? 0;
+    if (n <= 0) return;
+    const word = PAID[extra.kind];
+    const twice = extras.filter((e, k) => e.kind === extra.kind && (times[k] ?? 0) > 0).length > 1;
+    // Two kickers, both paid, are said once: "kicked twice" reads as the game says it.
+    if (twice && said.some((s) => s.startsWith(word))) return;
+    const total = twice
+      ? extras.reduce((sum, e, k) => sum + (e.kind === extra.kind ? (times[k] ?? 0) : 0), 0)
+      : n;
+    said.push(total === 1 ? word : total === 2 ? `${word} twice` : `${word} ${total} times`);
+  });
+  return said.map((s) => `, ${s}`).join('');
+}
+
+/** Does casting this card from there have something to ask first — how
+ * much X is, or whether an extra cost is paid? Then it opens the cast
+ * sheet instead of casting at once. (Extras are asked from the hand only.) */
+export function asksAtCast(
+  record: Pick<CardRecord, 'typeLine' | 'manaCost' | 'oracleText'> | null | undefined,
+  from: 'hand' | 'command',
+  tax = 0,
+): boolean {
+  return hasX(castCosts(record, from, tax)) || (from === 'hand' && extraCosts(record).length > 0);
+}
+
 /** "Hydra enters with X +1/+1 counters on it": the one consequence of X
  * the table carries out by itself. (Older card data says "enters the
  * battlefield with".) */

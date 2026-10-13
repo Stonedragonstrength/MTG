@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getGlossary } from '../data/rules';
+import { attachedTo } from '../lib/attach';
 import { computedPT } from '../lib/board';
 import { edhrecUrl } from '../lib/edhrec';
 import {
@@ -46,6 +47,7 @@ export default function CardDetail({ playerIdx, itemId, onClose }: Props) {
   const tapItem = useAppStore((s) => s.tapItem);
   const sacrificeToken = useAppStore((s) => s.sacrificeToken);
   const startCombat = useAppStore((s) => s.startCombat);
+  const attachVirtualCard = useAppStore((s) => s.attachVirtualCard);
   const combat = useSeatCombat(playerIdx);
 
   const [glossary, setGlossary] = useState<GlossaryEntry[]>([]);
@@ -196,6 +198,25 @@ export default function CardDetail({ playerIdx, itemId, onClose }: Props) {
               Pick attackers…
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Auras and Equipment sitting on this stack, whoever they belong to. */}
+      {game && attachedTo(game, { seat: playerIdx, kind: 'stack', id: itemId }).length > 0 && (
+        <div className="detail-section">
+          <span className="section-label">On this stack</span>
+          {attachedTo(game, { seat: playerIdx, kind: 'stack', id: itemId }).map(({ seat: owner, card: a }) => (
+            <div className="detail-row" key={a.iid}>
+              <span>{a.name}</span>
+              <button
+                className="chip"
+                aria-label={`take ${a.name} off`}
+                onClick={() => attachVirtualCard(owner, a.iid, null)}
+              >
+                Take it off
+              </button>
+            </div>
+          ))}
         </div>
       )}
 

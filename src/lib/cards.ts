@@ -110,7 +110,7 @@ export function seedSeat(g: GameState, seat: number, cards: SeatCards): GameStat
 
 /** Battlefield-only fields never travel to other zones. */
 function stripped(c: CardInstance): CardInstance {
-  const { tapped: _t, counters: _c, row: _r, spent: _s, sick: _k, ...rest } = c;
+  const { tapped: _t, counters: _c, row: _r, spent: _s, sick: _k, on: _o, ...rest } = c;
   return rest;
 }
 
@@ -227,6 +227,22 @@ export function moveCard(
   to: CardZone,
   opts?: { pos?: 'top' | 'bottom'; row?: CardInstance['row'] },
 ): GameState {
+  const moved = moveWithinSeat(g, seat, iid, from, to, opts);
+  if (moved === g || from !== 'battlefield' || to === 'battlefield') return moved;
+  // It left the battlefield: what it was attached to, and what was attached
+  // to it, is settled in the same move.
+  const left = g.players[seat]?.cards?.battlefield.find((c) => c.iid === iid);
+  return left ? afterLeaving(moved, seat, left) : moved;
+}
+
+function moveWithinSeat(
+  g: GameState,
+  seat: number,
+  iid: string,
+  from: CardZone,
+  to: CardZone,
+  opts?: { pos?: 'top' | 'bottom'; row?: CardInstance['row'] },
+): GameState {
   return updateSeat(g, seat, (cards) => {
     const source = cards[from];
     const card = source.find((c) => c.iid === iid);
@@ -250,6 +266,123 @@ export function moveCard(
         : [...dest, moved];
     return { ...cards, [from]: without, [to]: placed };
   });
+}
+
+// ---- attachments: an Aura or an Equipment on its host ----
+
+/** What a card can be attached to: a real card on some seat's battlefield,
+ * or a stack on some seat's board. */
+export interface Host {
+  seat: number;
+  kind: 'card' | 'stack';
+  id: string;
+}
+
+/** Is that host on the table (still)? */
+export function hostIsThere(g: GameState, host: Host): boolean {
+  const player = g.players[host.seat];
+  if (!player) return false;
+  return host.kind === 'card'
+    ? (player.cards?.battlefield.some((c) => c.iid === host.id) ?? false)
+    : player.board.some((it) => it.id === host.id);
+}
+
+/** Changes one battlefield card of one seat; the same game when it is not
+ * there or `fn` hands the same card back. */
+function mapBattlefieldCard(
+  g: GameState,
+  seat: number,
+  iid: string,
+  fn: (c: CardInstance) => CardInstance,
+): GameState {
+  return updateSeat(g, seat, (cards) => {
+    const card = cards.battlefield.find((c) => c.iid === iid);
+    if (!card) return null;
+    const next = fn(card);
+    if (next === card) return null;
+    return { ...cards, battlefield: cards.battlefield.map((c) => (c.iid === iid ? next : c)) };
+  });
+}
+
+/** Adds (or, below zero, takes off) +1/+1 counters on a battlefield card,
+ * never below none. */
+function shiftP1p1(g: GameState, seat: number, iid: string, delta: number): GameState {
+  if (delta === 0) return g;
+  return mapBattlefieldCard(g, seat, iid, (c) => {
+    const now = c.counters?.p1p1 ?? 0;
+    const next = Math.max(0, now + delta);
+    if (next === now) return c;
+    const counters = { ...c.counters };
+    if (next === 0) delete counters.p1p1;
+    else counters.p1p1 = next;
+    if (Object.keys(counters).length === 0) {
+      const { counters: _x, ...rest } = c;
+      return rest;
+    }
+    return { ...c, counters };
+  });
+}
+
+/** The +1/+1 counters an attachment put on its host come off again. */
+function dropBoost(g: GameState, on: CardInstance['on']): GameState {
+  if (!on || on.kind !== 'card' || !on.plus) return g;
+  return shiftP1p1(g, on.seat, on.id, -on.plus);
+}
+
+/** Attaches a battlefield card of `seat` to `host` (null: unattaches it).
+ * The host must be on the table, and not the card itself; whatever it was
+ * attached to before lets go of it, and of the counters it had put there.
+ * `plus` is how many +1/+1 counters the attachment gives a card host (the
+ * "+2/+2" of the Aura, as the table shows it): they go on with it and come
+ * off with it. Asking for what is already so changes nothing. */
+export function attachCard(
+  g: GameState,
+  seat: number,
+  iid: string,
+  host: Host | null,
+  plus = 0,
+): GameState {
+  const card = g.players[seat]?.cards?.battlefield.find((c) => c.iid === iid);
+  if (!card) return g;
+  const boost = host && host.kind === 'card' && Number.isFinite(plus) ? Math.max(0, Math.floor(plus)) : 0;
+  if (host) {
+    if (!hostIsThere(g, host)) return g;
+    if (host.kind === 'card' && host.seat === seat && host.id === iid) return g;
+    const same =
+      card.on?.seat === host.seat && card.on.kind === host.kind && card.on.id === host.id;
+    if (same && (card.on?.plus ?? 0) === boost) return g;
+  } else if (!card.on) {
+    return g;
+  }
+  let next = dropBoost(g, card.on);
+  next = mapBattlefieldCard(next, seat, iid, (c) => {
+    const { on: _was, ...rest } = c;
+    if (!host) return rest;
+    return {
+      ...rest,
+      on: { seat: host.seat, kind: host.kind, id: host.id, ...(boost > 0 ? { plus: boost } : {}) },
+    };
+  });
+  return host && boost > 0 ? shiftP1p1(next, host.seat, host.id, boost) : next;
+}
+
+/** A card has left the battlefield. The counters it had put on its host
+ * come off; and everything that was attached to IT, on any seat, is
+ * unattached now — said outright, so a card that comes back later (its
+ * instance keeps its id) does not find its old Equipment still on it. */
+function afterLeaving(g: GameState, seat: number, left: CardInstance): GameState {
+  let next = dropBoost(g, left.on);
+  next.players.forEach((p, s) => {
+    for (const c of p.cards?.battlefield ?? []) {
+      if (c.on?.kind === 'card' && c.on.seat === seat && c.on.id === left.iid) {
+        next = mapBattlefieldCard(next, s, c.iid, (card) => {
+          const { on: _was, ...rest } = card;
+          return rest;
+        });
+      }
+    }
+  });
+  return next;
 }
 
 /** Direction is explicit (never a toggle): a replay onto a base that

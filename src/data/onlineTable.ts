@@ -10,8 +10,13 @@ import { kvDelete, kvGet, kvSet } from './db';
  * 4: combat on the cards (GameState.combat). ANY later change to the shape
  *    of CombatState has to bump this again: a build that does not know the
  *    new shape drops it in migrateGame, and its next unrelated tap would
- *    push a state without the combat to everyone at the table. */
-export const GAME_SCHEMA = 4;
+ *    push a state without the combat to everyone at the table.
+ * 5: attachments (CardInstance.on — an Aura or Equipment on its host, the
+ *    first reference from one seat's card to another's). An older build
+ *    keeps the field but moves cards without settling it: a host that left
+ *    would still wear its Aura's counters, and find the Aura on it again if
+ *    it came back. */
+export const GAME_SCHEMA = 5;
 
 export type TableStatus =
   | { kind: 'connecting' }

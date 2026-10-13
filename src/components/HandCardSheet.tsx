@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { castCosts, hasX } from '../lib/pay';
+import { asksAtCast } from '../lib/pay';
 import { hasLandBack } from '../lib/turnRules';
 import { useAppStore } from '../state/store';
 import Sheet from './Sheet';
@@ -54,7 +54,7 @@ export default function HandCardSheet({ playerIdx, iid, why = null, onClose }: P
           <button
             className="chip"
             onClick={() => {
-              if (hasX(castCosts(record, 'hand'))) {
+              if (asksAtCast(record, 'hand')) {
                 setAskX(true);
                 return;
               }
