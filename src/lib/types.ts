@@ -117,6 +117,9 @@ export interface Reveal {
   from: 'hand' | 'library' | 'cast';
   cards: { cardId: string; name: string }[];
   t: number; // when it was made, by the revealing device's clock
+  /** 'cast' only: the X the spell was cast for, when its cost has one. The
+   * effects the banner offers are read with it (lib/spellEffects.ts). */
+  x?: number;
 }
 
 export interface BoardItem {

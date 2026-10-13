@@ -47,6 +47,7 @@ function validReveal(v: unknown, seats: number): v is Reveal {
     r.seat < seats &&
     (r.from === 'hand' || r.from === 'library' || r.from === 'cast') &&
     typeof r.t === 'number' &&
+    (r.x === undefined || (typeof r.x === 'number' && Number.isFinite(r.x))) &&
     Array.isArray(r.cards) &&
     r.cards.length > 0 &&
     r.cards.every((c) => !!c && typeof c.cardId === 'string' && typeof c.name === 'string')

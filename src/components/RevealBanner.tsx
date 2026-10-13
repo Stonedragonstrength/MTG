@@ -1,14 +1,22 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type MouseEvent } from 'react';
+import { createBoardItem } from '../lib/board';
 import { REVEAL_FRESH_MS } from '../lib/cards';
-import type { Reveal } from '../lib/types';
+import { bestToken } from '../lib/deckTokens';
+import { effectOf, spellPrompts, type SpellPrompt, type SpellTarget } from '../lib/spellEffects';
+import type { CardRecord, Reveal } from '../lib/types';
 import { useAppStore } from '../state/store';
 import { shieldBoard } from './Sheet';
+import SpellTargetSheet from './SpellTargetSheet';
 import { useCardRecords } from './useCardRecords';
 
 /** How long it stays in view before it puts itself away. */
 const SHOW_MS = 12_000;
 /** A spell being cast is one card everybody knows the look of: shorter. */
 const CAST_SHOW_MS = 7_000;
+/** …unless it is still offering to do something: its player needs the time. */
+const CAST_ASK_MS = 20_000;
+/** Everything it offered has been done: it goes a moment later. */
+const ASKED_MS = 1_000;
 const TICK_MS = 1000;
 /** A tap this soon after it came up was aimed at the board it now covers. */
 const SETTLE_MS = 350;
@@ -86,6 +94,32 @@ export function _reloadRevealMemory(): void {
   seen = rememberedSeen();
 }
 
+/** The token card each "make tokens" prompt would put on the board, by the
+ * prompt's key. A prompt this device has no token card for has no entry,
+ * and so no button: the "+" on the board still covers it. */
+function useTokenCards(prompts: SpellPrompt[]): Record<string, CardRecord> {
+  const [found, setFound] = useState<Record<string, CardRecord>>({});
+  const wantsKey = JSON.stringify(prompts.flatMap((p) => (p.kind === 'tokens' ? [{ key: p.key, want: p.want }] : [])));
+  useEffect(() => {
+    const asked: { key: string; want: Parameters<typeof bestToken>[0] }[] = JSON.parse(wantsKey);
+    if (asked.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      const { findCardsNamed } = await import('../data/scryfall');
+      const out: Record<string, CardRecord> = {};
+      for (const { key, want } of asked) {
+        const hit = bestToken(want, await findCardsNamed(want.name));
+        if (hit) out[key] = hit;
+      }
+      if (!cancelled) setFound(out);
+    })().catch(() => {}); // a read that fails offers no token button, nothing worse
+    return () => {
+      cancelled = true;
+    };
+  }, [wantsKey]);
+  return found;
+}
+
 interface PanelProps {
   reveal: Reveal;
   who: string;
@@ -94,6 +128,22 @@ interface PanelProps {
 
 function RevealPanel({ reveal, who, onDone }: PanelProps) {
   const records = useCardRecords(reveal.cards);
+  const cast = reveal.from === 'cast';
+
+  // What the spell does, as buttons under it (lib/spellEffects.ts). Only
+  // where its caster can reach them: on the shared tablet, or on the
+  // caster's own device at an online table.
+  const mySeat = useAppStore((s) => s.online?.mySeat);
+  const asks = cast && (mySeat == null || mySeat === reveal.seat);
+  const read = asks ? spellPrompts(records[reveal.cards[0].cardId], { x: reveal.x }) : [];
+  const tokenCards = useTokenCards(read);
+  const prompts = read.filter((p) => p.kind !== 'tokens' || tokenCards[p.key]);
+  const [used, setUsed] = useState<{ id: string; keys: string[] }>({ id: reveal.id, keys: [] });
+  const usedKeys = used.id === reveal.id ? used.keys : [];
+  const asking = prompts.some((p) => !usedKeys.includes(p.key));
+  const askingRef = useRef(asking);
+  askingRef.current = asking;
+  const [aiming, setAiming] = useState<{ id: string; prompt: SpellPrompt } | null>(null);
 
   // The tap that puts it away is often the first half of a double tap, and a
   // finger may be on its way when it times out: either way the board it was
@@ -121,10 +171,19 @@ function RevealPanel({ reveal, who, onDone }: PanelProps) {
       // more, never less.
       if (!isCovered && !wasCovered) inView += TICK_MS;
       wasCovered = isCovered;
-      if (inView >= (reveal.from === 'cast' ? CAST_SHOW_MS : SHOW_MS)) doneRef.current();
+      const cast = reveal.from === 'cast';
+      if (inView >= (!cast ? SHOW_MS : askingRef.current ? CAST_ASK_MS : CAST_SHOW_MS)) doneRef.current();
     }, TICK_MS);
     return () => window.clearInterval(timer);
   }, [reveal.id, reveal.t, reveal.from]);
+
+  // Every button it offered has been pressed: nothing is left to wait for.
+  const asked = prompts.length > 0 && !asking;
+  useEffect(() => {
+    if (!asked) return;
+    const timer = window.setTimeout(() => doneRef.current(), ASKED_MS);
+    return () => window.clearTimeout(timer);
+  }, [asked, reveal.id]);
 
   // It comes up unannounced in the middle of the table, quite possibly under
   // a finger on its way to a card. A tap in its first moment (and a new
@@ -147,13 +206,45 @@ function RevealPanel({ reveal, who, onDone }: PanelProps) {
   // A spell on its way to the graveyard: the same banner, lit in the
   // spell's own color. One color wears it, two or more wear gold, none
   // (an artifact spell, a card this device cannot read) wears steel.
-  const cast = reveal.from === 'cast';
   const colors = cast ? (records[reveal.cards[0].cardId]?.colors ?? []) : [];
   const spellColor = colors.length === 1 ? colors[0] : colors.length > 1 ? 'M' : 'C';
 
-  return (
+  /** Carries out one prompt (with its target, when it asked for one) and
+   * marks its button done. Each is one move at the table: one Undo. */
+  const carryOut = (prompt: SpellPrompt, target?: SpellTarget) => {
+    const store = useAppStore.getState();
+    if (prompt.kind === 'draw') store.drawCards(target?.seat ?? reveal.seat, prompt.n);
+    else if (prompt.kind === 'tokens') {
+      // As a token chip does it: more of a token already on the board
+      // joins its plain stack, otherwise a new stack arrives.
+      const card = tokenCards[prompt.key];
+      const stack = store.game?.players[reveal.seat]?.board.find(
+        (it) => it.cardId === card?.id && it.zone === 'board' && Object.keys(it.counters).length === 0,
+      );
+      if (!card) return;
+      if (stack) store.changeCount(reveal.seat, stack.id, prompt.n);
+      else store.addItem(reveal.seat, { ...createBoardItem(card, 'board'), count: prompt.n });
+    } else {
+      const effect = effectOf(prompt, reveal.seat, target);
+      if (!effect) return;
+      void store.castEffect(reveal.seat, reveal.cards[0].name, effect);
+    }
+    setUsed({ id: reveal.id, keys: [...usedKeys, prompt.key] });
+  };
+  const pressed = (e: MouseEvent, prompt: SpellPrompt) => {
+    e.stopPropagation(); // the banner's own tap puts it away: a button's must not
+    if (performance.now() - up.current.since < SETTLE_MS) return; // aimed at the board it now covers
+    if (prompt.pick) setAiming({ id: reveal.id, prompt });
+    else carryOut(prompt);
+  };
+
+  const banner = (
     <div
-      className={cast ? `reveal-banner reveal-banner--cast spell-${spellColor}` : 'reveal-banner'}
+      className={
+        cast
+          ? `reveal-banner reveal-banner--cast spell-${spellColor}${prompts.length > 0 ? ' reveal-banner--asks' : ''}`
+          : 'reveal-banner'
+      }
       role="status"
       title="Tap to put away"
       onClick={tapped}
@@ -181,7 +272,45 @@ function RevealPanel({ reveal, who, onDone }: PanelProps) {
           );
         })}
       </ul>
+      {prompts.length > 0 && (
+        // A near miss between two buttons is not a tap on the banner.
+        <div className="spell-prompts" role="group" aria-label="what it does" onClick={(e) => e.stopPropagation()}>
+          {prompts.map((prompt) => {
+            const done = usedKeys.includes(prompt.key);
+            return (
+              <button
+                key={prompt.key}
+                className={done ? 'spell-prompt spell-prompt--done' : 'spell-prompt'}
+                disabled={done}
+                onClick={(e) => pressed(e, prompt)}
+              >
+                {done ? `✓ ${prompt.label.replace(/…$/, '')}` : prompt.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
+  );
+
+  // The list is a sheet of its own, beside the banner and not inside it: a
+  // tap in a sheet travels up through whatever drew it, and would put the
+  // banner away. It goes with the banner when the cast does.
+  return (
+    <>
+      {banner}
+      {aiming && aiming.id === reveal.id && (
+        <SpellTargetSheet
+          reveal={reveal}
+          prompt={aiming.prompt}
+          onPick={(target) => {
+            carryOut(aiming.prompt, target);
+            setAiming(null);
+          }}
+          onClose={() => setAiming(null)}
+        />
+      )}
+    </>
   );
 }
 

@@ -6,6 +6,7 @@ import { kvDelete } from './data/db';
 import { useAppStore } from './state/store';
 import './styles/screens.css';
 import './styles/sheets.css';
+import './styles/spells.css';
 
 export default function App() {
   const setupDone = useAppStore((s) => s.setupDone);

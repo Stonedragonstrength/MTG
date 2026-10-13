@@ -1,0 +1,72 @@
+/* ---- what a spell does: buttons under the cast, and the list that points one ----
+   The buttons sit under the card in the cast banner (zones.css) and wear
+   its look: dark panel, gold edge, the display face. */
+
+/* The row of buttons needs room under the card: the card gives up a little height. */
+.reveal-banner--asks .reveal-cards {
+  --reveal-w: max(56px, min(var(--reveal-max, 170px), 94vw - 38px, (88vh - 190px) * 63 / 88));
+}
+
+.spell-prompts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  max-width: min(94vw - 38px, 620px);
+  margin-top: 12px;
+  cursor: default; /* the gaps between the buttons do nothing */
+}
+
+.spell-prompt {
+  min-height: 48px;
+  padding: 8px 18px;
+  border-radius: 12px;
+  border: 1px solid var(--accent);
+  background: rgba(12, 12, 16, 0.86);
+  color: var(--fg);
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.spell-prompt:active {
+  background: var(--accent);
+  color: #141410;
+}
+
+/* Done: it stays where it was, so the others do not jump under a finger. */
+.spell-prompt--done,
+.spell-prompt--done:active {
+  border-color: #4a4a54;
+  background: rgba(12, 12, 16, 0.5);
+  color: #8d8d98;
+  cursor: default;
+}
+
+/* ---- SpellTargetSheet: the rows are AttachSheet's; these are its own marks ---- */
+.spell-row--player .pile-name {
+  font-family: var(--font-display);
+  font-weight: 700;
+}
+
+/* What the damage would do to a creature, at the right of its row. */
+.spell-fate {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.spell-fate--dies {
+  background: #b3402e;
+  color: #fff;
+}
+
+.spell-fate--survives {
+  border: 1px solid #55555f;
+  color: #b9b7b1;
+}

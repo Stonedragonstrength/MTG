@@ -16,6 +16,7 @@ import { opponentsOf, tappedToAttack } from '../lib/attackDraft';
 import * as boardLib from '../lib/board';
 import * as gameLib from '../lib/game';
 import * as payLib from '../lib/pay';
+import { planEffect, type SpellEffect } from '../lib/spellEffects';
 import { isLandCard } from '../lib/turnRules';
 import { playDefeat, playLifeTick, playTurnChime } from '../lib/sound';
 import type {
@@ -145,6 +146,9 @@ export interface AppStore {
   /** Puts an Aura or Equipment on a host (any seat's), or takes it off
    * (null). `plus`: +1/+1 counters it shows on a card host while it is there. */
   attachVirtualCard(seat: number, iid: string, host: cardsLib.Host | null, plus?: number): void;
+  /** One effect of a spell that seat cast, picked off the cast banner
+   * (lib/spellEffects.ts): damage, life, removal, counters. One move, one Undo. */
+  castEffect(seat: number, spellName: string, effect: SpellEffect): Promise<void>;
   splitItem(playerIdx: number, itemId: string, moveCount: number): void;
   setCounter(playerIdx: number, itemId: string, counterName: string, value: number): void;
   setManaMode(playerIdx: number, itemId: string, mode: BoardItem['manaMode']): void;
@@ -222,6 +226,14 @@ async function seatRecords(g: GameState, seat: number): Promise<SeatRecords> {
     const byId = await m.getCardById(c.cardId).catch(() => undefined);
     records[c.cardId] = byId ?? (await m.findCardByName(c.name).catch(() => undefined));
   }
+  return records;
+}
+
+/** The same for every battlefield on the table: what a spell reads when it
+ * hits somebody else's creature, or all of them. */
+async function tableRecords(g: GameState): Promise<SeatRecords> {
+  const records: SeatRecords = {};
+  for (let seat = 0; seat < g.players.length; seat++) Object.assign(records, await seatRecords(g, seat));
   return records;
 }
 
@@ -707,6 +719,8 @@ export function createAppStore() {
               from: 'cast',
               cards: [{ cardId: card.cardId, name: card.name }],
               t: Date.now(),
+              // What it was cast for: the banner reads "deals X damage" with it.
+              ...(asksX ? { x } : {}),
             }
           : null;
         cardMutate(
@@ -1374,6 +1388,24 @@ export function createAppStore() {
             !!base.players[seat]?.cards?.battlefield.some((c) => c.iid === iid) &&
             (!host || cardsLib.hostIsThere(base, host)),
         );
+      },
+
+      // What a spell does, once its player has said so with a tap on the
+      // cast banner. Who dies and how many are swept is settled here,
+      // against the table that player was looking at, so the feed line and
+      // the table agree; a replay only asks that the targets are still there.
+      async castEffect(seat, spellName, effect) {
+        const seen = get().game;
+        if (!seen) return;
+        // Sizes and types are on the cards; life is not.
+        const reads =
+          effect.kind === 'sweep' || (effect.kind === 'damage' && effect.on !== 'opponents' && effect.on.kind !== 'player');
+        const records = reads ? await tableRecords(seen) : {};
+        const g = get().game;
+        if (!g) return;
+        const plan = planEffect(g, seat, spellName, effect, records);
+        if (!plan) return;
+        cardMutate(plan.apply, plan.text, plan.guard);
       },
 
       sacrificeToken(seat, itemId) {

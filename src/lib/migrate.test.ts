@@ -82,6 +82,13 @@ describe('reveals', () => {
     expect('reveal' in migrateGame(withReveal({ ...GOOD, from: 'graveyard' }))).toBe(false);
   });
 
+  test('a cast keeps the X it was made for; an X that is no number is refused', () => {
+    const cast = { ...GOOD, from: 'cast', x: 4 };
+    expect(migrateGame(withReveal(cast)).reveal).toEqual(cast);
+    expect('reveal' in migrateGame(withReveal({ ...cast, x: 'four' }))).toBe(false);
+    expect('reveal' in migrateGame(withReveal({ ...cast, x: Infinity }))).toBe(false);
+  });
+
   test('a malformed reveal is dropped, and the game around it still loads', () => {
     const broken: unknown[] = [
       null,
