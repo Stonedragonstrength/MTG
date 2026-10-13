@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { isAura } from '../lib/attach';
 import { boardSeat } from '../lib/combat';
+import { shareInSight } from '../lib/fit';
 import { affordable, asksAtCast, parseCosts, sourcesFrom } from '../lib/pay';
 import { canPlayLand, isLandCard } from '../lib/turnRules';
 import type { CardInstance } from '../lib/types';
@@ -8,37 +9,63 @@ import { useAppStore } from '../state/store';
 import AttachSheet from './AttachSheet';
 import HandCardSheet from './HandCardSheet';
 import { useCardRecords } from './useCardRecords';
-import { useFitHand } from './useFitHand';
 import { useLongPress } from './useLongPress';
 import { useSeatTexts } from './useSeatTexts';
 import XCostSheet from './XCostSheet';
+
+/** How much of a hand card has to be in sight for a tap to play it: with
+ * less showing, the first tap brings the card to the front instead. */
+const IN_SIGHT = 0.85;
+
+/** How much of the card in this slot is in sight, read off the layout (not
+ * the screen: a seat may be turned). */
+function inSight(slot: HTMLElement | null): number {
+  const card = slot?.firstElementChild as HTMLElement | null | undefined;
+  if (!slot || !card) return 1;
+  const front = slot.parentElement?.querySelector<HTMLElement>('.hand-slot--front');
+  return shareInSight(
+    card.offsetWidth,
+    slot.offsetLeft,
+    slot.offsetWidth,
+    front && front !== slot ? front.offsetLeft : null,
+  );
+}
 
 function HandCard({
   name,
   art,
   selected,
+  front,
   why,
-  onPlay,
+  onTap,
   onDetail,
 }: {
   name: string;
   art: string | null;
   selected: boolean;
+  /** Brought to the front of the fan: in sight whole, over the others. */
+  front: boolean;
   /** Why a tap will not play it right now (dimmed); null when it will. */
   why: string | null;
-  onPlay: () => void;
+  /** A tap, with how much of the card was in sight (0–1) when it came. */
+  onTap: (inSight: number) => void;
   onDetail: () => void;
 }) {
-  const press = useLongPress(onPlay, onDetail);
+  const slot = useRef<HTMLSpanElement>(null);
+  const press = useLongPress(() => onTap(inSight(slot.current)), onDetail);
   return (
-    <button
-      className={`hand-card${selected ? ' hand-card--selected' : ''}${why ? ' hand-card--poor' : ''}`}
-      aria-label={`play ${name}`}
-      title={why ? `${why.replace(/\.$/, '')} · hold for options` : 'Tap to play · hold for options'}
-      {...press}
-    >
-      {art ? <img src={art} alt="" loading="lazy" /> : <span className="vcard-placeholder">{name}</span>}
-    </button>
+    // The slot is the card's place in the fan: where the cards overlap, the
+    // slot is the part of this one that shows.
+    <span ref={slot} className={`hand-slot${front ? ' hand-slot--front' : ''}`}>
+      <button
+        className={`hand-card${selected ? ' hand-card--selected' : ''}${why ? ' hand-card--poor' : ''}`}
+        aria-label={`play ${name}`}
+        title={why ? `${why.replace(/\.$/, '')} · hold for options` : 'Tap to play · hold for options'}
+        {...press}
+      >
+        {art ? <img src={art} alt="" loading="lazy" /> : <span className="vcard-placeholder">{name}</span>}
+      </button>
+    </span>
   );
 }
 
@@ -48,9 +75,11 @@ interface Props {
   forceFanned?: boolean;
 }
 
-/** Your hand, docked at your own edge: a count pill that opens into the
- * cards, every one of them in sight whole (useFitHand sizes them to the
- * room there is). Tap plays (undo covers misclicks); hold for options.
+/** Your hand, docked at your own edge: a count pill that fans into the
+ * cards, held like a hand — side by side while there is room, each one
+ * under the next past that. Tap plays (undo covers misclicks); a card
+ * lying under the others comes to the front on the first tap and plays on
+ * the next. Hold for options.
  * Turn one offers the London mulligan with select-to-bottom on keep. */
 export default function HandTray({ playerIdx, forceFanned = false }: Props) {
   const game = useAppStore((s) => s.game);
@@ -67,9 +96,9 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
   const [showHeld, setShowHeld] = useState(false); // dead-phone escape hatch
   const [xFor, setXFor] = useState<string | null>(null); // the card the X sheet is asking about
   const [attachFor, setAttachFor] = useState<string | null>(null); // the Aura just played, asking where it goes
-  // The box the cards lie in, while the hand is open: it is measured, and
-  // the cards sized so that every one of them is in sight.
-  const [cardsBox, setCardsBox] = useState<HTMLElement | null>(null);
+  // The card a tap brought to the front of the fan (its iid): it is in sight
+  // whole until another card is tapped, or a card is played.
+  const [front, setFront] = useState<string | null>(null);
 
   const activeIdx = game?.activePlayerIndex;
   // The seat holding the big board: it also changes hands mid-turn, when a
@@ -84,6 +113,7 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
     setFolded(null);
     setBottoming(false);
     setSelected([]);
+    setFront(null);
   }, [activeIdx, boardIdx, forceFanned]);
   // Open by default only for the active player on the big board. A defender
   // who holds the board to choose blockers needs the room for creatures:
@@ -95,7 +125,6 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
   const records = useCardRecords(seat?.hand ?? []);
   const bfRecords = useCardRecords(seat?.battlefield ?? []);
   const texts = useSeatTexts(playerIdx);
-  useFitHand(cardsBox, seat?.hand.length ?? 0);
   if (!game || !seat) return null;
 
   // The gates: a spell lights up only while the untapped table can pay it,
@@ -175,17 +204,24 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
         </button>
       ) : (
         <div className="hand-fan">
-          <div className="hand-cards" ref={setCardsBox}>
+          <div className="hand-cards">
             {seat.hand.map((c) => (
               <HandCard
                 key={c.iid}
                 name={c.name}
                 art={records[c.cardId]?.imageNormal ?? null}
                 selected={selected.includes(c.iid)}
+                front={!bottoming && c.iid === front}
                 why={bottoming ? null : refusal(c)}
-                onPlay={() => {
+                onTap={(inSight) => {
                   if (bottoming) toggleSelect(c.iid);
-                  else if (!refusal(c)) play(c);
+                  // A card lying under the others is looked at before it is
+                  // played: the first tap brings it to the front.
+                  else if (c.iid !== front && inSight < IN_SIGHT) setFront(c.iid);
+                  else if (!refusal(c)) {
+                    setFront(null); // a card played, the fan closes up again
+                    play(c);
+                  }
                 }}
                 onDetail={() => !bottoming && setDetail(c.iid)}
               />

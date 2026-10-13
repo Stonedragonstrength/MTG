@@ -2908,7 +2908,7 @@ input[type='checkbox'] {
      bar whose hand lies open is thicker by the hand's line, and the big
      board and the bars beside it give it the room. */
   --bar: 54px;
-  --bar-open: 200px;
+  --bar-open: 180px;
   --bar-t: var(--bar);
   --bar-b: var(--bar);
   --bar-l: var(--bar);
@@ -3375,6 +3375,11 @@ input[type='checkbox'] {
 }
 
 .hand-card img { width: 100%; height: 100%; object-fit: cover; }
+
+/* A card's place in the hand. Around the table the hand is a fan and the
+   slot is the part of a card that shows; on the phone's hand view the
+   cards lay themselves out. */
+.hand-slot { display: contents; }
 
 .hand-card--selected {
   outline: 3px solid var(--accent);
@@ -3962,35 +3967,66 @@ input[type='checkbox'] {
   max-width: 150px;
 }
 
-/* Every card of the hand is in sight, whole: no card lies over another.
-   useFitHand measures this box and sizes the cards to it (--hand-h): side
-   by side while that leaves them a fair size, in a second row where the
-   seat has the height for one (a tablet held upright). --hand-pad is what
-   a full row leaves over each side, so the rows break evenly. Only a hand
-   too large for its room (--hand-room) at the smallest size scrolls. */
-.zone--cards.zone--focused .hand-cards {
+/* A hand held like a hand. While there is room the cards stand side by
+   side; past that each one slides under the next and shows its left edge
+   (the name, the art), the last one whole. A slot is the part of a card
+   that shows; the card itself keeps its full size, and the cards after it
+   lie over the rest. A tap on a card lying under the others brings it to
+   the front (HandTray): its slot opens to the whole card and the others
+   close up to give it the room — every one of them still in reach — and
+   where they are down to their narrowest strip already it lies over the
+   ones after it. Only a very full hand, every card down to its narrowest
+   strip, scrolls. The big board and the bars differ in the size of the
+   cards alone. */
+.zone--cards .hand-cards {
+  --hand-w: 156px;
+  --hand-h: 218px;
+  --hand-strip: 34px;
   flex: 1 1 0;
   min-width: 0;
-  flex-wrap: wrap;
-  gap: 6px;
-  justify-content: center;
-  align-content: flex-start;
-  max-height: var(--hand-room, none);
-  padding: 0 var(--hand-pad, 0px);
-  overflow-x: hidden;
-  overflow-y: auto;
+  gap: 0;
+  justify-content: safe center;
   scrollbar-width: none;
 }
 
-.zone--cards.zone--focused .hand-card {
-  width: auto;
-  height: var(--hand-h, 218px);
-  aspect-ratio: 63 / 88;
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.55);
+.zone--cards .hand-slot {
+  display: block;
+  position: relative;
+  flex: 1 1 0;
+  min-width: var(--hand-strip);
+  max-width: calc(var(--hand-w) + 8px);
+  height: var(--hand-h);
+  transition: flex-grow 0.14s ease, flex-basis 0.14s ease;
+}
+
+/* The slot of the card in front: as wide as its card while the others have
+   the room to give, and never so wide that the hand outgrows its row. */
+.zone--cards .hand-slot--front {
+  flex: 0 1 var(--hand-w);
+  z-index: 1;
+}
+
+.zone--cards .hand-slot:last-child {
+  flex: 0 0 var(--hand-w);
+}
+
+.zone--cards .hand-card {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--hand-w);
+  height: var(--hand-h);
+  box-shadow: -4px 0 10px rgba(0, 0, 0, 0.55);
+}
+
+.zone--cards .hand-slot--front .hand-card {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  box-shadow: 0 0 14px 3px rgba(0, 0, 0, 0.85);
 }
 
 /* A seat too narrow for a row of tools beside its cards (a tablet held
-   upright, a side seat): the tools take a line above, and the cards the
+   upright, a side seat): the tools take a line above, and the fan the
    full width under it. */
 .zone--cards.zone--focused.zone--narrow .hand-fan {
   flex-direction: column;
@@ -4011,16 +4047,29 @@ input[type='checkbox'] {
 }
 
 /* A card that cannot be played right now is dimmed — its picture, not the
-   card: a see-through card would show the table lying under it. */
-.zone--cards.zone--focused .hand-card--poor {
+   card: a see-through card would show the one lying under it. */
+.zone--cards .hand-card--poor {
   opacity: 1;
   filter: none;
 }
 
-.zone--cards.zone--focused .hand-card--poor img,
-.zone--cards.zone--focused .hand-card--poor .vcard-placeholder {
+.zone--cards .hand-card--poor img,
+.zone--cards .hand-card--poor .vcard-placeholder {
   opacity: 0.45;
   filter: saturate(0.4);
+}
+
+/* The card in front was brought there to be looked at: one that cannot be
+   played right now is nearly as bright as the rest, and wears a pale ring
+   where a card a tap would play wears the gold one. */
+.zone--cards .hand-slot--front .hand-card--poor {
+  outline-color: rgba(255, 255, 255, 0.4);
+}
+
+.zone--cards .hand-slot--front .hand-card--poor img,
+.zone--cards .hand-slot--front .hand-card--poor .vcard-placeholder {
+  opacity: 0.9;
+  filter: saturate(0.7);
 }
 
 /* ---- the header: Pass turn sits in the middle of the board ---- */
@@ -4180,10 +4229,9 @@ input[type='checkbox'] {
 }
 
 /* A hand opened on a bar takes a line of its own, as long as the bar, at
-   the player's own edge: the tools at its start, then every card of the
-   hand whole (useFitHand sizes them: --hand-h, --hand-pad, --hand-room).
-   Around a 360 table the bar is that much thicker (--bar-open) and the
-   big board gives it the room. */
+   the player's own edge: the tools at its start, then the same fan as on
+   the big board, in smaller cards. Around a 360 table the bar is that
+   much thicker (--bar-open) and the big board gives it the room. */
 .focus-mode .zone--cards:not(.zone--focused):has(> .hand-tray > .hand-fan) {
   flex-wrap: wrap;
   align-content: flex-start;
@@ -4217,27 +4265,13 @@ input[type='checkbox'] {
 }
 
 .focus-mode .zone--cards:not(.zone--focused) .hand-cards {
-  flex: 1 1 0;
-  min-width: 0;
-  flex-wrap: wrap;
-  gap: 4px;
-  justify-content: center;
-  align-content: flex-start;
-  max-height: var(--hand-room, none);
-  padding: 0 var(--hand-pad, 0px);
-  overflow-x: hidden;
-  overflow-y: auto;
-  scrollbar-width: none;
+  --hand-w: 86px;
+  --hand-h: 120px;
+  --hand-strip: 24px;
 }
 
 .focus-mode .zone--cards:not(.zone--focused) .hand-cards::-webkit-scrollbar {
   display: none;
-}
-
-.focus-mode .zone--cards:not(.zone--focused) .hand-card {
-  width: auto;
-  height: var(--hand-h, 109px);
-  aspect-ratio: 63 / 88;
 }
 
 .hand-card--poor,

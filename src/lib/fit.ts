@@ -27,51 +27,23 @@ export function fitCardHeight(
   return Math.max(min, Math.floor(best));
 }
 
-/** width / height of a card */
-export const CARD_ASPECT = 63 / 88;
-
-/** Where a hand lies open: on the big board, or on a player's bar. Sizes
- * are card heights in px; `room` is the height a hand on a bar may take
- * (the big board's depends on the seat: see handRoom). */
-export const HAND_FIT = {
-  board: { gap: 6, max: 218, min: 84 },
-  bar: { gap: 4, max: 140, min: 56, room: 140 },
-} as const;
-
-export type HandPlace = keyof typeof HAND_FIT;
-
-/** The height (px) a hand may take on a big board `zoneHeight` tall: one
- * row of full-size cards at least, and about a third of the seat where it
- * has the height to spare — a tablet held upright, where a second row is
- * what keeps a full hand large. */
-export function handRoom(zoneHeight: number): number {
-  return Math.round(Math.min(440, Math.max(HAND_FIT.board.max, zoneHeight * 0.34)));
-}
-
-export interface HandFit {
-  /** how tall each card is drawn */
-  height: number;
-  /** how many stand in a row */
-  perRow: number;
-}
-
-/** A hand in which every card is in sight, whole: `n` cards in a box
- * `width` wide that may grow `room` tall. Side by side while that leaves
- * them a fair size, in more rows when it does not — a row more has to
- * earn its height with cards a tenth taller at least. Only a hand too
- * large for its room at the smallest size overflows it (and scrolls). */
-export function fitHand(width: number, room: number, n: number, place: HandPlace): HandFit {
-  const { gap, max, min } = HAND_FIT[place];
-  if (n <= 0) return { height: max, perRow: 1 };
-  let best: HandFit = { height: 0, perRow: n };
-  for (let rows = 1; rows <= n; rows++) {
-    const perRow = Math.ceil(n / rows);
-    const byHeight = (room - gap * (rows - 1)) / rows;
-    const byWidth = (width - gap * (perRow - 1)) / perRow / CARD_ASPECT;
-    const height = Math.min(max, byHeight, byWidth);
-    if (height > best.height * 1.1) best = { height, perRow };
+/** The share (0–1) of a hand card's width that is in sight in the fan.
+ * A card `card` wide stands in a slot `slotWidth` wide at `slotLeft`: the
+ * slot is what the next card leaves uncovered. The card brought to the
+ * front (at `frontLeft`, null when none is) lies over what it reaches. */
+export function shareInSight(
+  card: number,
+  slotLeft: number,
+  slotWidth: number,
+  frontLeft: number | null,
+): number {
+  // A slot with no box of its own (the phone's hand view) covers nothing.
+  if (card <= 0 || slotWidth <= 0) return 1;
+  const to = slotLeft + Math.min(card, slotWidth);
+  let seen = to - slotLeft;
+  if (frontLeft !== null) {
+    const under = Math.min(to, frontLeft + card) - Math.max(slotLeft, frontLeft);
+    if (under > 0) seen -= under;
   }
-  if (best.height >= min) return { height: Math.floor(best.height), perRow: best.perRow };
-  const across = Math.floor((width + gap) / (min * CARD_ASPECT + gap));
-  return { height: min, perRow: Math.max(1, Math.min(n, across)) };
+  return seen / card;
 }

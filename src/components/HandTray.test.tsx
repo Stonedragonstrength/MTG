@@ -726,3 +726,98 @@ test('playing an Aura brings up the list of what it can go on once it has landed
   await sleep(50);
   expect(screen.queryByRole('heading', { name: /equip|attach/i })).not.toBeInTheDocument();
 });
+
+/** jsdom lays nothing out: stand the fan up by hand. Every card is `card`
+ * wide and shows `slot` of it, the last one whole. Hands back the undo. */
+function layFan(slot: number, card: number) {
+  const width = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    if (this.classList.contains('hand-card')) return card;
+    if (this.classList.contains('hand-slot')) return this.nextElementSibling ? slot : card;
+    return 0;
+  });
+  const left = vi.spyOn(HTMLElement.prototype, 'offsetLeft', 'get').mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    if (!this.classList.contains('hand-slot')) return 0;
+    return [...this.parentElement!.children].indexOf(this) * slot;
+  });
+  return () => {
+    width.mockRestore();
+    left.mockRestore();
+  };
+}
+
+const fanCards = () => screen.getAllByRole('button', { name: /^play / });
+const isFront = (card: HTMLElement) => card.parentElement!.classList.contains('hand-slot--front');
+
+test('a card lying under the others comes to the front on the first tap and plays on the next', async () => {
+  const undo = layFan(61, 156); // a full hand on an upright tablet: two fifths of each card show
+  const user = userEvent.setup();
+  render(<HandTray playerIdx={0} />);
+  const hand = useAppStore.getState().game!.players[0].cards!.hand;
+  const cards = fanCards();
+  expect(cards.some(isFront)).toBe(false);
+
+  await user.click(cards[2]);
+  expect(useAppStore.getState().playCard).not.toHaveBeenCalled();
+  expect(fanCards().map(isFront)).toEqual([false, false, true, false, false, false, false]);
+
+  // Another card takes its place; the first one drops back.
+  await user.click(fanCards()[5]);
+  expect(useAppStore.getState().playCard).not.toHaveBeenCalled();
+  expect(fanCards().map(isFront)).toEqual([false, false, false, false, false, true, false]);
+
+  // The card in front plays on a tap.
+  await user.click(fanCards()[5]);
+  expect(useAppStore.getState().playCard).toHaveBeenCalledWith(0, hand[5].iid);
+  undo();
+});
+
+test('a card under the one brought to the front comes forward itself; the last card, in sight whole, plays', async () => {
+  const undo = layFan(61, 156);
+  const user = userEvent.setup();
+  render(<HandTray playerIdx={0} />);
+  const hand = useAppStore.getState().game!.players[0].cards!.hand;
+
+  // The last card of the fan has nothing lying over it.
+  await user.click(fanCards()[6]);
+  expect(useAppStore.getState().playCard).toHaveBeenCalledWith(0, hand[6].iid);
+  vi.mocked(useAppStore.getState().playCard).mockClear();
+
+  // With the fifth card in front, the last one is partly under it: it comes forward first.
+  await user.click(fanCards()[4]);
+  await user.click(fanCards()[6]);
+  expect(useAppStore.getState().playCard).not.toHaveBeenCalled();
+  expect(fanCards().map(isFront)).toEqual([false, false, false, false, false, false, true]);
+  await user.click(fanCards()[6]);
+  expect(useAppStore.getState().playCard).toHaveBeenCalledWith(0, hand[6].iid);
+  undo();
+});
+
+test('cards that barely overlap play on the first tap, as they always did', async () => {
+  const undo = layFan(140, 156); // a full hand on a tablet on its side: nine tenths of each card show
+  const user = userEvent.setup();
+  render(<HandTray playerIdx={0} />);
+  const hand = useAppStore.getState().game!.players[0].cards!.hand;
+  await user.click(fanCards()[1]);
+  expect(useAppStore.getState().playCard).toHaveBeenCalledWith(0, hand[1].iid);
+  expect(fanCards().some(isFront)).toBe(false);
+  undo();
+});
+
+test('choosing cards to bottom picks them where they lie: nothing comes to the front', async () => {
+  const undo = layFan(61, 156);
+  const g = seededGame();
+  g.players[0] = { ...g.players[0], cards: { ...g.players[0].cards!, mulligans: 1 } };
+  useAppStore.setState({ game: g });
+  const user = userEvent.setup();
+  render(<HandTray playerIdx={0} />);
+  await user.click(screen.getByRole('button', { name: /^keep \(bottom 1\)$/i }));
+  await user.click(fanCards()[1]);
+  expect(fanCards()[1].className).toContain('hand-card--selected');
+  expect(fanCards().some(isFront)).toBe(false);
+  expect(useAppStore.getState().playCard).not.toHaveBeenCalled();
+  undo();
+});
