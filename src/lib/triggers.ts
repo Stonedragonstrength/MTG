@@ -54,6 +54,8 @@ export type Happening =
   /** A fight's result was applied: these attackers got through to a
    * player who took damage (the store says so — the table alone cannot). */
   | { kind: 'damage'; combat: string; things: Thing[] }
+  /** Cards that left a battlefield, for anywhere (deaths are among them). */
+  | { kind: 'leaves'; things: Thing[] }
   /** A seat's life changed by `n` (the trigger engine adds a burst of
    * taps on + up into one gain before anything is set off). */
   | { kind: 'life'; seat: number; n: number };
@@ -130,6 +132,30 @@ export function unitThing(g: GameState, seat: number, unit: { kind: 'card' | 'st
   return it ? { seat, kind: 'stack', id: it.id, cardId: it.cardId, name: it.name, n, typeLine: it.typeLine } : null;
 }
 
+/** Cards that left a battlefield between two states, for any zone. */
+export function leftBetween(prev: GameState, next: GameState): Thing[] {
+  const out: Thing[] = [];
+  next.players.forEach((player, seat) => {
+    const now = new Set((player.cards?.battlefield ?? []).map((c) => c.iid));
+    for (const c of prev.players[seat]?.cards?.battlefield ?? [])
+      if (!now.has(c.iid)) out.push({ seat, kind: 'card', id: c.iid, cardId: c.cardId, name: c.name, n: 1 });
+  });
+  return out;
+}
+
+/** Does this card hold what it exiles until it leaves the battlefield?
+ * "…until this enchantment leaves the battlefield" (Banishing Light),
+ * "When this leaves the battlefield, return the exiled card…" (Oblivion Ring). */
+export function holdsExiled(record: Pick<CardRecord, 'name' | 'oracleText'> | null | undefined): boolean {
+  if (!record) return false;
+  const name = record.name.split(' // ')[0];
+  const text = record.oracleText.split('\n//\n')[0].split(name).join('~');
+  return (
+    /\buntil (?:~|this [a-z]+) leaves the battlefield\b/i.test(text) ||
+    /\bleaves the battlefield, return the exiled\b/i.test(text)
+  );
+}
+
 /** Everything that happened between two states of the table, in the order
  * the game has it: a turn passing, a fight beginning, an attack, deaths,
  * arrivals. (A cast is not here: the store says so itself.) */
@@ -158,6 +184,8 @@ export function happeningsBetween(prev: GameState, next: GameState): Happening[]
   });
   const dead = departuresBetween(prev, next);
   if (dead.length > 0) out.push({ kind: 'dies', things: dead });
+  const left = leftBetween(prev, next);
+  if (left.length > 0) out.push({ kind: 'leaves', things: left });
   const arrived = arrivalsBetween(prev, next);
   if (arrived.length > 0) out.push({ kind: 'enters', things: arrived });
   return out;
@@ -175,6 +203,7 @@ export function stillHappened(g: GameState, h: Happening): boolean {
     case 'enters':
       return h.things.some(onField);
     case 'dies':
+    case 'leaves':
       return h.things.some((t) => t.kind === 'stack' || !onField(t));
     case 'attacks':
       return g.combat?.id === h.combat && g.combat.step !== 'attackers';
@@ -198,7 +227,7 @@ export function stillHappened(g: GameState, h: Happening): boolean {
 
 /** What a trigger waits for. 'upkeep' stands for the start of a turn (its
  * upkeep, draw step, first main phase), 'end' for its end step. */
-export type TriggerEvent = 'enters' | 'dies' | 'attacks' | 'blocks' | 'damage' | 'cast' | 'gain' | 'upkeep' | 'end' | 'combat';
+export type TriggerEvent = 'enters' | 'dies' | 'leaves' | 'attacks' | 'blocks' | 'damage' | 'cast' | 'gain' | 'upkeep' | 'end' | 'combat';
 
 /** One triggered ability of a card, for one event it waits for. */
 export interface Trigger {
@@ -235,7 +264,7 @@ const TAIL = '(?: the battlefield)?(?: under your control)?';
 // "When this creature enters", "Whenever another creature you control dies",
 // "Whenever this creature enters or attacks", "Whenever you attack": the
 // subject holds no comma.
-const MOVES = new RegExp(`${LEAD}When(?:ever)? ([^,.]+?) (enters?|dies|die|attacks?|blocks?)(${TAIL})(?: or ([a-z' ]+?))?(${TAIL}), (.+)$`, 'i');
+const MOVES = new RegExp(`${LEAD}When(?:ever)? ([^,.]+?) (enters?|dies|die|attacks?|blocks?|leaves the battlefield)(${TAIL})(?: or ([a-z' ]+?))?(${TAIL}), (.+)$`, 'i');
 // "Whenever this creature deals combat damage to a player", "Whenever one or
 // more Ninja you control deal combat damage to a player".
 const HITS = new RegExp(
@@ -269,6 +298,7 @@ const VERB: Record<string, TriggerEvent> = {
   attacks: 'attacks',
   block: 'blocks',
   blocks: 'blocks',
+  'leaves the battlefield': 'leaves',
 };
 /** "Equipped creature", "enchanted creature": what the card is on. */
 const ITS_HOST = /^(?:equipped|enchanted) creature$/;
@@ -392,7 +422,7 @@ export function readTriggers(record: Pick<CardRecord, 'name' | 'oracleText'> | n
     if (!m) continue;
     const subject = m[1].toLowerCase();
     const events = [VERB[m[2].toLowerCase()]];
-    const also = m[4]?.toLowerCase().match(/^(enters?|dies|die|attacks?|blocks?)(?: the battlefield)?$/);
+    const also = m[4]?.toLowerCase().match(/^(enters?|dies|die|attacks?|blocks?|leaves the battlefield)(?: the battlefield)?$/);
     if (also && !events.includes(VERB[also[1]])) events.push(VERB[also[1]]);
     const underYou = /under your control/i.test(`${m[3]}${m[5]}`);
     const effect = m[6];
@@ -428,6 +458,8 @@ export type TriggerAct = { key: string; label: string; auto: boolean } & (
   | { kind: 'return' }
   /** So many +1/+1 counters on the card itself. */
   | { kind: 'grow'; n: number }
+  /** What the card held in exile comes back (it has left the battlefield). */
+  | { kind: 'release' }
   /** An effect a spell could have too (lib/spellEffects.ts). */
   | { kind: 'prompt'; prompt: SpellPrompt }
 );
@@ -475,8 +507,11 @@ function manyTimes(prompt: SpellPrompt, times: number): SpellPrompt {
 export function actsOf(trigger: Trigger, times = 1): TriggerAct[] {
   const plain = !trigger.may && !trigger.unsure;
   const own = trigger.self && !trigger.other;
-  const dead = trigger.event === 'dies' && own;
+  const dead = (trigger.event === 'dies' || trigger.event === 'leaves') && own;
   const out: TriggerAct[] = [];
+  // "When this leaves the battlefield, return the exiled card to the battlefield…"
+  if (trigger.event === 'leaves' && /\breturn the exiled (?:card|cards|permanent|permanents|creature|creatures)\b[^.]*\bto the battlefield\b/i.test(trigger.effect))
+    out.push({ key: 'release', label: 'Return what it exiled', kind: 'release', auto: !trigger.may });
   if (RETURNS.test(trigger.effect) || (own && RETURNS_IT.test(trigger.effect)))
     out.push({ key: 'return', label: 'Return it to hand', kind: 'return', auto: plain });
   // Counters whose number is worked out ("for each creature card in your
@@ -583,6 +618,7 @@ const VERBED: Partial<Record<TriggerEvent, string>> = {
   attacks: 'attacked',
   blocks: 'blocked',
   damage: 'dealt combat damage to a player',
+  leaves: 'left the battlefield',
 };
 
 /** The triggers one happening sets off, on every seat's side: each card on
@@ -598,7 +634,7 @@ export function firedBy(g: GameState, h: Happening, records: Records): Fired[] {
     for (const c of player.cards?.battlefield ?? [])
       sources.push({ seat, iid: c.iid, cardId: c.cardId, name: c.name, ...(c.on ? { on: c.on } : {}) });
   });
-  if (h.kind === 'dies')
+  if (h.kind === 'dies' || h.kind === 'leaves')
     for (const t of h.things) if (t.kind === 'card' && t.cardId) sources.push({ seat: t.seat, iid: t.id, cardId: t.cardId, name: t.name });
 
   for (const source of sources) {

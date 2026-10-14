@@ -112,7 +112,7 @@ export function seedSeat(g: GameState, seat: number, cards: SeatCards): GameStat
 /** Battlefield-only fields never travel to other zones — and neither does
  * the face that was up: a card that leaves is its front face again. */
 function stripped(c: CardInstance): CardInstance {
-  const { tapped: _t, counters: _c, row: _r, spent: _s, sick: _k, on: _o, boost: _b, ...rest } = c;
+  const { tapped: _t, counters: _c, row: _r, spent: _s, sick: _k, on: _o, boost: _b, held: _h, ...rest } = c;
   return isBackId(rest.cardId) ? { ...rest, cardId: frontId(rest.cardId) } : rest;
 }
 
@@ -268,6 +268,40 @@ function moveWithinSeat(
         : [...dest, moved];
     return { ...cards, [from]: without, [to]: placed };
   });
+}
+
+// ---- held in exile: "until it leaves the battlefield" ----
+
+/** A permanent that holds cards in exile: its seat and instance. */
+export interface Holder {
+  seat: number;
+  iid: string;
+}
+
+/** Marks a card in its owner's exile as held there by that permanent. */
+export function holdInExile(g: GameState, seat: number, iid: string, by: Holder): GameState {
+  return updateSeat(g, seat, (cards) => {
+    if (!cards.exile.some((c) => c.iid === iid)) return null;
+    return { ...cards, exile: cards.exile.map((c) => (c.iid === iid ? { ...c, held: { seat: by.seat, iid: by.iid } } : c)) };
+  });
+}
+
+/** The cards that permanent holds in exile, on every seat. */
+export function heldBy(g: GameState, by: Holder): { seat: number; card: CardInstance }[] {
+  return g.players.flatMap((p, seat) =>
+    (p.cards?.exile ?? [])
+      .filter((c) => c.held?.seat === by.seat && c.held.iid === by.iid)
+      .map((card) => ({ seat, card })),
+  );
+}
+
+/** It left: what it held comes back to the battlefield, each card to its
+ * owner's side. The same game when it held nothing. */
+export function releaseHeldBy(g: GameState, by: Holder): GameState {
+  return heldBy(g, by).reduce(
+    (next, { seat, card }) => moveCard(next, seat, card.iid, 'exile', 'battlefield', { row: 'front' }),
+    g,
+  );
 }
 
 // ---- attachments: an Aura or an Equipment on its host ----

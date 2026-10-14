@@ -110,6 +110,10 @@ export interface AppStore {
   /** A permanent goes back to its owner's hand, and the table is told
    * which: it was in plain sight, unlike a card put there from a library. */
   returnToHand(seat: number, iid: string): void;
+  /** What that permanent held in exile ("until it leaves the battlefield")
+   * comes back to the battlefield, each card to its owner's side. `why`:
+   * the holder's name, for the feed. */
+  releaseHeld(seat: number, iid: string, why: string): void;
   millCards(seat: number, n: number): void;
   exileCards(seat: number, n: number): void;
   lookNotice(seat: number, n: number): void;
@@ -908,6 +912,20 @@ export function createAppStore() {
           (base) => cardsLib.moveCard(base, seat, iid, from, 'hand'),
           `${card.name} returns to ${seatName(g, seat)}’s hand`,
           (base) => !!base.players[seat]?.cards?.[from].some((c) => c.iid === iid),
+        );
+      },
+
+      releaseHeld(seat, iid, why) {
+        const g = get().game;
+        if (!g) return;
+        const by = { seat, iid };
+        const held = cardsLib.heldBy(g, by);
+        if (held.length === 0) return;
+        const names = held.map((h) => h.card.name).join(', ');
+        cardMutate(
+          (base) => cardsLib.releaseHeldBy(base, by),
+          `${names} return${held.length === 1 ? 's' : ''} to the battlefield (${why} left)`,
+          (base) => cardsLib.heldBy(base, by).length > 0,
         );
       },
 

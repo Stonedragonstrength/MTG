@@ -372,3 +372,63 @@ test('"Whenever you attack, creatures you control get +1/+0 until end of turn" h
   await waitFor(() => expect(mine().cards!.battlefield.find((c) => c.iid === 'b1')?.boost).toMatchObject({ power: 1, toughness: 0 }));
   expect(useAppStore.getState().game!.feed?.at(-1)?.text).toBe('Nathan’s Rallying Banner: creatures Nathan controls get +1/+0 until end of turn');
 });
+
+// ---- held in exile until it leaves ----
+
+Object.assign(RECORDS, {
+  oring: rec('oring', 'Oblivion Ring', 'Enchantment', "When this enchantment enters, exile another target nonland permanent.\nWhen this enchantment leaves the battlefield, return the exiled card to the battlefield under its owner's control."),
+  light: rec('light', 'Banishing Light', 'Enchantment', 'When this enchantment enters, exile target nonland permanent an opponent controls until this enchantment leaves the battlefield.'),
+});
+
+/** Sam's side: a bear. */
+function samHas(iids: CardInstance[]) {
+  const g = useAppStore.getState().game!;
+  useAppStore.setState({
+    game: { ...g, players: g.players.map((p, i) => (i === 1 ? { ...p, cards: { ...mine().cards!, library: [], hand: [], battlefield: iids } } : p)) },
+  });
+}
+const sam = () => useAppStore.getState().game!.players[1].cards!;
+
+test('Oblivion Ring: what it exiles is held; when it leaves, the card comes back by itself', async () => {
+  start([], [card('h1', 'oring')]);
+  samHas([card('s1', 'bear')]);
+  await act(() => useAppStore.getState().playCard(0, 'h1'));
+  await waitFor(() => expect(shown()).toHaveLength(1));
+  const row = shown()[0];
+  expect(row.acts).toMatchObject([{ label: 'Exile a nonland permanent…', done: false, holds: true }]);
+  // Its player picks Sam's bear.
+  act(() => useTriggers.getState().carryOut(row.key, row.acts[0].key, { seat: 1, kind: 'card', id: 's1' }));
+  await waitFor(() => expect(sam().exile.map((c) => [c.iid, c.held])).toEqual([['s1', { seat: 0, iid: 'h1' }]]));
+  expect(useAppStore.getState().game!.feed?.at(-1)?.text).toBe('Nathan’s Oblivion Ring exiles Sam’s Grizzly Bears until it leaves the battlefield');
+  // The ring is destroyed: the bear is back on Sam's side.
+  await quiet();
+  act(() => useAppStore.getState().moveVirtualCard(0, 'h1', 'battlefield', 'graveyard'));
+  await waitFor(() => expect(sam().battlefield.map((c) => c.iid)).toEqual(['s1']));
+  expect(sam().exile).toEqual([]);
+  expect(sam().battlefield[0]).not.toHaveProperty('held');
+  expect(useAppStore.getState().game!.feed?.at(-1)?.text).toBe('Grizzly Bears returns to the battlefield (Oblivion Ring left)');
+});
+
+test('Banishing Light ("until this leaves the battlefield") lets go the same way', async () => {
+  start([], [card('h1', 'light')]);
+  samHas([card('s1', 'bear')]);
+  await act(() => useAppStore.getState().playCard(0, 'h1'));
+  await waitFor(() => expect(shown()).toHaveLength(1));
+  const row = shown()[0];
+  act(() => useTriggers.getState().carryOut(row.key, row.acts[0].key, { seat: 1, kind: 'card', id: 's1' }));
+  await waitFor(() => expect(sam().exile.map((c) => c.iid)).toEqual(['s1']));
+  await quiet();
+  act(() => useAppStore.getState().returnToHand(0, 'h1'));
+  await waitFor(() => expect(sam().battlefield.map((c) => c.iid)).toEqual(['s1']));
+  expect(shown().at(-1)).toMatchObject({ because: 'It left the battlefield', acts: [{ label: 'Return Grizzly Bears', done: true }] });
+});
+
+test('a card exiled by hand is held by nothing: the ring leaving brings nothing back', async () => {
+  start([card('r1', 'oring')]);
+  samHas([card('s1', 'bear')]);
+  act(() => useAppStore.getState().moveVirtualCard(1, 's1', 'battlefield', 'exile'));
+  await quiet();
+  act(() => useAppStore.getState().moveVirtualCard(0, 'r1', 'battlefield', 'graveyard'));
+  await quiet();
+  expect(sam().exile.map((c) => c.iid)).toEqual(['s1']);
+});

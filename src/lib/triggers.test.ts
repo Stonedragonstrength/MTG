@@ -355,15 +355,17 @@ test('deaths, attacks, casts and the steps of a turn are read, each for the even
   expect(actsOf(readTriggers(MORE.bomb)[0])).toEqual([{ key: 'return', label: 'Return it to hand', kind: 'return', auto: true }]);
 });
 
-test('a creature put into its graveyard has died; one sent to exile has not', () => {
+test('a creature put into its graveyard has died; one sent to exile has not — both have left the battlefield', () => {
   const before = table([card('b1', 'bear'), card('b2', 'bear')]);
   const after = structuredClone(before);
   const [b1] = after.players[0].cards!.battlefield.splice(0, 1);
   after.players[0].cards!.graveyard.push(b1);
   const [b2] = after.players[0].cards!.battlefield.splice(0, 1);
   after.players[0].cards!.exile.push(b2);
+  const bear = (id: string) => ({ seat: 0, kind: 'card', id, cardId: 'bear', name: 'Grizzly Bears', n: 1 });
   expect(happeningsBetween(before, after)).toEqual([
-    { kind: 'dies', things: [{ seat: 0, kind: 'card', id: 'b1', cardId: 'bear', name: 'Grizzly Bears', n: 1 }] },
+    { kind: 'dies', things: [bear('b1')] },
+    { kind: 'leaves', things: [bear('b1'), bear('b2')] },
   ]);
 });
 

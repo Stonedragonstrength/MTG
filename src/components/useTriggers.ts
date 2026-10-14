@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { SpellTarget } from '../lib/spellEffects';
-import { actsOf, firedBy, stillHappened, type Happening, type Thing, type TriggerAct } from '../lib/triggers';
+import { heldBy } from '../lib/cards';
+import { actsOf, firedBy, holdsExiled, stillHappened, type Happening, type Thing, type TriggerAct } from '../lib/triggers';
 import type { CardRecord, GameState } from '../lib/types';
 import { tableRecords, useAppStore } from '../state/store';
 import { carryOutPrompt, findTokenCard } from './spellActs';
@@ -19,7 +20,12 @@ import { carryOutPrompt, findTokenCard } from './spellActs';
  * with its own line in the feed and its own Undo. */
 
 /** One thing a shown trigger does, and whether it has been done. */
-export type ShownAct = TriggerAct & { done: boolean; token?: CardRecord };
+export type ShownAct = TriggerAct & {
+  done: boolean;
+  token?: CardRecord;
+  /** An exile by a card that holds it until it leaves (Oblivion Ring). */
+  holds?: boolean;
+};
 
 /** A trigger that has gone off, as the banner shows it. */
 export interface ShownTrigger {
@@ -80,7 +86,14 @@ function run(key: string, actKey: string, target: SpellTarget | undefined, depth
     } else if (act.kind === 'grow') {
       if (card) store.setVirtualCounter(trigger.seat, card.iid, 'p1p1', (card.counters?.p1p1 ?? 0) + act.n);
       did = !!card;
-    } else did = carryOutPrompt(trigger.seat, trigger.source.name, act.prompt, act.token, target, trigger.source.iid);
+    } else if (act.kind === 'release') {
+      did = heldBy(store.game, { seat: trigger.seat, iid: trigger.source.iid }).length > 0;
+      if (did) store.releaseHeld(trigger.seat, trigger.source.iid, trigger.source.name);
+    } else
+      did = carryOutPrompt(trigger.seat, trigger.source.name, act.prompt, act.token, target, {
+        sourceIid: trigger.source.iid,
+        holds: act.holds,
+      });
   } finally {
     chain = 0;
   }
@@ -133,8 +146,15 @@ async function raise(events: Happening[], depth: number): Promise<void> {
   const fresh: ShownTrigger[] = [];
   for (const fired of events.flatMap((h) => firedBy(g, h, records).map((f) => ({ ...f, happening: h })))) {
     const acts: ShownAct[] = [];
+    const holder = { seat: fired.seat, iid: fired.source.iid };
     for (const act of actsOf(fired.trigger, fired.times)) {
-      if (act.kind !== 'prompt' || act.prompt.kind !== 'tokens') acts.push({ ...act, done: false });
+      // Nothing held in exile by it (exiled by hand, or already back): no button.
+      if (act.kind === 'release') {
+        const held = heldBy(g, holder);
+        if (held.length > 0) acts.push({ ...act, label: `Return ${held.map((h) => h.card.name).join(', ')}`, done: false });
+      } else if (act.kind === 'prompt' && act.prompt.kind === 'remove' && act.prompt.how === 'exile')
+        acts.push({ ...act, done: false, holds: holdsExiled(records[fired.source.cardId]) });
+      else if (act.kind !== 'prompt' || act.prompt.kind !== 'tokens') acts.push({ ...act, done: false });
       else {
         // No token card for it on this device: no button, as under a spell.
         const token = await findTokenCard(act.prompt.want).catch(() => undefined);
@@ -156,6 +176,27 @@ async function raise(events: Happening[], depth: number): Promise<void> {
       acts,
       happening: fired.happening,
     });
+  }
+  // "…until this leaves the battlefield" says no more than that: the card
+  // that held something in exile lets it go as it leaves, by the rules.
+  for (const h of events) {
+    if (h.kind !== 'leaves') continue;
+    for (const t of h.things) {
+      const held = heldBy(g, { seat: t.seat, iid: t.id });
+      if (held.length === 0) continue;
+      if (fresh.some((row) => row.source.iid === t.id && row.acts.some((a) => a.kind === 'release'))) continue;
+      const names = held.map((x) => x.card.name).join(', ');
+      fresh.push({
+        key: `t${++serial}`,
+        seat: t.seat,
+        source: { iid: t.id, name: t.name, art: (t.cardId && records[t.cardId]?.imageNormal) || null },
+        text: `It held ${names} in exile until it left the battlefield.`,
+        who: g.config.profiles[t.seat]?.name ?? '?',
+        because: 'It left the battlefield',
+        acts: [{ key: 'release', label: `Return ${names}`, kind: 'release', auto: true, done: false }],
+        happening: h,
+      });
+    }
   }
   if (fresh.length === 0) return;
   useTriggers.setState({ shown: [...useTriggers.getState().shown, ...fresh].slice(-SHOWN_CAP) });

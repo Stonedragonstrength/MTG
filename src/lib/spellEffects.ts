@@ -2,7 +2,7 @@ import { hostName } from './attach';
 import { boostCard, boostStack, boostWords } from './boost';
 import { keywordList } from './keywords';
 import { changeCount, computedPT, removeItem, setCounter } from './board';
-import { hostIsThere, moveCard, setCardCounter, type Host } from './cards';
+import { holdInExile, hostIsThere, moveCard, setCardCounter, type Holder, type Host } from './cards';
 import { hasKeyword, readSeat, readUnit, type CardRecords, type UnitRead } from './combatEngine';
 import { tokensMadeBy, type TokenWant } from './deckTokens';
 import { adjustLife } from './game';
@@ -105,8 +105,9 @@ const TARGET_DRAWS = new RegExp(`\\btarget (player|opponent) draws ${N} cards?\\
 const DRAW = new RegExp(`\\b(?:(player|opponent|controller|owner|they) may )?draw ${N} cards?\\b`, 'gi');
 // "Create" is the caster; "its controller creates" is not.
 const CREATE = new RegExp(`\\bcreate ${N} `, 'i');
-const REMOVE = new RegExp(`\\b(destroy|exile) target ${THING}`, 'gi');
-const BOUNCE = new RegExp(`\\breturn target ${THING} to (?:its|their) owner['’]s hand\\b`, 'gi');
+// "Exile another target nonland permanent" (Oblivion Ring), "up to one target…".
+const REMOVE = new RegExp(`\\b(destroy|exile) (?:up to one )?(?:another )?target ${THING}`, 'gi');
+const BOUNCE = new RegExp(`\\breturn (?:up to one )?(?:another )?target ${THING} to (?:its|their) owner['’]s hand\\b`, 'gi');
 const SWEEP = /\b(destroy|exile) all creatures(?=\s*(?:,|$))/gi;
 const COUNTERS = new RegExp(`\\bput ${N} \\+1\\/\\+1 counters? on target creature\\b`, 'gi');
 // "Target creature gets +3/+3 until end of turn", "…gets +2/+0 and gains
@@ -383,7 +384,8 @@ export type SpellTarget = { seat: number; kind: 'player' } | Host;
 export type SpellEffect =
   | { kind: 'damage'; n: number; on: SpellTarget | 'opponents' }
   | { kind: 'life'; n: number; gain: boolean; on: number | 'opponents' }
-  | { kind: 'remove'; how: 'destroy' | 'exile' | 'bounce'; on: Host }
+  /** `holdFor`: exiled "until" that permanent leaves the battlefield. */
+  | { kind: 'remove'; how: 'destroy' | 'exile' | 'bounce'; on: Host; holdFor?: Holder }
   | { kind: 'sweep'; how: 'destroy' | 'exile' }
   | { kind: 'counters'; n: number; on: Host }
   /** `except`: the one creature of the team that does not get it ("other"). */
@@ -398,6 +400,8 @@ export function effectOf(
   target?: SpellTarget,
   /** The card whose effect it is, when it is on the battlefield (a trigger): "other creatures" leaves it out. */
   sourceIid?: string,
+  /** That card holds what it exiles until it leaves the battlefield (Oblivion Ring). */
+  holds?: boolean,
 ): SpellEffect | null {
   switch (prompt.kind) {
     case 'damage':
@@ -408,7 +412,13 @@ export function effectOf(
       if (prompt.who === 'opponents') return { kind: 'life', n: prompt.n, gain: prompt.gain, on: 'opponents' };
       return target?.kind === 'player' ? { kind: 'life', n: prompt.n, gain: prompt.gain, on: target.seat } : null;
     case 'remove':
-      return target && target.kind !== 'player' ? { kind: 'remove', how: prompt.how, on: target } : null;
+      if (!target || target.kind === 'player') return null;
+      return {
+        kind: 'remove',
+        how: prompt.how,
+        on: target,
+        ...(holds && sourceIid && prompt.how === 'exile' ? { holdFor: { seat: caster, iid: sourceIid } } : {}),
+      };
     case 'sweep':
       return { kind: 'sweep', how: prompt.how };
     case 'counters':
@@ -650,12 +660,17 @@ export function planEffect(
       const on = effect.on;
       if (!hostIsThere(g, on)) return null;
       const to = effect.how === 'destroy' ? 'graveyard' : effect.how === 'exile' ? 'exile' : 'hand';
+      // Held in exile until the card that exiled it leaves: a card only (a token is gone).
+      const held = to === 'exile' && on.kind === 'card' ? effect.holdFor : undefined;
       return {
         text:
           effect.how === 'bounce'
             ? `${lead} returns ${theirs(on)} to hand`
-            : `${lead} ${effect.how === 'destroy' ? 'destroys' : 'exiles'} ${theirs(on)}`,
-        apply: (base) => leave(base, on, to),
+            : `${lead} ${effect.how === 'destroy' ? 'destroys' : 'exiles'} ${theirs(on)}${held ? ' until it leaves the battlefield' : ''}`,
+        apply: (base) => {
+          const out = leave(base, on, to);
+          return held && out !== base ? holdInExile(out, on.seat, on.id, held) : out;
+        },
         guard: (base) => hostIsThere(base, on),
       };
     }

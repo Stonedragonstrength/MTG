@@ -69,6 +69,11 @@ export interface CardInstance {
    * read cards. Whether it means summoning sickness is for the table and
    * the mana engine to say (lib/keywords.ts). */
   sick?: true;
+  /** Exile only: the permanent it is exiled by "until it leaves the
+   * battlefield" (Oblivion Ring, Banishing Light, Banisher Priest). When
+   * that one leaves, this one comes back (lib/cards.ts releaseHeldBy). Gone
+   * as soon as the card moves on, like every zone's own fields. */
+  held?: { seat: number; iid: string };
   /** Battlefield only: what "until end of turn" effects did to it this turn
    * (lib/boost.ts — read it through boostOf: a stamp from another turn is
    * no boost at all). */

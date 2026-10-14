@@ -25,8 +25,9 @@ export function carryOutPrompt(
   prompt: SpellPrompt,
   token: CardRecord | undefined,
   target?: SpellTarget,
-  /** The card it comes from, when that is on the battlefield (a trigger). */
-  sourceIid?: string,
+  /** The card it comes from, when that is on the battlefield (a trigger), and
+   * whether that card holds what it exiles until it leaves (Oblivion Ring). */
+  from?: { sourceIid?: string; holds?: boolean },
 ): boolean {
   const store = useAppStore.getState();
   if (prompt.kind === 'search') return false;
@@ -47,7 +48,7 @@ export function carryOutPrompt(
     else store.addItem(seat, { ...createBoardItem(token, 'board'), count: prompt.n });
     return true;
   }
-  const effect = effectOf(prompt, seat, target, sourceIid);
+  const effect = effectOf(prompt, seat, target, from?.sourceIid, from?.holds);
   if (!effect) return false;
   void store.castEffect(seat, source, effect);
   return true;
