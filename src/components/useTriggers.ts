@@ -86,6 +86,9 @@ function run(key: string, actKey: string, target: SpellTarget | undefined, depth
     } else if (act.kind === 'grow') {
       if (card) store.setVirtualCounter(trigger.seat, card.iid, 'p1p1', (card.counters?.p1p1 ?? 0) + act.n);
       did = !!card;
+    } else if (act.kind === 'renown') {
+      did = !!card && !((card.counters?.renowned ?? 0) > 0);
+      if (did) store.growCard(trigger.seat, trigger.source.iid, act.n, 'renowned');
     } else if (act.kind === 'release') {
       did = heldBy(store.game, { seat: trigger.seat, iid: trigger.source.iid }).length > 0;
       if (did) store.releaseHeld(trigger.seat, trigger.source.iid, trigger.source.name);
@@ -119,7 +122,13 @@ export const useTriggers = create<TriggerState>()((set, get) => ({
 
 /** What a happening is about: what entered, died or attacked, the spell. */
 const thingsOf = (h: Happening): Thing[] =>
-  h.kind === 'cast' ? [h.spell] : h.kind === 'turn' || h.kind === 'combat' || h.kind === 'life' ? [] : h.things;
+  h.kind === 'cast'
+    ? [h.spell]
+    : h.kind === 'monstrous'
+      ? [h.thing]
+      : h.kind === 'turn' || h.kind === 'combat' || h.kind === 'life'
+        ? []
+        : h.things;
 
 /** The records the triggers are read with: every card on a battlefield,
  * and every card and stack the happenings are about (one that died is in a
@@ -148,6 +157,12 @@ async function raise(events: Happening[], depth: number): Promise<void> {
     const acts: ShownAct[] = [];
     const holder = { seat: fired.seat, iid: fired.source.iid };
     for (const act of actsOf(fired.trigger, fired.times)) {
+      // Renowned already: Renown does nothing more.
+      if (act.kind === 'renown') {
+        const it = g.players[fired.seat]?.cards?.battlefield.find((c) => c.iid === fired.source.iid);
+        if (it && !((it.counters?.renowned ?? 0) > 0)) acts.push({ ...act, done: false });
+        continue;
+      }
       // Nothing held in exile by it (exiled by hand, or already back): no button.
       if (act.kind === 'release') {
         const held = heldBy(g, holder);
@@ -166,6 +181,8 @@ async function raise(events: Happening[], depth: number): Promise<void> {
     // else — a death, an attack, a turn — is shown either way: those are
     // the triggers people forget.
     if (fired.own && fired.happening.kind === 'enters' && acts.length === 0) continue;
+    // Renown on a creature that is renowned already: nothing to say.
+    if (/^renown \d+$/.test(fired.trigger.effect) && acts.length === 0) continue;
     fresh.push({
       key: `t${++serial}`,
       seat: fired.seat,

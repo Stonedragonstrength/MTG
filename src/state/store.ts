@@ -14,6 +14,8 @@ import { DEFAULT_SETTINGS, getSettings, saveSettings, type Settings } from '../d
 import { hostName, hostOf } from '../lib/attach';
 import { opponentsOf, tappedToAttack } from '../lib/attackDraft';
 import * as boardLib from '../lib/board';
+import { abilitiesOf, abilityBlocked } from '../lib/abilities';
+import { boostCard, boostWords } from '../lib/boost';
 import { equipHost, equipWay } from '../lib/equip';
 import { backView, faceNames, frontId, isBackId, turnsOver } from '../lib/faces';
 import * as gameLib from '../lib/game';
@@ -110,6 +112,14 @@ export interface AppStore {
   /** A permanent goes back to its owner's hand, and the table is told
    * which: it was in plain sight, unlike a card put there from a library. */
   returnToHand(seat: number, iid: string): void;
+  /** One of a creature's own growing abilities (lib/abilities.ts, by its
+   * key): its mana is paid in the same move — `free`: not paid — and its
+   * {T} taps it. Monstrosity makes it monstrous and sets off "when it
+   * becomes monstrous". `x`: what was paid for X. */
+  activateAbility(seat: number, iid: string, key: string, opts?: { x?: number; free?: boolean }): Promise<void>;
+  /** So many +1/+1 counters on a card, and maybe a mark it now wears
+   * ('renowned'): one move. */
+  growCard(seat: number, iid: string, n: number, mark?: string): void;
   /** What that permanent held in exile ("until it leaves the battlefield")
    * comes back to the battlefield, each card to its owner's side. `why`:
    * the holder's name, for the feed. */
@@ -912,6 +922,64 @@ export function createAppStore() {
           (base) => cardsLib.moveCard(base, seat, iid, from, 'hand'),
           `${card.name} returns to ${seatName(g, seat)}’s hand`,
           (base) => !!base.players[seat]?.cards?.[from].some((c) => c.iid === iid),
+        );
+      },
+
+      async activateAbility(seat, iid, key, opts) {
+        const g = get().game;
+        const card = g?.players[seat]?.cards?.battlefield.find((c) => c.iid === iid);
+        if (!g || !card) return;
+        const records = await seatRecords(g, seat);
+        const ability = abilitiesOf(records[card.cardId]).find((a) => a.key === key);
+        if (!ability || abilityBlocked(ability, card)) return;
+        const x = ability.cost.x ? wholeX(opts?.x) : 0;
+        const effect = ability.effect;
+        const n = effect.kind === 'counters' ? (effect.n === 'X' ? x : effect.n) : 0;
+        const monstrous = effect.kind === 'counters' && effect.once === 'monstrous';
+        const paidIn = { turn: g.turnNumber, active: g.activePlayerIndex };
+        const who = seatName(g, seat);
+        const text =
+          effect.kind === 'boost'
+            ? `${who}: ${card.name} gets ${boostWords(effect)} until end of turn`
+            : monstrous
+              ? `${who}: ${card.name} becomes monstrous (${n} +1/+1 counter${n === 1 ? '' : 's'})`
+              : effect.ifNone
+                ? `${who}: ${card.name} adapts (${n} +1/+1 counter${n === 1 ? '' : 's'})`
+                : `${who}: ${card.name} gets ${n} +1/+1 counter${n === 1 ? '' : 's'}`;
+        cardMutate(
+          (base) => {
+            const now = base.players[seat]?.cards?.battlefield.find((c) => c.iid === iid);
+            // Gone, or it would do nothing now (monstrous already, tapped…): nothing is paid either.
+            if (!now || abilityBlocked(ability, now)) return base;
+            const pay = opts?.free ? null : payFrom(base, seat, [payLib.withX(ability.cost, x)], records, paidIn);
+            let next = ability.tap ? cardsLib.tapSpent(base, seat, iid) : base;
+            if (effect.kind === 'boost') next = boostCard(next, seat, iid, effect);
+            else {
+              next = cardsLib.setCardCounter(next, seat, iid, 'p1p1', (now.counters?.p1p1 ?? 0) + n);
+              if (monstrous) next = cardsLib.setCardCounter(next, seat, iid, 'monstrous', 1);
+            }
+            return pay ? pay(next) : next;
+          },
+          text,
+          (base) => !!base.players[seat]?.cards?.battlefield.some((c) => c.iid === iid),
+          undefined,
+          monstrous ? [{ kind: 'monstrous', thing: { seat, kind: 'card', id: iid, cardId: card.cardId, name: card.name, n: 1 } }] : [],
+        );
+      },
+
+      growCard(seat, iid, n, mark) {
+        const g = get().game;
+        const card = g?.players[seat]?.cards?.battlefield.find((c) => c.iid === iid);
+        if (!g || !card || !(n > 0)) return;
+        cardMutate(
+          (base) => {
+            const now = base.players[seat]?.cards?.battlefield.find((c) => c.iid === iid);
+            if (!now || (mark && (now.counters?.[mark] ?? 0) > 0)) return base;
+            const grown = cardsLib.setCardCounter(base, seat, iid, 'p1p1', (now.counters?.p1p1 ?? 0) + n);
+            return mark ? cardsLib.setCardCounter(grown, seat, iid, mark, 1) : grown;
+          },
+          `${card.name} gets ${n} +1/+1 counter${n === 1 ? '' : 's'}${mark ? ` and becomes ${mark}` : ''}`,
+          (base) => !!base.players[seat]?.cards?.battlefield.some((c) => c.iid === iid),
         );
       },
 

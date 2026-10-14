@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
+import { abilitiesOf, abilityBlocked, type Ability } from '../lib/abilities';
 import { attachedTo, attaches, hostName, hostOf, isAura, isEquipment } from '../lib/attach';
+import { affordable, maxX, sourcesFrom, withX, type ManaSource } from '../lib/pay';
 import { isCommander } from '../lib/cards';
 import { faceNames, isBackId, turnsOver } from '../lib/faces';
 import { searchAsk, type SearchAsk } from '../lib/search';
@@ -8,9 +10,10 @@ import type { CardInstance } from '../lib/types';
 import { useAppStore } from '../state/store';
 import AttachSheet from './AttachSheet';
 import LibrarySearchSheet from './LibrarySearchSheet';
+import ManaSymbol, { CostSymbols } from './ManaSymbol';
 import Sheet from './Sheet';
 import { useCardRecords } from './useCardRecords';
-import { useSeatCombat } from './useCombat';
+import { useSeatCombat, useTableRecords } from './useCombat';
 
 interface Props {
   playerIdx: number;
@@ -26,6 +29,63 @@ const SHELVES: { shelf: Shelf; row: NonNullable<CardInstance['row']>; label: str
   { shelf: 'lands', row: 'lands', label: 'With the lands' },
   { shelf: 'side', row: 'side', label: 'On the side shelf' },
 ];
+
+/** One of the creature's own growing abilities: what it costs, what it does,
+ * and Use — paid from the lands as it is done ("Use without paying" while the
+ * mana is short, as equipping does). X is asked on the row. */
+function AbilityRow({
+  playerIdx,
+  card,
+  ability,
+  sources,
+}: {
+  playerIdx: number;
+  card: CardInstance;
+  ability: Ability;
+  sources: ManaSource[];
+}) {
+  const activateAbility = useAppStore((s) => s.activateAbility);
+  const [x, setX] = useState(() => (ability.cost.x ? maxX(ability.cost, sources) : 0));
+  const blocked = abilityBlocked(ability, card);
+  const short = !affordable(withX(ability.cost, x), sources);
+  const xs = ability.cost.x ?? 0;
+  return (
+    <div className="ability-row">
+      <span className="ability-cost" aria-label="cost">
+        {Array.from({ length: xs }, (_, i) => (
+          <ManaSymbol key={i} symbol="X" label="X" />
+        ))}
+        {(ability.cost.generic > 0 || ability.cost.pips.length > 0 || (xs === 0 && !ability.tap)) && <CostSymbols cost={ability.cost} />}
+        {ability.tap && <ManaSymbol symbol="T" label="tap it" />}
+      </span>
+      <span className="ability-label">{ability.label}</span>
+      {xs > 0 && (
+        <span className="stepper">
+          <button aria-label="less X" onClick={() => setX((n) => Math.max(0, n - 1))}>
+            −
+          </button>
+          <span>X={x}</span>
+          <button aria-label="more X" onClick={() => setX((n) => n + 1)}>
+            +
+          </button>
+        </span>
+      )}
+      <button
+        className={short && !blocked ? 'chip ability-use ability-use--free' : 'chip ability-use'}
+        disabled={!!blocked}
+        title={blocked ?? (short ? 'Not enough mana ready' : undefined)}
+        onClick={() =>
+          void activateAbility(playerIdx, card.iid, ability.key, {
+            ...(xs > 0 ? { x } : {}),
+            ...(short ? { free: true } : {}),
+          })
+        }
+      >
+        {blocked ?? (short ? 'Use without paying' : 'Use')}
+      </button>
+    </div>
+  );
+}
 
 /** Everything you do to a card on the battlefield that isn't a tap. */
 export default function BattlefieldCardSheet({ playerIdx, iid, onClose, picks = true }: Props) {
@@ -46,6 +106,7 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose, picks = 
   const seat = game?.players[playerIdx]?.cards;
   const card = seat?.battlefield.find((c) => c.iid === iid);
   const records = useCardRecords(card ? [card] : []);
+  const tableRecords = useTableRecords();
   const combat = useSeatCombat(playerIdx, picks);
   // A peer moved the card away: close for real, or the still-mounted sheet
   // ghost-reopens when the card returns and squats on the back stack.
@@ -103,6 +164,9 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose, picks = 
     !!ask &&
     /\bsacrifice (?:this \w+|it)\b[^.\n]*:[^\n]*\bsearch your library for\b/i.test(record?.oracleText ?? '');
   const faces = faceNames(record, card.name);
+  // Monstrosity, Adapt, Outlast, firebreathing…: paid from this seat's lands.
+  const abilities = abilitiesOf(record);
+  const sources = abilities.length > 0 ? sourcesFrom(seat.battlefield, tableRecords, game.players[playerIdx].board) : [];
 
   return (
     <Sheet title={card.name} onClose={onClose}>
@@ -185,6 +249,15 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose, picks = 
           </button>
         </div>
       </div>
+
+      {abilities.length > 0 && (
+        <div className="detail-section">
+          <span className="section-label">Abilities</span>
+          {abilities.map((ability) => (
+            <AbilityRow key={ability.key} playerIdx={playerIdx} card={card} ability={ability} sources={sources} />
+          ))}
+        </div>
+      )}
 
       {ask && (
         <div className="detail-section">

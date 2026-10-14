@@ -581,6 +581,35 @@ button.primary {
   font-weight: 700;
 }
 
+/* A creature's own ability on its sheet: cost, what it does, Use. */
+.ability-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  padding: 4px 0;
+  font-family: var(--font-body);
+}
+
+.ability-cost {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.ability-label {
+  flex: 1 1 10ch;
+  font-weight: 700;
+}
+
+.ability-use {
+  min-height: 44px;
+}
+
+.ability-use--free {
+  border-style: dashed;
+}
+
 /* What equipping costs, as the card prints it; whether the seat can pay;
    and the way round ("Equip anyway"), all on one line above the list. */
 .equip-cost {

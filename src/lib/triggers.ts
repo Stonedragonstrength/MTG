@@ -54,6 +54,8 @@ export type Happening =
   /** A fight's result was applied: these attackers got through to a
    * player who took damage (the store says so — the table alone cannot). */
   | { kind: 'damage'; combat: string; things: Thing[] }
+  /** A creature became monstrous (Monstrosity was activated: the store says so). */
+  | { kind: 'monstrous'; thing: Thing }
   /** Cards that left a battlefield, for anywhere (deaths are among them). */
   | { kind: 'leaves'; things: Thing[] }
   /** A seat's life changed by `n` (the trigger engine adds a burst of
@@ -202,6 +204,8 @@ export function stillHappened(g: GameState, h: Happening): boolean {
   switch (h.kind) {
     case 'enters':
       return h.things.some(onField);
+    case 'monstrous':
+      return (g.players[h.thing.seat]?.cards?.battlefield.find((c) => c.iid === h.thing.id)?.counters?.monstrous ?? 0) > 0;
     case 'dies':
     case 'leaves':
       return h.things.some((t) => t.kind === 'stack' || !onField(t));
@@ -227,7 +231,19 @@ export function stillHappened(g: GameState, h: Happening): boolean {
 
 /** What a trigger waits for. 'upkeep' stands for the start of a turn (its
  * upkeep, draw step, first main phase), 'end' for its end step. */
-export type TriggerEvent = 'enters' | 'dies' | 'leaves' | 'attacks' | 'blocks' | 'damage' | 'cast' | 'gain' | 'upkeep' | 'end' | 'combat';
+export type TriggerEvent =
+  | 'enters'
+  | 'dies'
+  | 'leaves'
+  | 'attacks'
+  | 'blocks'
+  | 'damage'
+  | 'cast'
+  | 'gain'
+  | 'upkeep'
+  | 'end'
+  | 'combat'
+  | 'monstrous';
 
 /** One triggered ability of a card, for one event it waits for. */
 export interface Trigger {
@@ -272,6 +288,7 @@ const HITS = new RegExp(
   'i',
 );
 const GAINS = new RegExp(`${LEAD}Whenever (you|an opponent|a player) gains? life, (.+)$`, 'i');
+const MONSTROUS = new RegExp(`${LEAD}When(?:ever)? (?:~|this creature) becomes monstrous, (.+)$`, 'i');
 const CASTS = new RegExp(
   `${LEAD}Whenever (you|an opponent|a player|another player) casts? (?:or cop(?:y|ies) )?(?:an?|another) (?:([a-z][a-z ,-]*?) )?spell, (.+)$`,
   'i',
@@ -398,6 +415,20 @@ export function readTriggers(record: Pick<CardRecord, 'name' | 'oracleText'> | n
       continue;
     }
 
+    const monstrous = line.match(MONSTROUS);
+    if (monstrous) {
+      add(text, 'monstrous', true, null, monstrous[1]);
+      continue;
+    }
+
+    // Renown N: when it deals combat damage to a player, if it is not renowned
+    // yet, N +1/+1 counters and it becomes renowned (the reminder is not read).
+    const renown = text.match(/^Renown (\d+)$/i);
+    if (renown) {
+      add(`Renown ${renown[1]}`, 'damage', true, null, `renown ${renown[1]}`);
+      continue;
+    }
+
     const gain = line.match(GAINS);
     if (gain) {
       add(text, 'gain', false, { whose: whoseOf(gain[1]), kinds: [[]], another: false, once: true, unsure: false }, gain[2]);
@@ -460,6 +491,8 @@ export type TriggerAct = { key: string; label: string; auto: boolean } & (
   | { kind: 'grow'; n: number }
   /** What the card held in exile comes back (it has left the battlefield). */
   | { kind: 'release' }
+  /** Renown: so many +1/+1 counters, and it becomes renowned — once. */
+  | { kind: 'renown'; n: number }
   /** An effect a spell could have too (lib/spellEffects.ts). */
   | { kind: 'prompt'; prompt: SpellPrompt }
 );
@@ -509,6 +542,11 @@ export function actsOf(trigger: Trigger, times = 1): TriggerAct[] {
   const own = trigger.self && !trigger.other;
   const dead = (trigger.event === 'dies' || trigger.event === 'leaves') && own;
   const out: TriggerAct[] = [];
+  const renown = trigger.effect.match(/^renown (\d+)$/);
+  if (renown) {
+    const n = Number(renown[1]);
+    return [{ key: 'renown', label: `Renown: ${n === 1 ? 'a +1/+1 counter' : `${n} +1/+1 counters`}`, kind: 'renown', n, auto: true }];
+  }
   // "When this leaves the battlefield, return the exiled card to the battlefield…"
   if (trigger.event === 'leaves' && /\breturn the exiled (?:card|cards|permanent|permanents|creature|creatures)\b[^.]*\bto the battlefield\b/i.test(trigger.effect))
     out.push({ key: 'release', label: 'Return what it exiled', kind: 'release', auto: !trigger.may });
@@ -665,6 +703,12 @@ export function firedBy(g: GameState, h: Happening, records: Records): Fired[] {
         const whose = trigger.other.whose;
         if ((whose === 'you' && h.seat !== source.seat) || (whose === 'opponent' && h.seat === source.seat)) continue;
         push(1, `${nameOf(h.seat)} gained ${h.n} life`, false);
+        continue;
+      }
+
+      if (h.kind === 'monstrous') {
+        if (trigger.event !== 'monstrous' || h.thing.id !== source.iid || h.thing.seat !== source.seat) continue;
+        push(1, 'It became monstrous', true);
         continue;
       }
 

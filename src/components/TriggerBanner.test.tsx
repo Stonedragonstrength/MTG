@@ -432,3 +432,42 @@ test('a card exiled by hand is held by nothing: the ring leaving brings nothing 
   await quiet();
   expect(sam().exile.map((c) => c.iid)).toEqual(['s1']);
 });
+
+// ---- becoming monstrous, and Renown ----
+
+Object.assign(RECORDS, {
+  cyclops: rec('cyclops', 'Gluttonous Cyclops', 'Creature — Cyclops', '{5}{R}{R}: Monstrosity 3.\nWhen this creature becomes monstrous, you gain 3 life.', { power: '5', toughness: '4' }),
+  maulers: rec('maulers', 'Rhox Maulers', 'Creature — Rhino Soldier', 'Trample\nRenown 2 (When this creature deals combat damage to a player, if it isn’t renowned, put two +1/+1 counters on it and it becomes renowned.)', { power: '4', toughness: '4' }),
+});
+
+test('"When this creature becomes monstrous" goes off as Monstrosity is used', async () => {
+  start([card('c1', 'cyclops')]);
+  const key = (await import('../lib/abilities')).abilitiesOf(RECORDS.cyclops)[0].key;
+  await act(() => useAppStore.getState().activateAbility(0, 'c1', key, { free: true }));
+  await waitFor(() => expect(mine().life).toBe(43));
+  expect(shown()[0]).toMatchObject({ because: 'It became monstrous' });
+});
+
+test('Renown: the first hit on a player makes it renowned with its counters; the next does nothing more', async () => {
+  start([card('r1', 'maulers')]);
+  const store = () => useAppStore.getState();
+  const hit = async () => {
+    act(() => store().startCombat());
+    await quiet();
+    act(() => store().setAttacker({ kind: 'card', id: 'r1' }, 1, 1));
+    await act(() => store().confirmAttackers());
+    await quiet();
+    act(() => store().finishBlocks(1));
+    await quiet();
+    act(() => store().applyCombat({ players: [{ seat: 1, life: -4 }], deaths: [] }, [{ kind: 'card', id: 'r1' }]));
+  };
+  await hit();
+  const maulers = () => mine().cards!.battlefield.find((c) => c.iid === 'r1')!;
+  await waitFor(() => expect(maulers().counters).toEqual({ p1p1: 2, renowned: 1 }));
+  // A second fight that turn: renowned already.
+  await quiet();
+  act(() => store().untapAll(0));
+  await hit();
+  await act(() => new Promise((r) => setTimeout(r, 200)));
+  expect(maulers().counters).toEqual({ p1p1: 2, renowned: 1 });
+});
