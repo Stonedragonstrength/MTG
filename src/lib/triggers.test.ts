@@ -665,3 +665,107 @@ test('Annihilator is said, with nothing to press: the defending player has the s
   expect(annihilator).toMatchObject({ event: 'attacks', self: true, text: 'Annihilator 2: the defending player sacrifices 2 permanents.' });
   expect(actsOf(annihilator)).toEqual([]);
 });
+
+// ---- cascade and rebound ----
+
+Object.assign(RECORDS, {
+  wanderer: rec('wanderer', 'Maelstrom Wanderer', 'Legendary Creature — Elemental', 'Creatures you control have haste.\nCascade, cascade', { manaCost: '{5}{G}{U}{R}' }),
+  burn: rec('burn', 'Let the Galaxy Burn', 'Sorcery', 'Cascade\nLet the Galaxy Burn deals X damage to each creature.', { manaCost: '{X}{5}{R}' }),
+  quandrix: rec('quandrix', 'Quandrix, the Proof', 'Legendary Creature — Elder Dragon', 'Flying, trample\nCascade\nInstant and sorcery spells you cast from your hand have cascade.', { manaCost: '{4}{G}{U}' }),
+  firstsliver: rec('firstsliver', 'The First Sliver', 'Legendary Creature — Sliver', 'Cascade\nSliver spells you cast have cascade.', { manaCost: '{W}{U}{B}{R}{G}' }),
+  sliver: rec('sliver', 'Muscle Sliver', 'Creature — Sliver', 'Sliver creatures you control get +1/+1.', { manaCost: '{1}{G}' }),
+  imoti: rec('imoti', 'Imoti, Celebrant of Bounty', 'Legendary Creature — Snake Druid', 'Spells you cast with mana value 6 or greater have cascade.', { manaCost: '{3}{G}{U}' }),
+  herald: rec('herald', 'Flamekin Herald', 'Creature — Elemental Wizard', 'Commander spells you cast have cascade.', { manaCost: '{2}{R}' }),
+  zap: rec('zap', 'Shock', 'Instant', 'Shock deals 2 damage to any target.', { manaCost: '{R}' }),
+  titan: rec('titan', 'Craterhoof Behemoth', 'Creature — Beast', 'Haste', { manaCost: '{5}{G}{G}{G}' }),
+  fireball: rec('fireball', 'Fireball', 'Sorcery', 'Fireball deals X damage divided as you choose among any number of targets.', { manaCost: '{X}{R}' }),
+});
+const castOf = (id: string, cardId: string, more: Partial<Extract<Happening, { kind: 'cast' }>> = {}): Happening => ({
+  kind: 'cast',
+  seat: 0,
+  spell: { seat: 0, kind: 'card', id, cardId, name: RECORDS[cardId].name, n: 1 },
+  ...more,
+});
+
+test('a spell with cascade goes off as it is cast, wherever it now lies — twice for "Cascade, cascade"', () => {
+  const g = table([card('w1', 'wanderer')]);
+  const [wanderer, ...rest] = firedBy(g, castOf('w1', 'wanderer'), RECORDS);
+  expect(rest).toEqual([]);
+  expect(wanderer).toMatchObject({
+    seat: 0,
+    source: { iid: 'w1', name: 'Maelstrom Wanderer' },
+    times: 2,
+    because: 'It was cast',
+    own: true,
+    trigger: { text: 'Cascade ×2', effect: 'cascade', may: true },
+  });
+  expect(actsOf(wanderer.trigger, wanderer.times)).toEqual([
+    { key: 'cascade-1', label: 'Cascade', kind: 'cascade', below: 0, step: 1, left: 1, auto: false },
+  ]);
+  // Below its own mana value.
+  expect(here(g, wanderer, castOf('w1', 'wanderer'))).toMatchObject([{ kind: 'cascade', below: 8 }]);
+  // A sorcery is in the graveyard by now: its cascade all the same, X counted.
+  const burnt = table([]);
+  const [burn] = firedBy(burnt, castOf('b1', 'burn', { x: 3 }), RECORDS);
+  expect(burn).toMatchObject({ source: { iid: 'b1' }, times: 1, trigger: { text: 'Cascade' } });
+  expect(here(burnt, burn, castOf('b1', 'burn', { x: 3 }))).toMatchObject([{ kind: 'cascade', below: 9 }]);
+  // No cascade, nothing.
+  expect(firedBy(table([card('d1', 'dragon')]), castOf('d1', 'dragon'), RECORDS)).toEqual([]);
+});
+
+test('cascade a permanent gives: Quandrix to instants and sorceries cast from hand, The First Sliver to Slivers but not to itself', () => {
+  const g = table([card('q1', 'quandrix'), card('s1', 'firstsliver')]);
+  expect(firedBy(g, castOf('z1', 'zap'), RECORDS)).toMatchObject([
+    { source: { iid: 'z1', name: 'Shock' }, times: 1, because: 'It was cast (cascade from Quandrix, the Proof)' },
+  ]);
+  // Cast from exile, or the card a cascade found: not from hand.
+  expect(firedBy(g, castOf('z1', 'zap', { from: 'exile' }), RECORDS)).toEqual([]);
+  expect(firedBy(g, castOf('z1', 'zap', { from: 'library' }), RECORDS)).toEqual([]);
+  const slivers = table([card('s1', 'firstsliver'), card('m1', 'sliver')]);
+  expect(firedBy(slivers, castOf('m1', 'sliver'), RECORDS)).toMatchObject([
+    { source: { iid: 'm1' }, times: 1, because: 'It was cast (cascade from The First Sliver)' },
+  ]);
+  expect(firedBy(table([card('s1', 'firstsliver')]), castOf('s1', 'firstsliver'), RECORDS)).toMatchObject([
+    { source: { iid: 's1' }, times: 1, because: 'It was cast' },
+  ]);
+});
+
+test('Imoti gives cascade to spells of mana value 6 or more (X counted); Flamekin Herald to commanders only', () => {
+  const g = table([card('i1', 'imoti')]);
+  expect(firedBy(g, castOf('t1', 'titan'), RECORDS)).toMatchObject([{ source: { iid: 't1' }, times: 1 }]);
+  expect(firedBy(g, castOf('z1', 'zap'), RECORDS)).toEqual([]);
+  expect(firedBy(g, castOf('f1', 'fireball', { x: 5 }), RECORDS)).toMatchObject([{ times: 1 }]);
+  expect(firedBy(g, castOf('f1', 'fireball', { x: 4 }), RECORDS)).toEqual([]);
+  const herald = table([card('h1', 'herald')]);
+  herald.players[0] = { ...herald.players[0], cards: { ...herald.players[0].cards!, cmd: { c1: 0 } } };
+  expect(firedBy(herald, castOf('c1', 'titan', { from: 'command' }), RECORDS)).toMatchObject([{ source: { iid: 'c1' }, times: 1 }]);
+  expect(firedBy(herald, castOf('t2', 'titan'), RECORDS)).toEqual([]);
+});
+
+test('rebound: the card in exile goes off as its owner’s next turn begins — that turn and no other', () => {
+  const g = table([]);
+  g.players[0] = { ...g.players[0], cards: { ...g.players[0].cards!, exile: [{ ...card('x1', 'zap'), rebound: { turn: 1, active: 0 } }] } };
+  const began = (seat: number, turn: number): Happening => ({ kind: 'turn', ended: 1 - seat, began: seat, turn });
+  expect(firedBy(g, began(1, 1), RECORDS)).toEqual([]); // Sam's turn
+  const [rebound, ...rest] = firedBy(g, began(0, 2), RECORDS);
+  expect(rest).toEqual([]);
+  expect(rebound).toMatchObject({
+    seat: 0,
+    source: { iid: 'x1', name: 'Shock' },
+    because: 'Nathan’s turn began',
+    trigger: { text: 'Rebound', effect: 'rebound', may: true },
+  });
+  expect(here(g, rebound, began(0, 2))).toEqual([{ key: 'rebound', label: 'Cast Shock', kind: 'recast', auto: false }]);
+  expect(firedBy(g, began(0, 3), RECORDS)).toEqual([]); // a turn later: gone by
+});
+
+test('a cast is taken back once the card is where it was cast from again: the hand, or the library a cascade found it in', () => {
+  const found: Happening = castOf('l1', 'zap', { from: 'library' });
+  const back = table([]);
+  back.players[0] = { ...back.players[0], cards: { ...back.players[0].cards!, library: [card('l1', 'zap')] } };
+  expect(stillHappened(back, found)).toBe(false);
+  const cast = table([]);
+  cast.players[0] = { ...cast.players[0], cards: { ...cast.players[0].cards!, graveyard: [card('l1', 'zap')] } };
+  expect(stillHappened(cast, found)).toBe(true);
+  expect(stillHappened(back, castOf('l1', 'zap'))).toBe(true); // from hand: the library is not where it was
+});

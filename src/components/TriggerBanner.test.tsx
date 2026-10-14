@@ -659,3 +659,126 @@ test('wither in a fight: the creature that lives keeps -1/-1 counters', async ()
   expect(mine().cards!.graveyard.map((c) => c.iid)).toEqual(['g1']);
   expect(useAppStore.getState().game!.feed?.at(-1)?.text).toBe('Combat: Boggart Ram-Gang dies · Shivan Dragon gets 3 -1/-1 counters');
 });
+
+// ---- cascade and rebound ----
+
+Object.assign(RECORDS, {
+  elf: rec('elf', 'Bloodbraid Elf', 'Creature — Elf Berserker', 'Cascade (When you cast this spell, exile cards from the top of your library until you exile a nonland card that costs less. You may cast it without paying its mana cost. Put the exiled cards on the bottom of your library in a random order.)\nHaste', { manaCost: '{2}{R}{G}', power: '3', toughness: '2' }),
+  wanderer: rec('wanderer', 'Maelstrom Wanderer', 'Legendary Creature — Elemental', 'Creatures you control have haste.\nCascade, cascade', { manaCost: '{5}{G}{U}{R}', power: '7', toughness: '5' }),
+  giant: rec('giant', 'Hill Giant', 'Creature — Giant', '', { manaCost: '{3}{R}', power: '3', toughness: '3' }),
+  stagger: rec('stagger', 'Staggershock', 'Instant', 'Staggershock deals 2 damage to any target.\nRebound (If you cast this spell from your hand, exile it as it resolves. At the beginning of your next upkeep, you may cast this card from exile without paying its mana cost.)', { manaCost: '{2}{R}' }),
+});
+const setLibrary = (library: CardInstance[]) => {
+  const g = useAppStore.getState().game!;
+  useAppStore.setState({ game: { ...g, players: g.players.map((p, i) => (i === 0 ? { ...p, cards: { ...p.cards!, library } } : p)) } });
+};
+const lastFeed = () => useAppStore.getState().game!.feed?.at(-1)?.text;
+const cascadeRow = () => shown().find((t) => t.effect === 'cascade');
+const libraryIids = () => mine().cards!.library.map((c) => c.iid);
+
+test('cascade: Bloodbraid Elf offers the first nonland card below it — Cast casts it, the cards before it go under the library', async () => {
+  start([], [card('h1', 'elf')]);
+  setLibrary([card('l1', 'forest'), card('l2', 'giant'), card('l3', 'bolt'), card('l4', 'bear')]);
+  await act(() => useAppStore.getState().playCard(0, 'h1'));
+  await waitFor(() => expect(cascadeRow()?.acts.map((a) => a.label)).toEqual(['Cast Lightning Bolt', 'Put Lightning Bolt on the bottom']));
+  expect(cascadeRow()).toMatchObject({ because: 'It was cast', text: 'Cascade: Forest, Hill Giant, Lightning Bolt' });
+  expect(libraryIids()).toEqual(['l1', 'l2', 'l3', 'l4']); // nothing has moved yet
+
+  render(<TriggerBanner />);
+  await act(() => new Promise((r) => setTimeout(r, 400)));
+  await userEvent.click(screen.getByRole('button', { name: 'Cast Lightning Bolt' }));
+  expect(mine().cards!.graveyard.map((c) => c.iid)).toEqual(['l3']);
+  expect(libraryIids()[0]).toBe('l4');
+  expect(libraryIids().slice(1).sort()).toEqual(['l1', 'l2']);
+  expect(useAppStore.getState().game!.reveal).toMatchObject({ from: 'cast', cards: [{ cardId: 'bolt', name: 'Lightning Bolt' }] });
+  expect(lastFeed()).toBe('Nathan: Bloodbraid Elf cascades into Lightning Bolt (Forest, Hill Giant to the bottom)');
+  expect(screen.getByRole('button', { name: '✓ Cast Lightning Bolt' })).toBeDisabled();
+  expect(screen.queryByRole('button', { name: 'Put Lightning Bolt on the bottom' })).toBeNull();
+  // One move: Undo takes the whole cascade back.
+  act(() => useAppStore.getState().undo());
+  expect(libraryIids()).toEqual(['l1', 'l2', 'l3', 'l4']);
+  expect(mine().cards!.graveyard).toEqual([]);
+});
+
+test('cascade: Put it on the bottom sends the card found there too, with the rest', async () => {
+  start([], [card('h1', 'elf')]);
+  setLibrary([card('l1', 'forest'), card('l3', 'bolt'), card('l4', 'bear')]);
+  await act(() => useAppStore.getState().playCard(0, 'h1'));
+  await waitFor(() => expect(cascadeRow()?.acts).toHaveLength(2));
+  act(() => useTriggers.getState().carryOut(cascadeRow()!.key, 'cascade-1-bottom'));
+  expect(libraryIids()[0]).toBe('l4');
+  expect(libraryIids().slice(1).sort()).toEqual(['l1', 'l3']);
+  expect(mine().cards!.graveyard).toEqual([]);
+  expect(lastFeed()).toBe('Nathan: Bloodbraid Elf cascades into Lightning Bolt, not cast (Forest, Lightning Bolt to the bottom)');
+  expect(cascadeRow()?.acts.map((a) => [a.label, a.done])).toEqual([['Put Lightning Bolt on the bottom', true]]);
+});
+
+test('cascade, cascade (Maelstrom Wanderer): the second is read off the library once the first is answered', async () => {
+  start([], [card('h1', 'wanderer')]);
+  setLibrary([card('l1', 'forest'), card('l2', 'bear'), card('l3', 'forest'), card('l4', 'bolt')]);
+  await act(() => useAppStore.getState().playCard(0, 'h1'));
+  await waitFor(() => expect(cascadeRow()?.acts.map((a) => a.label)).toEqual(['Cast Grizzly Bears', 'Put Grizzly Bears on the bottom']));
+  expect(cascadeRow()?.text).toBe('Cascade 1 of 2: Forest, Grizzly Bears');
+  act(() => useTriggers.getState().carryOut(cascadeRow()!.key, 'cascade-1-cast'));
+  expect(on('l2')).toMatchObject({ name: 'Grizzly Bears', sick: true });
+  await waitFor(() =>
+    expect(cascadeRow()?.acts.map((a) => [a.label, a.done])).toEqual([
+      ['Cast Grizzly Bears', true],
+      ['Cast Lightning Bolt', false],
+      ['Put Lightning Bolt on the bottom', false],
+    ]),
+  );
+  expect(cascadeRow()?.text).toBe('Cascade 2 of 2: Forest, Lightning Bolt');
+  act(() => useTriggers.getState().carryOut(cascadeRow()!.key, 'cascade-2-cast'));
+  expect(mine().cards!.graveyard.map((c) => c.iid)).toEqual(['l4']);
+  expect(libraryIids()).toEqual(['l1', 'l3']);
+});
+
+test('cascade into a library of lands: nothing to cast, and the library goes back in a random order by itself', async () => {
+  start([], [card('h1', 'elf')]);
+  await act(() => useAppStore.getState().playCard(0, 'h1'));
+  await waitFor(() => expect(cascadeRow()?.acts.map((a) => [a.label, a.done])).toEqual([['Nothing to cast: the library is shuffled', true]]));
+  expect(cascadeRow()?.text).toBe('Cascade: no nonland card with mana value less than 4 in the library');
+  expect(libraryIids().sort()).toEqual(['l1', 'l2', 'l3']);
+  expect(lastFeed()).toBe('Nathan: Bloodbraid Elf cascades and finds nothing to cast — the library is shuffled');
+});
+
+test('rebound: Staggershock goes to exile as it is cast, and comes back free as its player’s next turn begins — once', async () => {
+  start([], [card('h1', 'stagger')]);
+  const store = () => useAppStore.getState();
+  await act(() => store().playCard(0, 'h1'));
+  expect(mine().cards!.exile).toEqual([{ iid: 'h1', cardId: 'stagger', name: 'Staggershock', rebound: { turn: 1, active: 0 } }]);
+  expect(mine().cards!.graveyard).toEqual([]);
+  expect(lastFeed()).toBe('Nathan casts Staggershock — exiled with rebound');
+  await quiet();
+  act(() => store().passTurn()); // Sam's turn: not yet
+  await quiet();
+  expect(shown().filter((t) => t.effect === 'rebound')).toEqual([]);
+  act(() => store().passTurn()); // Nathan's
+  await waitFor(() => expect(shown().find((t) => t.effect === 'rebound')?.acts.map((a) => a.label)).toEqual(['Cast Staggershock']));
+  const row = shown().find((t) => t.effect === 'rebound')!;
+  expect(row).toMatchObject({ text: 'Rebound', because: 'Nathan’s turn began', source: { iid: 'h1', art: 'https://img.example/stagger.jpg' } });
+  act(() => useTriggers.getState().carryOut(row.key, 'rebound'));
+  await waitFor(() => expect(mine().cards!.graveyard.map((c) => c.iid)).toEqual(['h1']));
+  expect(mine().cards!.exile).toEqual([]);
+  expect(store().game!.reveal).toMatchObject({ from: 'cast', cards: [{ name: 'Staggershock' }] });
+  expect(lastFeed()).toBe('Nathan casts Staggershock from exile (rebound)');
+});
+
+test('rebound left alone: the card stays in exile and comes up no more', async () => {
+  start([], [card('h1', 'stagger')]);
+  const store = () => useAppStore.getState();
+  await act(() => store().playCard(0, 'h1'));
+  await quiet();
+  act(() => store().passTurn());
+  await quiet();
+  act(() => store().passTurn());
+  await waitFor(() => expect(shown().some((t) => t.effect === 'rebound')).toBe(true));
+  act(() => useTriggers.getState().putAway());
+  act(() => store().passTurn());
+  await quiet();
+  act(() => store().passTurn());
+  await quiet();
+  expect(shown().filter((t) => t.effect === 'rebound')).toEqual([]);
+  expect(mine().cards!.exile.map((c) => c.iid)).toEqual(['h1']);
+});

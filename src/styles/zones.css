@@ -5002,6 +5002,8 @@ input[type='checkbox'] {
 .pile-art { width: 40px; height: 56px; object-fit: cover; border-radius: 4px; flex: 0 0 auto; }
 .pile-art--empty { background: #22222a; display: inline-block; }
 .pile-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* "· rebounds next turn": a word on where the card stands, after its name. */
+.pile-note { font-size: 0.72rem; opacity: 0.72; }
 .pile-actions { display: flex; gap: 4px; }
 .pile-actions button { padding: 4px 8px; font-size: 0.72rem; }
 

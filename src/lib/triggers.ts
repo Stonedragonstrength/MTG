@@ -1,11 +1,12 @@
 import { boostWords } from './boost';
-import type { Host } from './cards';
+import { isCommander, type Host } from './cards';
+import { cascadeGrants, reboundTurn, spellManaValue, type CascadePlan } from './cascade';
 import { liveCombat } from './combat';
 import { readUnit } from './combatEngine';
 import { isSaga } from './entering';
-import { keywordAmount, keywordList, keywordsOf } from './keywords';
+import { keywordAmount, keywordCount, keywordList, keywordsOf } from './keywords';
 import { spellPrompts, type SpellPrompt } from './spellEffects';
-import type { BoardItem, CardRecord, GameState } from './types';
+import type { BoardItem, CardRecord, CardZone, GameState } from './types';
 
 /** Cards that trigger by themselves. A permanent that waits for something
  * the table can see happen — something entering ("When a Dragon you control
@@ -51,7 +52,10 @@ export type Happening =
   | { kind: 'dies'; things: Thing[] }
   /** An attack declared: these attacked, for `seat`, in fight `combat`. */
   | { kind: 'attacks'; seat: number; combat: string; things: Thing[] }
-  | { kind: 'cast'; seat: number; spell: Thing }
+  /** A spell cast — from its owner's hand unless `from` says otherwise (a
+   * commander from the command zone, a card from exile, the card a cascade
+   * found in the library). `x`: what was paid for X. */
+  | { kind: 'cast'; seat: number; spell: Thing; from?: CardZone; x?: number }
   /** A turn passed: `ended`'s end step was behind it, `began`'s upkeep ahead. */
   | { kind: 'turn'; ended: number; began: number; turn: number }
   /** A fight began on `seat`'s turn. */
@@ -255,7 +259,7 @@ export function stillHappened(g: GameState, h: Happening): boolean {
     case 'life':
       return true;
     case 'cast':
-      return !g.players[h.seat]?.cards?.hand.some((c) => c.iid === h.spell.id);
+      return !g.players[h.seat]?.cards?.[h.from ?? 'hand'].some((c) => c.iid === h.spell.id);
     case 'turn':
       return g.turnNumber === h.turn && g.activePlayerIndex === h.began;
   }
@@ -633,6 +637,15 @@ export type TriggerAct = { key: string; label: string; auto: boolean } & (
   | { kind: 'sacrifice' }
   /** "Exile this Saga, then return it to the battlefield transformed". */
   | { kind: 'transform' }
+  /** Cascade (lib/cascade.ts): exile from the top of the library until a
+   * nonland card with mana value less than `below`, then cast it or not
+   * (`cast`). `plan` is what that comes to, read off the library on the
+   * table (components/useTriggers.ts), which offers it as two acts — the
+   * one is the other's alternative. `step`: which of the spell's cascades
+   * this is; `left`: how many more come after it. */
+  | { kind: 'cascade'; below: number; step: number; left: number; plan?: CascadePlan; cast?: boolean }
+  /** The card is cast from exile without paying its mana cost (rebound). */
+  | { kind: 'recast' }
   /** An effect a spell could have too (lib/spellEffects.ts). */
   | { kind: 'prompt'; prompt: SpellPrompt }
 );
@@ -731,6 +744,10 @@ export function actsOf(trigger: Trigger, times = 1): TriggerAct[] {
     return [{ key: 'afflict', label: `Afflict: loses ${n} life`, kind: 'lose', n, who: 'defender', auto: true }];
   }
   if (/^annihilator \d+$/.test(trigger.effect)) return [];
+  // Cascade: one at a time, each read off the library as it then lies.
+  if (trigger.effect === 'cascade')
+    return [{ key: 'cascade-1', label: 'Cascade', kind: 'cascade', below: 0, step: 1, left: Math.max(0, times - 1), auto: false }];
+  if (trigger.effect === 'rebound') return [{ key: 'rebound', label: 'Cast it from exile', kind: 'recast', auto: false }];
   if (trigger.effect === 'lore') return [{ key: 'lore', label: 'A lore counter', kind: 'counters', add: { lore: 1 }, auto: true }];
   // Vanishing, Fading: a counter off; the engine says when it is sacrificed instead.
   if (trigger.effect === 'vanishing' || trigger.effect === 'fading') {
@@ -916,6 +933,17 @@ export function actsHere(g: GameState, fired: Fired, h: Happening, acts: Trigger
       out.push({ ...act, label: `Remove a ${kind} counter (${has(kind) - 1} left)` });
       continue;
     }
+    if (act.kind === 'cascade') {
+      // Less than the spell's own mana value as it was cast, X included.
+      const record = records[fired.source.cardId];
+      if (!record) continue;
+      out.push({ ...act, below: spellManaValue(record, h.kind === 'cast' ? h.x : 0) });
+      continue;
+    }
+    if (act.kind === 'recast') {
+      out.push({ ...act, label: `Cast ${fired.source.name}` });
+      continue;
+    }
     if (act.kind === 'sacrifice' && (effect === 'vanishing' || effect === 'fading')) {
       // Vanishing: as the last time counter comes off. Fading: when there is none to take off.
       if (!card) continue;
@@ -1030,6 +1058,35 @@ function fits(other: Other, seat: number, t: Thing, e: Seen): boolean {
   return other.kinds.some((words) => words.every((word) => wordFits(word, e)));
 }
 
+/** How many times a spell cascades as it is cast: as often as it has the
+ * keyword itself, and as often as its player's other permanents give it to
+ * a spell like it ("Sliver spells you cast have cascade" — lib/cascade.ts),
+ * with the names of those that do. */
+function cascadesOf(g: GameState, h: Extract<Happening, { kind: 'cast' }>, records: Records): { n: number; givers: string[] } {
+  const record = h.spell.cardId ? records[h.spell.cardId] : null;
+  const e = seen(h.spell, records);
+  if (!record || !e) return { n: 0, givers: [] };
+  let n = keywordCount(record.oracleText, 'cascade');
+  const givers: string[] = [];
+  const cards = g.players[h.seat]?.cards;
+  const value = spellManaValue(record, h.x);
+  for (const c of cards?.battlefield ?? []) {
+    // A permanent spell gives nothing to itself: it was not there yet as it was cast.
+    if (c.iid === h.spell.id) continue;
+    for (const grant of cascadeGrants(records[c.cardId])) {
+      if (grant.fromHand && (h.from ?? 'hand') !== 'hand') continue;
+      if (value < grant.atLeast) continue;
+      const like = grant.commander
+        ? !!cards && isCommander(cards, h.spell.id) === true
+        : grant.kinds.some((words) => words.every((word) => wordFits(word, e)));
+      if (!like) continue;
+      n += grant.times;
+      if (!givers.includes(c.name)) givers.push(c.name);
+    }
+  }
+  return { n, givers };
+}
+
 const VERBED: Partial<Record<TriggerEvent, string>> = {
   enters: 'entered',
   dies: 'died',
@@ -1048,6 +1105,35 @@ const VERBED: Partial<Record<TriggerEvent, string>> = {
 export function firedBy(g: GameState, h: Happening, records: Records): Fired[] {
   const out: Fired[] = [];
   const nameOf = (seat: number) => g.config.profiles[seat]?.name ?? '?';
+
+  // Cascade goes off as the spell is cast, wherever the spell has gone since
+  // (an instant is in the graveyard already, a creature on the battlefield).
+  if (h.kind === 'cast' && h.spell.cardId) {
+    const { n, givers } = cascadesOf(g, h, records);
+    if (n > 0)
+      out.push({
+        seat: h.seat,
+        source: { iid: h.spell.id, cardId: h.spell.cardId, name: h.spell.name },
+        trigger: { text: n === 1 ? 'Cascade' : `Cascade ×${n}`, event: 'cast', self: true, other: null, unsure: false, may: true, effect: 'cascade' },
+        times: n,
+        because: givers.length > 0 ? `It was cast (cascade from ${givers.join(', ')})` : 'It was cast',
+        own: true,
+      });
+  }
+  // Rebound: a card cast with it from its owner's hand comes back from exile
+  // as that player's next turn begins.
+  if (h.kind === 'turn')
+    for (const c of g.players[h.began]?.cards?.exile ?? [])
+      if (c.rebound && reboundTurn(h.began, c.rebound) === h.turn)
+        out.push({
+          seat: h.began,
+          source: { iid: c.iid, cardId: c.cardId, name: c.name },
+          trigger: { text: 'Rebound', event: 'upkeep', self: true, other: null, unsure: false, may: true, effect: 'rebound' },
+          times: 1,
+          because: `${nameOf(h.began)}’s turn began`,
+          own: false,
+        });
+
   const sources: { seat: number; iid: string; cardId: string; name: string; on?: { seat: number; kind: string; id: string } }[] = [];
   g.players.forEach((player, seat) => {
     for (const c of player.cards?.battlefield ?? [])

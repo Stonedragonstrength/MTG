@@ -187,3 +187,51 @@ test('its partner without X still casts straight from the row', async () => {
   expect(useAppStore.getState().castCommander).toHaveBeenCalledWith(0, ashaya.iid);
   expect(onClose).toHaveBeenCalled();
 });
+
+test('a card cast with rebound says so in exile, and may be cast from there all through its player’s next turn', async () => {
+  const castFromExile = vi.fn();
+  useAppStore.setState({ castFromExile });
+  const base = createGame(config);
+  const at = (turnNumber: number, activePlayerIndex: number): GameState => ({
+    ...base,
+    turnNumber,
+    activePlayerIndex,
+    players: base.players.map((p, i) =>
+      i === 0
+        ? {
+            ...p,
+            cards: {
+              library: [],
+              hand: [],
+              battlefield: [],
+              graveyard: [],
+              exile: [{ iid: 'x1', cardId: 'c-bear', name: 'Grizzly Bears', rebound: { turn: 1, active: 0 } }],
+              command: [],
+              mulligans: 0,
+              deckName: 'Test',
+            },
+          }
+        : p,
+    ),
+  });
+  useAppStore.setState({ game: at(1, 1) }); // Sam's turn, after it was cast
+  const onClose = vi.fn();
+  const { unmount } = render(<PileSheet playerIdx={0} zone="exile" onClose={onClose} />);
+  expect(screen.getByText('· rebounds next turn')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /^cast$/i })).not.toBeInTheDocument();
+  unmount();
+
+  useAppStore.setState({ game: at(2, 0) }); // Nathan's next turn
+  const user = userEvent.setup();
+  const view = render(<PileSheet playerIdx={0} zone="exile" onClose={onClose} />);
+  expect(screen.getByText('· rebound: cast it free')).toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: /^cast$/i }));
+  expect(castFromExile).toHaveBeenCalledWith(0, 'x1', 'rebound');
+  expect(onClose).toHaveBeenCalled();
+  view.unmount();
+
+  useAppStore.setState({ game: at(2, 1) }); // gone by
+  render(<PileSheet playerIdx={0} zone="exile" onClose={onClose} />);
+  expect(screen.queryByText(/rebound/)).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /^cast$/i })).not.toBeInTheDocument();
+});

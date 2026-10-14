@@ -16,6 +16,7 @@ import { opponentsOf, tappedToAttack } from '../lib/attackDraft';
 import * as boardLib from '../lib/board';
 import { abilitiesOf, abilityBlocked } from '../lib/abilities';
 import { boostCard, boostStack, boostWords, type BoostChange } from '../lib/boost';
+import { castsWithRebound, isSpellCard, type CascadePlan } from '../lib/cascade';
 import { entryCounters } from '../lib/entering';
 import { equipHost, equipWay } from '../lib/equip';
 import { backView, faceNames, frontId, isBackId, turnsOver } from '../lib/faces';
@@ -141,6 +142,16 @@ export interface AppStore {
   /** A permanent's upkeep paid in mana (cumulative upkeep): the lands pay
    * `cost` ("{1}{1}") in one move, as for a spell. */
   payUpkeep(seat: number, iid: string, cost: string): Promise<void>;
+  /** Cascade, carried out in one move (lib/cascade.ts): the cards it exiled
+   * go to the bottom of the library in a random order, and the card it
+   * found is cast without paying its mana cost — or goes with them (`cast`
+   * false). Nothing happens unless they are still the top of the library,
+   * in that order. `why`: the spell that cascaded, for the feed. */
+  cascade(seat: number, plan: CascadePlan, cast: boolean, why: string): void;
+  /** A card in exile is cast without paying its mana cost (rebound): to the
+   * graveyard if it is an instant or sorcery, else onto the battlefield.
+   * `why`: what lets it, for the feed. */
+  castFromExile(seat: number, iid: string, why: string): Promise<void>;
   millCards(seat: number, n: number): void;
   exileCards(seat: number, n: number): void;
   lookNotice(seat: number, n: number): void;
@@ -801,6 +812,10 @@ export function createAppStore() {
         const brings = isSpell ? {} : entryCounters(record);
         const records = await seatRecords(g, seat);
         const castIn = { turn: g.turnNumber, active: g.activePlayerIndex };
+        // Rebound (its own, or given by a permanent like Cast Through Time):
+        // the spell goes to exile instead, marked with this turn, and comes up
+        // again as its player's next turn begins (lib/triggers.ts).
+        const rebound = isSpell && !boughtBack && castsWithRebound(record, Object.values(records));
         // An instant or sorcery is gone to the graveyard the moment it is
         // cast, and used to vanish there unseen. So the cast is SHOWN to the
         // table the way a reveal is — on every device, until it is tapped
@@ -826,9 +841,10 @@ export function createAppStore() {
             let moved = boughtBack
               ? base
               : isSpell
-                ? cardsLib.moveCard(base, seat, iid, 'hand', 'graveyard')
+                ? cardsLib.moveCard(base, seat, iid, 'hand', rebound ? 'exile' : 'graveyard')
                 : cardsLib.moveCard(base, seat, iid, 'hand', 'battlefield', { row });
             if (moved === base && !boughtBack) return base;
+            if (rebound) moved = cardsLib.markRebound(moved, seat, iid, castIn);
             // The land on the back of a spell lands back face up: it reads as the land it is.
             if (opts?.asLand && turnsOver(record)) moved = cardsLib.flipCard(moved, seat, iid, true);
             if (shown) moved = cardsLib.setReveal(moved, shown);
@@ -842,11 +858,13 @@ export function createAppStore() {
             if (!boughtBack) moved = cardsLib.addCardCounters(moved, seat, iid, brings);
             return pay(moved);
           },
-          `${seatName(g, seat)} ${verb} ${card.name}${asksX ? ` (X=${x})` : ''}${payLib.extrasWords(extras, times)}`,
+          `${seatName(g, seat)} ${verb} ${card.name}${asksX ? ` (X=${x})` : ''}${payLib.extrasWords(extras, times)}${rebound ? ' — exiled with rebound' : ''}`,
           (base) => !!base.players[seat]?.cards?.hand.some((c) => c.iid === iid),
           undefined,
           // Cast, not played: cards waiting for a spell are set off by it.
-          isLand ? [] : [{ kind: 'cast', seat, spell: { seat, kind: 'card', id: iid, cardId: card.cardId, name: card.name, n: 1 } }],
+          isLand
+            ? []
+            : [{ kind: 'cast', seat, spell: { seat, kind: 'card', id: iid, cardId: card.cardId, name: card.name, n: 1 }, ...(asksX ? { x } : {}) }],
         );
       },
 
@@ -1098,6 +1116,84 @@ export function createAppStore() {
         );
       },
 
+      cascade(seat, plan, cast, why) {
+        const g = get().game;
+        if (!g?.players[seat]?.cards || plan.exiled.length === 0) return;
+        const exiled = plan.exiled.map((c) => c.iid);
+        const found = plan.found;
+        const going = cast ? found : null;
+        const seed = Math.floor(Math.random() * 2 ** 31);
+        const names = (cards: { name: string }[]) => cards.map((c) => c.name).join(', ');
+        const rest = plan.exiled.filter((c) => c.iid !== going?.iid);
+        const text = !found
+          ? `${seatName(g, seat)}: ${why} cascades and finds nothing to cast — the library is shuffled`
+          : going
+            ? `${seatName(g, seat)}: ${why} cascades into ${found.name}${rest.length > 0 ? ` (${names(rest)} to the bottom)` : ''}`
+            : `${seatName(g, seat)}: ${why} cascades into ${found.name}, not cast (${names(rest)} to the bottom)`;
+        // An instant or sorcery it casts is shown to the table as any cast is
+        // (see playCard), for an X of 0: it was not paid for.
+        const shown: Reveal | null = going?.spell
+          ? {
+              id: `r${cardsLib.newIid()}`,
+              seat,
+              from: 'cast',
+              cards: [{ cardId: going.cardId, name: going.name }],
+              t: Date.now(),
+              ...(going.x ? { x: 0 } : {}),
+            }
+          : null;
+        const onTop = (base: GameState) => {
+          const top = base.players[seat]?.cards?.library.slice(0, exiled.length);
+          return !!top && top.length === exiled.length && top.every((c, i) => c.iid === exiled[i]);
+        };
+        cardMutate(
+          (base) => {
+            let next = cardsLib.cascade(base, seat, exiled, going ? { iid: going.iid, to: going.spell ? 'graveyard' : 'battlefield' } : null, seed);
+            if (next === base) return base;
+            if (shown) next = cardsLib.setReveal(next, shown);
+            if (going && !going.spell) next = cardsLib.addCardCounters(next, seat, going.iid, going.brings);
+            return next;
+          },
+          text,
+          onTop,
+          undefined,
+          // The card it casts is a spell cast: what waits for one is set off by it.
+          going
+            ? [{ kind: 'cast', seat, spell: { seat, kind: 'card', id: going.iid, cardId: going.cardId, name: going.name, n: 1 }, from: 'library', ...(going.x ? { x: 0 } : {}) }]
+            : [],
+        );
+      },
+
+      async castFromExile(seat, iid, why) {
+        const g = get().game;
+        const card = g?.players[seat]?.cards?.exile.find((c) => c.iid === iid);
+        if (!g || !card) return;
+        const record = await import('../data/scryfall').then(async (m) => {
+          const byId = await m.getCardById(card.cardId).catch(() => undefined);
+          return byId ?? m.findCardByName(card.name).catch(() => undefined);
+        });
+        // A card that cannot be read is cast as what it most likely is: a spell
+        // (only rebound brings one back, and those are instants and sorceries).
+        const spell = record ? isSpellCard(record.typeLine) : true;
+        const asksX = !!record && payLib.hasX(payLib.castCosts(record, 'hand'));
+        const brings = spell ? {} : entryCounters(record);
+        const shown: Reveal | null = spell
+          ? { id: `r${cardsLib.newIid()}`, seat, from: 'cast', cards: [{ cardId: card.cardId, name: card.name }], t: Date.now(), ...(asksX ? { x: 0 } : {}) }
+          : null;
+        cardMutate(
+          (base) => {
+            let moved = cardsLib.moveCard(base, seat, iid, 'exile', spell ? 'graveyard' : 'battlefield', spell ? undefined : { row: 'front' });
+            if (moved === base) return base;
+            if (shown) moved = cardsLib.setReveal(moved, shown);
+            return spell ? moved : cardsLib.addCardCounters(moved, seat, iid, brings);
+          },
+          `${seatName(g, seat)} casts ${card.name} from exile (${why})`,
+          (base) => !!base.players[seat]?.cards?.exile.some((c) => c.iid === iid),
+          undefined,
+          [{ kind: 'cast', seat, spell: { seat, kind: 'card', id: iid, cardId: card.cardId, name: card.name, n: 1 }, from: 'exile', ...(asksX ? { x: 0 } : {}) }],
+        );
+      },
+
       millCards(seat, n) {
         const g = get().game;
         const lib = g?.players[seat]?.cards?.library;
@@ -1275,7 +1371,15 @@ export function createAppStore() {
             `${seatName(g, seat)} casts ${cmd.name}${tax > 0 ? ` (tax +${tax})` : ''}${asksX ? ` (X=${x})` : ''}`,
             (base) => !!base.players[seat]?.cards?.command.some((c) => c.iid === cmd.iid),
             undefined,
-            [{ kind: 'cast', seat, spell: { seat, kind: 'card', id: cmd.iid, cardId: cmd.cardId, name: cmd.name, n: 1 } }],
+            [
+              {
+                kind: 'cast',
+                seat,
+                spell: { seat, kind: 'card', id: cmd.iid, cardId: cmd.cardId, name: cmd.name, n: 1 },
+                from: 'command',
+                ...(asksX ? { x } : {}),
+              },
+            ],
           );
         })();
       },

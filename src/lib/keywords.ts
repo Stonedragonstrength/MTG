@@ -90,6 +90,11 @@ export function keywordsOf(oracleText: string): Set<string> {
   return new Set(readKeywords(oracleText).map((k) => k.name));
 }
 
+/** How many times a card has the keyword: "Cascade, cascade" is twice. */
+export function keywordCount(oracleText: string, keyword: string): number {
+  return readKeywords(oracleText).filter((k) => k.name === keyword).length;
+}
+
 /** The number a card's keyword carries ("Toxic 2" → 2), added up if it
  * has the keyword twice. Zero when it has none, or it carries a cost. */
 export function keywordAmount(oracleText: string, keyword: string): number {

@@ -74,6 +74,11 @@ export interface CardInstance {
    * that one leaves, this one comes back (lib/cards.ts releaseHeldBy). Gone
    * as soon as the card moves on, like every zone's own fields. */
   held?: { seat: number; iid: string };
+  /** Exile only: the card was cast from its owner's hand with rebound, in
+   * the turn named here (the game's turnNumber and activePlayerIndex, as
+   * land drops are stamped). As its owner's next turn begins it may be cast
+   * from exile (lib/cascade.ts reboundTurn). Gone as soon as it moves on. */
+  rebound?: { turn: number; active: number };
   /** Battlefield only: what "until end of turn" effects did to it this turn
    * (lib/boost.ts — read it through boostOf: a stamp from another turn is
    * no boost at all). */

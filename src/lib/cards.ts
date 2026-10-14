@@ -112,7 +112,7 @@ export function seedSeat(g: GameState, seat: number, cards: SeatCards): GameStat
 /** Battlefield-only fields never travel to other zones — and neither does
  * the face that was up: a card that leaves is its front face again. */
 function stripped(c: CardInstance): CardInstance {
-  const { tapped: _t, counters: _c, row: _r, spent: _s, sick: _k, on: _o, boost: _b, held: _h, ...rest } = c;
+  const { tapped: _t, counters: _c, row: _r, spent: _s, sick: _k, on: _o, boost: _b, held: _h, rebound: _rb, ...rest } = c;
   return isBackId(rest.cardId) ? { ...rest, cardId: frontId(rest.cardId) } : rest;
 }
 
@@ -302,6 +302,42 @@ export function releaseHeldBy(g: GameState, by: Holder): GameState {
     (next, { seat, card }) => moveCard(next, seat, card.iid, 'exile', 'battlefield', { row: 'front' }),
     g,
   );
+}
+
+/** Marks a card in its owner's exile as cast with rebound in that turn. */
+export function markRebound(g: GameState, seat: number, iid: string, at: { turn: number; active: number }): GameState {
+  return updateSeat(g, seat, (cards) => {
+    if (!cards.exile.some((c) => c.iid === iid)) return null;
+    const rebound = { turn: at.turn, active: at.active };
+    return { ...cards, exile: cards.exile.map((c) => (c.iid === iid ? { ...c, rebound } : c)) };
+  });
+}
+
+/** Cascade, carried out (lib/cascade.ts): `exiled` are the cards it exiled
+ * from the top of the library, in order, and they must still be the top,
+ * in that order — a draw or a shuffle in between calls it off. The card it
+ * cast (`cast`) leaves for the battlefield, or for the graveyard (an
+ * instant or sorcery); the rest go to the bottom in a random order that
+ * depends only on the seed. */
+export function cascade(
+  g: GameState,
+  seat: number,
+  exiled: string[],
+  cast: { iid: string; to: 'battlefield' | 'graveyard' } | null,
+  seed: number,
+): GameState {
+  return updateSeat(g, seat, (cards) => {
+    const top = cards.library.slice(0, exiled.length);
+    if (exiled.length === 0 || top.length !== exiled.length || top.some((c, i) => c.iid !== exiled[i])) return null;
+    const going = cast ? top.find((c) => c.iid === cast.iid) : undefined;
+    if (cast && !going) return null;
+    const bottom = shuffled(top.filter((c) => c !== going).map(stripped), seed);
+    const next = { ...cards, library: [...cards.library.slice(exiled.length), ...bottom] };
+    if (!cast || !going) return next;
+    return cast.to === 'battlefield'
+      ? { ...next, battlefield: [...next.battlefield, { ...stripped(going), row: 'front' as const, sick: true as const }] }
+      : { ...next, graveyard: [...next.graveyard, stripped(going)] };
+  });
 }
 
 // ---- attachments: an Aura or an Equipment on its host ----

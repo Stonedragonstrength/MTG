@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { SpellTarget } from '../lib/spellEffects';
 import { heldBy } from '../lib/cards';
+import { planCascade, type CascadePlan } from '../lib/cascade';
 import { countersWords, entryCounters, missingCounters } from '../lib/entering';
 import {
   actsHere,
@@ -132,6 +133,14 @@ function run(key: string, actKey: string, target: SpellTarget | undefined, depth
     } else if (act.kind === 'transform') {
       did = !!card;
       if (card) void store.returnTransformed(trigger.seat, card.iid);
+    } else if (act.kind === 'cascade') {
+      // Carried out only while the library is as it was read: did it land?
+      const before = store.game;
+      if (act.plan) store.cascade(trigger.seat, act.plan, act.cast === true, trigger.source.name);
+      did = useAppStore.getState().game !== before;
+    } else if (act.kind === 'recast') {
+      did = !!cards?.exile.some((c) => c.iid === trigger.source.iid);
+      if (did) void store.castFromExile(trigger.seat, trigger.source.iid, 'rebound');
     } else if (act.kind === 'prompt')
       did = carryOutPrompt(trigger.seat, trigger.source.name, act.prompt, act.token, target, {
         sourceIid: trigger.source.iid,
@@ -141,6 +150,67 @@ function run(key: string, actKey: string, target: SpellTarget | undefined, depth
     chain = 0;
   }
   if (did) useTriggers.getState().markDone(key, actKey);
+  if (did && act.kind === 'cascade') settleCascade(key, act, depth);
+}
+
+/** What a cascade comes to, read off the seat's library as it lies now, as
+ * the buttons it is offered as: cast the card it finds, or put that one on
+ * the bottom with the rest — and when it finds none, the one thing it does
+ * (by itself). Null when a card in the library cannot be read. */
+async function cascadeActs(
+  seat: number,
+  act: Extract<TriggerAct, { kind: 'cascade' }>,
+): Promise<{ acts: ShownAct[]; plan: CascadePlan } | null> {
+  const library = useAppStore.getState().game?.players[seat]?.cards?.library ?? [];
+  const m = await import('../data/scryfall');
+  const read = async (c: { cardId: string; name: string }) =>
+    (await m.getCardById(c.cardId).catch(() => undefined)) ?? (await m.findCardByName(c.name).catch(() => undefined));
+  const plan = await planCascade(library, act.below, read);
+  if (!plan) return null;
+  const step = `cascade-${act.step}`;
+  const { found } = plan;
+  if (!found)
+    return plan.exiled.length === 0
+      ? { plan, acts: [] }
+      : { plan, acts: [{ ...act, key: `${step}-none`, plan, cast: false, label: 'Nothing to cast: the library is shuffled', auto: true, done: false }] };
+  return {
+    plan,
+    acts: [
+      { ...act, key: `${step}-cast`, plan, cast: true, label: `Cast ${found.name}`, auto: false, done: false },
+      { ...act, key: `${step}-bottom`, plan, cast: false, label: `Put ${found.name} on the bottom`, auto: false, done: false },
+    ],
+  };
+}
+
+/** What the banner says a cascade exiled: "Cascade: Forest, Island, Lightning Bolt". */
+function cascadeText(act: Extract<TriggerAct, { kind: 'cascade' }>, plan: CascadePlan | null): string {
+  const all = act.step + act.left;
+  const head = all > 1 ? `Cascade ${act.step} of ${all}` : 'Cascade';
+  if (!plan) return `${head}: a card in the library could not be read — cascade by hand`;
+  if (!plan.found) return `${head}: no nonland card with mana value less than ${act.below} in the library`;
+  return `${head}: ${plan.exiled.map((c) => c.name).join(', ')}`;
+}
+
+/** One cascade answered: the other way it was offered goes, and the next of
+ * the spell's cascades (Maelstrom Wanderer has two) is read off the library
+ * as it now lies, and offered on the same row. */
+function settleCascade(key: string, act: Extract<TriggerAct, { kind: 'cascade' }>, depth: number): void {
+  const row = useTriggers.getState().shown.find((t) => t.key === key);
+  if (!row) return;
+  const kept = row.acts.filter((a) => !(a.kind === 'cascade' && a.step === act.step && a.key !== act.key));
+  useTriggers.setState({ shown: useTriggers.getState().shown.map((t) => (t.key === key ? { ...t, acts: kept } : t)) });
+  if (act.left <= 0) return;
+  const next = { ...act, key: `cascade-${act.step + 1}`, step: act.step + 1, left: act.left - 1, plan: undefined, cast: undefined };
+  void cascadeActs(row.seat, next)
+    .then((offered) => {
+      const now = useTriggers.getState().shown.find((t) => t.key === key);
+      if (!now) return;
+      const text = cascadeText(next, offered?.plan ?? null);
+      const acts = [...now.acts, ...(offered?.acts ?? [])];
+      useTriggers.setState({ shown: useTriggers.getState().shown.map((t) => (t.key === key ? { ...t, text, acts } : t)) });
+      for (const a of offered?.acts ?? []) if (a.auto) run(key, a.key, undefined, depth);
+    })
+    .catch(() => {});
 }
 
 export const useTriggers = create<TriggerState>()((set, get) => ({
@@ -176,7 +246,11 @@ const thingsOf = (h: Happening): Thing[] =>
 async function recordsFor(g: GameState, events: Happening[]): Promise<Record<string, CardRecord | undefined>> {
   const records = await tableRecords(g);
   const { getCardById } = await import('../data/scryfall');
-  for (const a of events.flatMap(thingsOf)) {
+  // …and, as a turn begins, the cards in exile waiting to rebound.
+  const rebounding = events.some((h) => h.kind === 'turn')
+    ? g.players.flatMap((p) => (p.cards?.exile ?? []).filter((c) => c.rebound))
+    : [];
+  for (const a of [...events.flatMap(thingsOf), ...rebounding]) {
     if (!a.cardId || a.cardId in records) continue;
     records[a.cardId] = await getCardById(a.cardId).catch(() => undefined);
   }
@@ -236,8 +310,19 @@ async function raise(events: Happening[], depth: number): Promise<void> {
     // All it would do comes to nothing here (its +2/+2 on itself, and it has
     // died): nothing to say either.
     if (planned.length > 0 && placed.length === 0) continue;
+    let text = fired.trigger.text;
+    let silent = false;
     for (const act of placed) {
       const h = fired.happening;
+      // Cascade: the library is read now, and the cascade offered as what it comes to.
+      if (act.kind === 'cascade') {
+        const offered = await cascadeActs(fired.seat, act);
+        text = cascadeText(act, offered?.plan ?? null);
+        // An empty library: nothing to exile, nothing to say.
+        if (offered && offered.plan.exiled.length === 0) silent = true;
+        acts.push(...(offered?.acts ?? []));
+        continue;
+      }
       // Undying / Persist: only if it had no such counter as it died, and it is in its graveyard.
       if (act.kind === 'comeback') {
         const died = h.kind === 'dies' ? h.things.find((t) => t.kind === 'card' && t.id === fired.source.iid && t.seat === fired.seat) : undefined;
@@ -282,12 +367,12 @@ async function raise(events: Happening[], depth: number): Promise<void> {
     if (fired.own && fired.happening.kind === 'enters' && acts.length === 0) continue;
     // A keyword that did not go off this time (renowned already, had its
     // counter, nothing bigger came in…): nothing to say.
-    if (isKeywordEffect(fired.trigger.effect) && acts.length === 0) continue;
+    if ((isKeywordEffect(fired.trigger.effect) && acts.length === 0) || silent) continue;
     fresh.push({
       key: `t${++serial}`,
       seat: fired.seat,
       source: { iid: fired.source.iid, name: fired.source.name, art: records[fired.source.cardId]?.imageNormal ?? null },
-      text: fired.trigger.text,
+      text,
       effect: fired.trigger.effect,
       who: g.config.profiles[fired.seat]?.name ?? '?',
       because: fired.because,
