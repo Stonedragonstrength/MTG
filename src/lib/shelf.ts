@@ -28,6 +28,22 @@ export function isManaRock(record: Read): boolean {
   return tapManaFromText(front).amount > 0;
 }
 
+const SELF = 'enchantment|artifact|creature|permanent|card|land|aura|equipment|saga|vehicle|planeswalker|battle';
+
+/** A permanent whose own text sends it back to its owner's hand — an
+ * Encroaching Dragonstorm ("When a Dragon you control enters, return this
+ * enchantment to its owner's hand"). Read off the front face; an older
+ * wording says the card's name. Returning something ELSE ("return target
+ * creature…") is not this, nor is coming back from a graveyard. */
+export function returnsItself(
+  record: Pick<CardRecord, 'name' | 'typeLine' | 'oracleText'> | null | undefined,
+): boolean {
+  if (!record) return false;
+  const front = record.oracleText.split('\n//\n')[0];
+  const name = record.name.split(' // ')[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`\\breturn (?:this (?:${SELF})|${name}) to its owner's hand\\b`, 'i').test(front);
+}
+
 /** The shelf a card is drawn on. A place the player chose by hand always
  * wins ('lands', 'side', 'field'); otherwise the card's type decides:
  * creatures take the field, lands and mana rocks the lands shelf, every

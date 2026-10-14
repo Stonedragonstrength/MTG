@@ -6,8 +6,8 @@ import type { CardRecord } from '../lib/types';
 import { useAppStore } from '../state/store';
 import { useCardRecords } from './useCardRecords';
 
-/** No more than this many deck tokens get a chip: the shelf is one line. */
-const CHIP_CAP = 6;
+/** No more than this many deck tokens get a chip: two rows of the list. */
+const CHIP_CAP = 12;
 
 /** The token cards the wants resolve to on this device, best fit each,
  * no card twice. A want this device has no token for is simply left out. */
@@ -24,23 +24,20 @@ async function resolveTokens(wants: TokenWant[]): Promise<CardRecord[]> {
 
 interface Props {
   playerIdx: number;
-  /** The "+" at the end: anything the chips do not cover. */
-  onMore: () => void;
-  /** How many columns the chips stand in (two chips to a column): the
-   * shelf they sit on shares out its width by it. */
-  onColumns?: (columns: number) => void;
+  /** A token was made: the list it was picked from can close. */
+  onMade?: () => void;
 }
 
 /** One tap makes one token. The chips are the tokens this seat's own deck
  * says it creates — read off the rules text of every card it was dealt,
- * wherever each one is now — so the usual ones never need a search. */
-export default function TokenChips({ playerIdx, onMore, onColumns }: Props) {
+ * wherever each one is now — so the usual ones never need a search. They
+ * head the list the shelf's "Add token" opens; a deck that makes no tokens
+ * (or a seat with no deck) has no such group at all. */
+export default function TokenChips({ playerIdx, onMade }: Props) {
   const player = useAppStore((s) => s.game?.players[playerIdx]);
   const addItem = useAppStore((s) => s.addItem);
   const changeCount = useAppStore((s) => s.changeCount);
   const [tokens, setTokens] = useState<CardRecord[]>([]);
-  const columns = Math.ceil((tokens.length + 1) / 2); // the "+" is a chip too
-  useEffect(() => onColumns?.(columns), [columns, onColumns]);
 
   const seat = player?.cards;
   // The deck: one entry per different card, in an order that does not
@@ -66,7 +63,7 @@ export default function TokenChips({ playerIdx, onMore, onColumns }: Props) {
       setTokens([]);
       return;
     }
-    // A read that fails leaves the chips as they were: the "+" still works.
+    // A read that fails leaves the chips as they were: the search still works.
     resolveTokens(asked)
       .then((found) => {
         if (!cancelled) setTokens(found);
@@ -77,7 +74,7 @@ export default function TokenChips({ playerIdx, onMore, onColumns }: Props) {
     };
   }, [wantsKey]);
 
-  if (!player) return null;
+  if (!player || tokens.length === 0) return null;
 
   function make(card: CardRecord) {
     // One more of a token already on the board joins its stack — the plain
@@ -90,30 +87,27 @@ export default function TokenChips({ playerIdx, onMore, onColumns }: Props) {
   }
 
   return (
-    <div className="token-chips">
-      {tokens.map((card) => (
-        <button
-          key={card.id}
-          className="token-chip"
-          aria-label={`make a ${card.name} token`}
-          title={`Make a ${card.name} token`}
-          onClick={() => make(card)}
-        >
-          {(card.imageArtCrop ?? card.imageNormal) && (
-            <img src={(card.imageArtCrop ?? card.imageNormal)!} alt="" loading="lazy" />
-          )}
-          <span className="token-chip-name">{card.name}</span>
-          <span className="token-chip-plus" aria-hidden="true">
-            +
-          </span>
-        </button>
-      ))}
-      <button className="token-chip token-chip--more" aria-label="add a card" onClick={onMore}>
-        <span className="token-chip-plus" aria-hidden="true">
-          +
-        </span>
-        <span className="token-chip-name">token</span>
-      </button>
+    <div className="chip-group">
+      <span className="chip-group-label">This deck makes</span>
+      <div className="chip-row" aria-label="tokens this deck makes">
+        {tokens.map((card) => (
+          <button
+            key={card.id}
+            className="chip chip--art chip--deck"
+            aria-label={`make a ${card.name} token`}
+            title={`Make a ${card.name} token`}
+            onClick={() => {
+              make(card);
+              onMade?.();
+            }}
+          >
+            {(card.imageArtCrop ?? card.imageNormal) && (
+              <img className="chip-art" src={(card.imageArtCrop ?? card.imageNormal)!} alt="" loading="lazy" />
+            )}
+            <span className="chip-name">{card.name}</span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

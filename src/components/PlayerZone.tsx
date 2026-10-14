@@ -65,6 +65,9 @@ export default function PlayerZone({
   const [sheetOpen, setSheetOpen] = useState(false);
   const zoneRef = useRef<HTMLElement>(null);
   const narrow = useNarrowerThan(zoneRef, NARROW_SEAT_PX);
+  // The tokens' box: on the big board it stands in a corner of the field,
+  // and the creatures keep clear of it.
+  const [tokenCorner, setTokenCorner] = useState<HTMLElement | null>(null);
   const stake = useLifeAtStake(playerIdx);
   if (!game) return null;
 
@@ -196,19 +199,20 @@ export default function PlayerZone({
       {acting && <CombatBar key={fight.id} playerIdx={playerIdx} />}
       {player.cards ? (
         // A seat playing a deck: the creatures and the piles; a status
-        // line; one shelf for everything else it has on the table (lands
-        // and mana rocks, the other permanents, tokens); the hand. On a
-        // collapsed bar the shelf is no box at all, only its parts. On the
-        // big board it is one short line, and the stylesheet sets the
-        // parts in another order: tokens, permanents, then the lands.
+        // line; one shelf for the rest of what it has in play (lands and
+        // mana rocks, then the other permanents); its tokens; the hand.
+        // On a collapsed bar the shelf and the tokens are no boxes at all,
+        // only their parts. On the big board the shelf is one short line
+        // that ends in the small piles, and the tokens stand on the field
+        // with the creatures, in its bottom left corner.
         <>
-          <BattlefieldRow playerIdx={playerIdx} />
+          <BattlefieldRow playerIdx={playerIdx} corner={tokenCorner} />
           <LandsRow playerIdx={playerIdx} part="status" />
           <div className="zone-shelf">
             <LandsRow playerIdx={playerIdx} part="stacks" />
             <SideShelf playerIdx={playerIdx} />
-            <BoardStrip playerIdx={playerIdx} />
           </div>
+          <BoardStrip playerIdx={playerIdx} cornerRef={setTokenCorner} />
           <HandTray playerIdx={playerIdx} />
         </>
       ) : (

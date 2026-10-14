@@ -12,7 +12,6 @@ const DEATH_MS = 700;
 import CardDetail from './CardDetail';
 import CardSearch from './CardSearch';
 import CombatMarks, { combatClasses } from './CombatMarks';
-import TokenChips from './TokenChips';
 import { useSeatCombat, useTableRecords, type UnitLook } from './useCombat';
 import { useLongPress } from './useLongPress';
 import { useSeatTexts } from './useSeatTexts';
@@ -154,16 +153,18 @@ function RemoveStackButton({ item, onRemove }: { item: BoardItem; onRemove: () =
 
 interface Props {
   playerIdx: number;
+  /** A deck seat's tokens have a box of their own: whoever lays the seat
+   * out is handed it (the big board stands it in a corner of the field). */
+  cornerRef?: (box: HTMLElement | null) => void;
 }
 
-export default function BoardStrip({ playerIdx }: Props) {
+export default function BoardStrip({ playerIdx, cornerRef }: Props) {
   const game = useAppStore((s) => s.game);
   const changeCount = useAppStore((s) => s.changeCount);
   const removeItem = useAppStore((s) => s.removeItem);
   const tapItem = useAppStore((s) => s.tapItem);
   const [searchOpen, setSearchOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
-  const [chipColumns, setChipColumns] = useState(1);
   // Afterimages of removed stacks: the store drops them instantly, these
   // linger in place just long enough for the slash animation.
   const [dying, setDying] = useState<{ item: BoardItem; at: number }[]>([]);
@@ -202,7 +203,7 @@ export default function BoardStrip({ playerIdx }: Props) {
 
   // Few cards get the big treatment; a wide board shrinks to fit.
   const size = entries.length <= 3 ? 'lg' : entries.length <= 8 ? 'md' : 'sm';
-  // A seat playing a deck keeps its tokens on a slim shelf beside its lands.
+  // A seat playing a deck keeps its tokens as small stacks, in a box of their own.
   const deckSeat = game.players[playerIdx].cards !== undefined;
 
   const sheets = (
@@ -318,19 +319,18 @@ export default function BoardStrip({ playerIdx }: Props) {
 
   if (!deckSeat) return strip;
   return (
-    // A deck seat's token shelf: the stacks, and beside them one chip per
-    // token its own cards make (one tap each). A box only on the big board,
-    // which shares its shelf line out by these two counts.
-    <div
-      className="token-shelf"
-      style={{ '--n': entries.length, '--c': chipColumns } as CSSProperties}
-    >
+    // A deck seat's tokens: one button that says what it is for, and the
+    // stacks beside it. The list the button opens starts with the tokens
+    // the seat's own deck makes (one tap each). A box only on the big board,
+    // where it stands on the field with the creatures.
+    <div className="token-shelf" ref={cornerRef} style={{ '--n': entries.length } as CSSProperties}>
+      <button className="token-add" aria-label="add token" onClick={() => setSearchOpen(true)}>
+        <span className="token-add-plus" aria-hidden="true">
+          +
+        </span>
+        Add token
+      </button>
       {strip}
-      <TokenChips
-        playerIdx={playerIdx}
-        onMore={() => setSearchOpen(true)}
-        onColumns={setChipColumns}
-      />
       {sheets}
     </div>
   );

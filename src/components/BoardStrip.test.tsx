@@ -378,3 +378,23 @@ test('lands-zone items stay out of the battlefield grid', () => {
   expect(screen.queryByRole('button', { name: 'Forest' })).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Soldier' })).toBeInTheDocument();
 });
+
+test('a deck seat has one button that says ADD TOKEN, ahead of its stacks, and hands its box on', () => {
+  const game = useAppStore.getState().game!;
+  game.players[0] = {
+    ...game.players[0],
+    cards: { library: [], hand: [], battlefield: [], graveyard: [], exile: [], command: [], mulligans: 0, deckName: 'Tokens' },
+  };
+  useAppStore.setState({ game: { ...game } });
+  const cornerRef = vi.fn();
+  const { container } = render(<BoardStrip playerIdx={0} cornerRef={cornerRef} />);
+  const add = screen.getByRole('button', { name: 'add token' });
+  expect(add).toHaveTextContent('+Add token');
+  // The plain "+" tile is a tracker seat's: here the button stands in the
+  // tokens' own box, first, and the stacks follow it.
+  expect(screen.queryByRole('button', { name: /add a card/i })).not.toBeInTheDocument();
+  const box = container.querySelector('.token-shelf')!;
+  expect(box.firstElementChild).toBe(add);
+  expect(box).toContainElement(screen.getByRole('button', { name: 'Soldier' }));
+  expect(cornerRef).toHaveBeenCalledWith(box);
+});

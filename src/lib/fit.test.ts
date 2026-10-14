@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { fitCardHeight, shareInSight } from './fit';
+import { fitAroundCorner, fitCardHeight, shareInSight } from './fit';
 
 describe('fitCardHeight', () => {
   test('a lone card takes the cap, not the whole box', () => {
@@ -53,5 +53,26 @@ describe('shareInSight', () => {
   test('a slot with no box of its own covers nothing', () => {
     expect(shareInSight(100, 0, 0, null)).toBe(1);
     expect(shareInSight(0, 0, 0, null)).toBe(1);
+  });
+});
+
+describe('fitAroundCorner', () => {
+  test('with nothing in the corner it is the plain fit', () => {
+    expect(fitAroundCorner(1000, 190, 5, 0, 0)).toEqual({ cardHeight: fitCardHeight(1000, 190, 5), clear: null });
+  });
+
+  test('cards that have height to spare stand above the corner and stay as big', () => {
+    // Seven cards in a tall box, two rows of four: the width decides their size.
+    const plain = fitCardHeight(742, 744, 7, { max: 300 });
+    expect(fitAroundCorner(742, 744, 7, 144, 76, { max: 300 })).toEqual({ cardHeight: plain, clear: 'above' });
+  });
+
+  test('cards that fill a low, wide box stand beside the corner instead', () => {
+    // Four cards in one row, as tall as the box: a strip along the foot
+    // would cost them a quarter of their height, a column at the side nothing.
+    const fit = fitAroundCorner(1220, 298, 4, 130, 70, { max: 300 });
+    expect(fit.clear).toBe('beside');
+    expect(fit.cardHeight).toBe(298);
+    expect(fitCardHeight(1220, 298 - 70, 4, { max: 300 })).toBe(228);
   });
 });

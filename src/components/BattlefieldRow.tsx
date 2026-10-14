@@ -54,6 +54,9 @@ interface Props {
   playerIdx: number;
   /** false on the phone's hand view: no picking there, a tap is always a tap. */
   picks?: boolean;
+  /** What stands in the field's bottom left corner on the big board (the
+   * seat's tokens): the creatures keep clear of it. */
+  corner?: HTMLElement | null;
 }
 
 /** A seat's creatures and its piles. The field is for creatures only:
@@ -62,7 +65,7 @@ interface Props {
  * dock holds the piles: graveyard, exile, the commanders at home — and
  * the library, which is also where a turn's draw is made.
  * Tokens keep their own strip (BoardStrip) — different physics. */
-export default function BattlefieldRow({ playerIdx, picks = true }: Props) {
+export default function BattlefieldRow({ playerIdx, picks = true, corner = null }: Props) {
   const game = useAppStore((s) => s.game);
   const online = useAppStore((s) => s.online);
   const combat = useSeatCombat(playerIdx, picks);
@@ -95,7 +98,7 @@ export default function BattlefieldRow({ playerIdx, picks = true }: Props) {
   const tableRecords = useTableRecords();
   // The field fills whatever the zone leaves it, at any card count.
   const cardsRef = useRef<HTMLDivElement>(null);
-  useFitCards(cardsRef, field.length, 300);
+  useFitCards(cardsRef, field.length, 300, corner);
   const armTimer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(armTimer.current), []);
   const holdLibrary = useLongPress(

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isManaRock, shelfOf } from './shelf';
+import { isManaRock, returnsItself, shelfOf } from './shelf';
 
 const rec = (typeLine: string, oracleText = '') => ({ typeLine, oracleText });
 
@@ -59,5 +59,35 @@ describe('shelfOf', () => {
     expect(shelfOf({}, null)).toBe('field');
     expect(shelfOf({ row: 'front' }, undefined)).toBe('field');
     expect(shelfOf({ row: 'lands' }, null)).toBe('lands');
+  });
+});
+
+describe('returnsItself', () => {
+  const named = (name: string, typeLine: string, oracleText: string) => ({ name, typeLine, oracleText });
+
+  it('reads a permanent that sends itself back to its owner’s hand', () => {
+    expect(
+      returnsItself(
+        named(
+          'Encroaching Dragonstorm',
+          'Enchantment',
+          'When this enchantment enters, search your library for up to two basic land cards, put them onto the battlefield tapped, then shuffle.\nWhen a Dragon you control enters, return this enchantment to its owner’s hand.'.replace('’', "'"),
+        ),
+      ),
+    ).toBe(true);
+    // An older wording says the card's own name.
+    expect(returnsItself(named('Flickering Ward', 'Enchantment — Aura', "{W}: Return Flickering Ward to its owner's hand."))).toBe(true);
+    expect(returnsItself(named('Mirror Relic', 'Artifact', "{2}: Return this artifact to its owner's hand."))).toBe(true);
+  });
+
+  it('is not fooled by a card that returns something else, or comes back from a graveyard', () => {
+    expect(returnsItself(named('Crystal Shard', 'Artifact', "{3}, {T}: Return target creature to its owner's hand unless its controller pays {1}."))).toBe(false);
+    expect(returnsItself(named('Rancor', 'Enchantment — Aura', "When Rancor is put into a graveyard from the battlefield, return Rancor from your graveyard to its owner's hand."))).toBe(false);
+    expect(returnsItself(named('Rhystic Study', 'Enchantment', 'Whenever an opponent casts a spell, you may draw a card unless that player pays {1}.'))).toBe(false);
+    expect(returnsItself(null)).toBe(false);
+  });
+
+  it('reads the front face only', () => {
+    expect(returnsItself(named('Front // Back', 'Enchantment // Enchantment', "Draw a card.\n//\nReturn this enchantment to its owner's hand."))).toBe(false);
   });
 });

@@ -84,7 +84,7 @@ beforeEach(() => {
 });
 
 test('there is one chip for each token the seat’s deck makes, wherever those cards are now', async () => {
-  render(<TokenChips playerIdx={0} onMore={() => {}} />);
+  render(<TokenChips playerIdx={0} />);
   expect(await screen.findByRole('button', { name: 'make a Soldier token' })).toBeInTheDocument(); // from the library
   expect(screen.getByRole('button', { name: 'make a Treasure token' })).toBeInTheDocument(); // from the graveyard
   expect(screen.getAllByRole('button', { name: /^make a /i })).toHaveLength(2);
@@ -92,7 +92,7 @@ test('there is one chip for each token the seat’s deck makes, wherever those c
 
 test('a tap makes one: the token the text names, in its right colors', async () => {
   const user = userEvent.setup();
-  render(<TokenChips playerIdx={0} onMore={() => {}} />);
+  render(<TokenChips playerIdx={0} />);
   await user.click(await screen.findByRole('button', { name: 'make a Soldier token' }));
   const addItem = useAppStore.getState().addItem as ReturnType<typeof vi.fn>;
   expect(addItem).toHaveBeenCalledTimes(1);
@@ -108,30 +108,31 @@ test('one more of a token already on the board joins its stack', async () => {
   g.players[0] = { ...g.players[0], board: [countered, stack] };
   useAppStore.setState({ game: g });
   const user = userEvent.setup();
-  render(<TokenChips playerIdx={0} onMore={() => {}} />);
+  render(<TokenChips playerIdx={0} />);
   await user.click(await screen.findByRole('button', { name: 'make a Soldier token' }));
   // The plain stack grows; the one somebody put a counter on is its own thing.
   expect(useAppStore.getState().changeCount).toHaveBeenCalledWith(0, 'soldiers', 1);
   expect(useAppStore.getState().addItem).not.toHaveBeenCalled();
 });
 
-test('the "+" is always there for anything else, and a deck that makes no tokens has only that', async () => {
-  const onMore = vi.fn();
+test('a deck that makes no tokens has no such group at all', async () => {
   useAppStore.setState({
     game: game({ library: [card('l1', 'c-bear')], graveyard: [card('g1', 'c-copy')] }),
   });
-  const user = userEvent.setup();
-  render(<TokenChips playerIdx={0} onMore={onMore} />);
-  await user.click(screen.getByRole('button', { name: 'add a card' }));
-  expect(onMore).toHaveBeenCalledTimes(1);
+  const { container } = render(<TokenChips playerIdx={0} />);
   await new Promise((r) => setTimeout(r, 30)); // the lookups have answered
   expect(screen.queryByRole('button', { name: /^make a /i })).not.toBeInTheDocument();
+  expect(container).toBeEmptyDOMElement();
 });
 
-test('it tells the shelf how many columns its chips stand in', async () => {
-  const onColumns = vi.fn();
-  render(<TokenChips playerIdx={0} onMore={() => {}} onColumns={onColumns} />);
-  await screen.findByRole('button', { name: 'make a Treasure token' });
-  // Two tokens and the "+": three chips, two to a column.
-  expect(onColumns).toHaveBeenLastCalledWith(2);
+test('the chips are a group of the list, under a heading, and making one says so', async () => {
+  const onMade = vi.fn();
+  const user = userEvent.setup();
+  render(<TokenChips playerIdx={0} onMade={onMade} />);
+  const chip = await screen.findByRole('button', { name: 'make a Treasure token' });
+  expect(screen.getByText('This deck makes')).toBeInTheDocument();
+  expect(chip).toHaveTextContent('Treasure');
+  await user.click(chip);
+  expect(useAppStore.getState().addItem).toHaveBeenCalledTimes(1);
+  expect(onMade).toHaveBeenCalledTimes(1); // the list it was picked from closes
 });

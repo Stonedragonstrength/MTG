@@ -7,6 +7,7 @@ import { useAppStore } from '../state/store';
 import CustomTokenForm from './CustomTokenForm';
 import { getNameIndex } from './nameIndexCache';
 import Sheet from './Sheet';
+import TokenChips from './TokenChips';
 import { useLongPress } from './useLongPress';
 
 export const COMMON_TOKENS = [
@@ -168,6 +169,8 @@ export default function CardSearch({ playerIdx, onClose, zone = 'board' }: Props
         <p className="hint">Search for any land — basics have one-tap buttons back on the board.</p>
       ) : query.trim() === '' ? (
         <>
+          {/* First what this seat's own deck makes, one tap each. */}
+          <TokenChips playerIdx={playerIdx} onMade={onClose} />
           <div className="chip-group">
             <span className="chip-group-label">Quick tokens</span>
             <div className="chip-row" aria-label="common tokens">
