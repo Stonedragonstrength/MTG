@@ -5,6 +5,7 @@ import { changeCount, computedPT, removeItem, setCounter } from './board';
 import { holdInExile, hostIsThere, moveCard, setCardCounter, type Holder, type Host } from './cards';
 import { hasKeyword, readSeat, readUnit, type CardRecords, type UnitRead } from './combatEngine';
 import { tokensMadeBy, type TokenWant } from './deckTokens';
+import { isPlaneswalker } from './entering';
 import { adjustLife } from './game';
 import { searchAsk, type SearchAsk } from './search';
 import { isCreatureCard, shelfOf } from './shelf';
@@ -178,12 +179,11 @@ const kindWords = (kinds: PermKind[]) => {
 };
 
 const DAMAGE_PICKS: Record<string, PickFrom | null> = {
-  'any target': { players: 'any', kinds: ['creature'] },
+  'any target': { players: 'any', kinds: ['creature', 'planeswalker'] },
   'target creature': { players: null, kinds: ['creature'] },
-  // Loyalty is not tracked: of these two only the creatures and the players are offered.
-  'target creature or planeswalker': { players: null, kinds: ['creature'] },
+  'target creature or planeswalker': { players: null, kinds: ['creature', 'planeswalker'] },
   'target player': { players: 'any', kinds: [] },
-  'target player or planeswalker': { players: 'any', kinds: [] },
+  'target player or planeswalker': { players: 'any', kinds: ['planeswalker'] },
   'target opponent': { players: 'opponents', kinds: [] },
   'each opponent': null,
 };
@@ -530,12 +530,14 @@ export function spellChoices(
     const r = records[c.cardId];
     if (r && !typeFits(frontType(r), pick.kinds)) continue;
     const read = r && isCreatureCard(r) ? readUnit(g, seat, { kind: 'card', id: c.iid }, records, seatRead) : null;
+    // A planeswalker says its loyalty, and damage that takes the last of it off is the end of it.
+    const loyalty = isPlaneswalker(r) ? c.counters?.loyalty : undefined;
     out.push({
       target: { seat, kind: 'card', id: c.iid },
       name: c.name,
       art: r?.imageNormal ?? null,
-      size: sizeOf(read),
-      fate: fateOf(read),
+      size: loyalty !== undefined ? `loyalty ${loyalty}` : sizeOf(read),
+      fate: loyalty !== undefined && prompt.kind === 'damage' ? (prompt.n >= loyalty ? 'dies' : 'survives') : fateOf(read),
     });
   }
   for (const it of player.board) {
@@ -628,6 +630,25 @@ export function planEffect(
           text: `${lead} deals ${n} to ${nameOf(on.seat)}`,
           apply: (base) => (base.players[on.seat] ? adjustLife(base, on.seat, -n) : base),
           guard: seatThere(on.seat),
+        };
+      }
+      // Damage to a planeswalker takes that much loyalty off it; with none
+      // left it goes to the graveyard. One whose loyalty is not kept on the
+      // table is only told about it.
+      const walker = on.kind === 'card' ? g.players[on.seat]?.cards?.battlefield.find((c) => c.iid === on.id) : undefined;
+      if (walker && isPlaneswalker(records[walker.cardId])) {
+        const loyalty = walker.counters?.loyalty;
+        const gone = loyalty !== undefined && n >= loyalty;
+        return {
+          text: `${lead} deals ${n} to ${theirs(on)}${loyalty === undefined ? '' : gone ? ', which goes to the graveyard' : ` (loyalty ${loyalty} → ${loyalty - n})`}`,
+          apply: (base) => {
+            const now = base.players[on.seat]?.cards?.battlefield.find((c) => c.iid === on.id);
+            if (!now) return base;
+            const left = now.counters?.loyalty;
+            if (left === undefined) return { ...base }; // nothing on the table changes: the line is the whole of it
+            return left - n > 0 ? setCardCounter(base, on.seat, on.id, 'loyalty', left - n) : leave(base, on, 'graveyard');
+          },
+          guard: (base) => hostIsThere(base, on),
         };
       }
       const read = readUnit(g, on.seat, { kind: on.kind, id: on.id }, records);

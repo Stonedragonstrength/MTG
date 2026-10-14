@@ -13,14 +13,14 @@ describe('reading a spell', () => {
     expect(labels('Lightning Bolt deals 3 damage to any target.')).toEqual(['Deal 3 damage…']);
     expect(labels('Shock deals 2 damage to any target.')).toEqual(['Deal 2 damage…']);
     const [bolt] = spellPrompts(spell('Lightning Bolt deals 3 damage to any target.'));
-    expect(bolt).toMatchObject({ kind: 'damage', n: 3, pick: { players: 'any', kinds: ['creature'] } });
+    expect(bolt).toMatchObject({ kind: 'damage', n: 3, pick: { players: 'any', kinds: ['creature', 'planeswalker'] } });
     expect(spellPrompts(spell('Flame Slash deals 4 damage to target creature.'))[0].pick).toEqual({
       players: null,
       kinds: ['creature'],
     });
     expect(spellPrompts(spell('Lava Spike deals 3 damage to target player or planeswalker.'))[0].pick).toEqual({
       players: 'any',
-      kinds: [],
+      kinds: ['planeswalker'],
     });
     expect(spellPrompts(spell('Sizzle deals 3 damage to each opponent.'))).toMatchObject([
       { label: 'Deal 3 to each opponent', pick: null },
@@ -631,5 +631,52 @@ describe('discover', () => {
   test('a discover is not a table effect: nothing to apply without its sheet', () => {
     const [prompt] = spellPrompts(spell('Discover 4.', 'Sorcery'));
     expect(effectOf(prompt, 0)).toBeNull();
+  });
+});
+
+describe('damage to a planeswalker', () => {
+  RECORDS['c-jace'] = rec('c-jace', 'Jace Beleren', 'Legendary Planeswalker — Jace', '+2: Each player draws a card.');
+  /** Samantha's table, with Jace at that much loyalty (none kept: undefined). */
+  const withJace = (loyalty?: number) => {
+    const g = table();
+    const cards = g.players[1].cards!;
+    g.players[1] = { ...g.players[1], cards: { ...cards, battlefield: [...cards.battlefield, card('jace', 'c-jace', 'Jace Beleren', loyalty === undefined ? {} : { counters: { loyalty } })] } };
+    return g;
+  };
+  const names = (g: GameState, text: string) =>
+    spellChoices(g, 1, prompt(text), 0, RECORDS).map((c) => [c.name, c.size, c.fate].filter(Boolean).join(' | '));
+  const jace = (g: GameState) => g.players[1].cards!.battlefield.find((c) => c.iid === 'jace');
+
+  test('"any target" and "target player or planeswalker" offer it, with its loyalty and what the damage does', () => {
+    const g = withJace(3);
+    expect(names(g, 'Bolt deals 3 damage to any target.')).toContain('Jace Beleren | loyalty 3 | dies');
+    // (a card nobody can read is offered to anything: it never blocks a play)
+    expect(names(g, 'Spike deals 2 damage to target player or planeswalker.')).toEqual([
+      'Samantha · 40 life',
+      'Mystery Card',
+      'Jace Beleren | loyalty 3 | survives',
+    ]);
+    expect(names(g, 'Slash deals 4 damage to target creature.')).not.toContain('Jace Beleren | loyalty 3 | dies');
+  });
+
+  test('damage takes loyalty off, and the last of it sends it to the graveyard', () => {
+    const g = withJace(5);
+    const two = plan(g, { kind: 'damage', n: 2, on: { seat: 1, kind: 'card', id: 'jace' } })!;
+    expect(two.text).toBe('Nathan’s Lightning Bolt deals 2 to Samantha’s Jace Beleren (loyalty 5 → 3)');
+    expect(jace(two.apply(g))?.counters).toEqual({ loyalty: 3 });
+    const five = plan(g, { kind: 'damage', n: 5, on: { seat: 1, kind: 'card', id: 'jace' } })!;
+    expect(five.text).toBe('Nathan’s Lightning Bolt deals 5 to Samantha’s Jace Beleren, which goes to the graveyard');
+    const after = five.apply(g);
+    expect(jace(after)).toBeUndefined();
+    expect(after.players[1].cards!.graveyard.map((c) => c.iid)).toEqual(['jace']);
+  });
+
+  test('loyalty its player keeps by hand: the damage is said, and nothing on the table moves', () => {
+    const g = withJace();
+    const hit = plan(g, { kind: 'damage', n: 3, on: { seat: 1, kind: 'card', id: 'jace' } })!;
+    expect(hit.text).toBe('Nathan’s Lightning Bolt deals 3 to Samantha’s Jace Beleren');
+    const after = hit.apply(g);
+    expect(after).not.toBe(g);
+    expect(jace(after)).toEqual(jace(g));
   });
 });
