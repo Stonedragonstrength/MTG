@@ -13,6 +13,7 @@ import {
   attacksAt,
   barSentence,
   blockAnyway,
+  blockLegal,
   blockLess,
   blockTap,
   blockingCopies,
@@ -21,6 +22,7 @@ import {
   handLine,
   litAttack,
   litTarget,
+  menaceShort,
   resultFlags,
   resultLines,
   unitKey,
@@ -558,5 +560,76 @@ describe('the phone hand view’s line', () => {
     expect(handLine(withCombat(g, 'blockers', attacks, 1), 1)).toBe('Nathan attacks you with 3 — block on the table');
     expect(handLine(withCombat(g, 'damage', attacks), 1)).toBe('Nathan attacks you with 3 — the damage is on the table');
     expect(handLine(withCombat(g, 'done'), 0)).toBeNull();
+  });
+});
+
+describe('who may block what', () => {
+  const SPIDER = rec('Giant Spider', '2', '4', 'Reach');
+  const DRAKE = rec('Wind Drake', '2', '2', 'Flying');
+  const ROGUE = rec('Slippery Rogue', '2', '1', 'This creature can’t be blocked.');
+  const COWARD = rec('Cowardly Bear', '2', '2', "This creature can't block.");
+  const PACIFISM = rec('Pacifism', null, null, "Enchant creature\nEnchanted creature can't attack or block.", 'Enchantment — Aura');
+  const CLOAK = rec('Whispersilk Cloak', null, null, "Equipped creature can't be blocked and has shroud.\nEquip {2}", 'Artifact — Equipment');
+  const GOBLIN = rec('Goblin Heelcutter', '3', '2', 'Menace');
+
+  /** Nathan attacks Sam with an angel (flying), a rogue, a goblin with menace and a bear wearing a cloak. */
+  function fight(blocks: Partial<Record<string, CombatUnit[]>> = {}) {
+    const t = table([
+      { cards: { angel: ANGEL, rogue: ROGUE, goblin: GOBLIN, bear: BEAR, cloak: CLOAK }, wear: { cloak: { on: { seat: 0, kind: 'card', id: 'bear' } } } },
+      { cards: { sbear: BEAR, spider: SPIDER, drake: DRAKE, coward: COWARD, pac: GIANT, pacifism: PACIFISM }, wear: { pacifism: { on: { seat: 1, kind: 'card', id: 'pac' } } } },
+    ]);
+    const attacks: CombatAttack[] = ['angel', 'rogue', 'goblin', 'bear'].map((id) => ({
+      unit: card(id),
+      target: 1,
+      ...(blocks[id] ? { blockers: blocks[id] } : {}),
+    }));
+    const g = withCombat(t.g, 'blockers', attacks, 1);
+    return { t: { g, records: t.records }, c: g.combat! };
+  }
+  const tileOf = (c: CombatState, id: string) => attacksAt(c, 1).find((x) => x.attack.unit.id === id)!;
+
+  test('only flying or reach blocks a flier; a tap on a ground creature is refused', () => {
+    const { t, c } = fight();
+    const angel = read(t, 0, card('angel'));
+    const tile = tileOf(c, 'angel');
+    expect(blockTap(c, 1, read(t, 1, card('sbear')), tile, angel)).toBeNull();
+    expect(blockTap(c, 1, read(t, 1, card('spider')), tile, angel)).toMatchObject({ n: 1 });
+    expect(blockTap(c, 1, read(t, 1, card('drake')), tile, angel)).toMatchObject({ n: 1 });
+    expect(blockLegal(angel, read(t, 1, card('sbear')))).toBe(false);
+  });
+
+  test('nothing blocks what "can’t be blocked" — by its own text, or by the Equipment it wears', () => {
+    const { t, c } = fight();
+    expect(read(t, 0, card('rogue')).unblockable).toBe(true);
+    expect(read(t, 0, card('bear')).unblockable).toBe(true); // Whispersilk Cloak
+    expect(blockTap(c, 1, read(t, 1, card('spider')), tileOf(c, 'rogue'), read(t, 0, card('rogue')))).toBeNull();
+    expect(blockTap(c, 1, read(t, 1, card('spider')), tileOf(c, 'bear'), read(t, 0, card('bear')))).toBeNull();
+  });
+
+  test('"can’t block" and Pacifism: no block on a tap; Pacifism also keeps it home', () => {
+    const { t } = fight();
+    expect(read(t, 1, card('coward')).canBlock).toBe(0);
+    expect(read(t, 1, card('pac')).canBlock).toBe(0);
+    expect(read(t, 1, card('pac')).canAttack).toBe(0);
+    expect(read(t, 1, card('sbear')).canBlock).toBe(1);
+  });
+
+  test('a blocker put in the way by hand can still be taken back by a tap', () => {
+    const { t, c } = fight({ angel: [card('sbear')] });
+    expect(blockTap(c, 1, read(t, 1, card('sbear')), tileOf(c, 'angel'), read(t, 0, card('angel')))).toEqual({
+      attacker: card('angel'),
+      blocker: card('sbear'),
+      n: 0,
+    });
+  });
+
+  test('menace with one blocker alone is called out; with two, or none, it is fine', () => {
+    const goblin = (blocks: CombatUnit[] | undefined) => {
+      const { t, c } = fight(blocks ? { goblin: blocks } : {});
+      return menaceShort(read(t, 0, card('goblin')), tileOf(c, 'goblin').attack);
+    };
+    expect(goblin([card('sbear')])).toBe(true);
+    expect(goblin([card('sbear'), card('spider')])).toBe(false);
+    expect(goblin(undefined)).toBe(false);
   });
 });

@@ -513,3 +513,26 @@ describe('the damage, on the board', () => {
     expect(useCombatEdits.getState().combatId).toBeNull();
   });
 });
+
+describe('who may block what, on the cards', () => {
+  test('a flier is blocked by flying or reach only: a ground creature goes dim for it, and may block the next attacker', async () => {
+    store().startCombat();
+    store().setAttacker(card('angel'), 1, 1);
+    store().setAttacker(card('bear'), 1, 1);
+    await store().confirmAttackers();
+    render(
+      <>
+        <CombatBar playerIdx={1} />
+        <BattlefieldRow playerIdx={1} />
+      </>,
+    );
+    // The angel is attacker 1, lit to begin with: Sam's bear cannot block it.
+    const sbear = await screen.findByRole('button', { name: 'Grizzly Bears cannot block' });
+    tap(sbear);
+    expect(blocks()).toEqual(['angel: ', 'bear: ']);
+    // The bear coming at him is another matter.
+    tap(screen.getByRole('button', { name: /^attacker 2: Grizzly Bears/ }));
+    tap(await screen.findByRole('button', { name: 'block with Grizzly Bears' }));
+    expect(blocks()).toEqual(['angel: ', 'bear: sbear']);
+  });
+});

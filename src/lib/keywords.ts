@@ -216,6 +216,72 @@ export function combatGrants(sources: GrantSource[]): Grants {
   };
 }
 
+/** What a creature may not do in a fight, by its own text or by what is on
+ * it. Only plain sentences: "This creature can't block.", "Enchanted
+ * creature can't attack or block." (Pacifism, Arrest), "Equipped creature
+ * can't be blocked" (Whispersilk Cloak). One with a condition ("…alone",
+ * "…unless…", "…this turn", "…except by…") is left to the players. */
+export interface Restrictions {
+  cantAttack: boolean;
+  cantBlock: boolean;
+  /** Nothing may block it. */
+  unblockable: boolean;
+}
+
+export const NO_RESTRICTIONS: Restrictions = { cantAttack: false, cantBlock: false, unblockable: false };
+
+// The apostrophe as the card database prints it, or as it is typed.
+// The ban has to be the whole of it: "…can't attack or block." or "…can't
+// attack or block, and its activated abilities…" — never "…can't attack
+// you", "…can't block creatures you control", "…alone", "…unless…".
+const CANT = /^(?:this creature|~|it) can['’]t (attack or block|attack|block)(?=\s*$|\s*,|\s+and\b)/i;
+const CANT_WORN = /^(?:equipped|enchanted) creature can['’]t (attack or block|attack|block)(?=\s*$|\s*,|\s+and\b)/i;
+const UNBLOCKABLE = /^(?:this creature|~|it) can['’]t be blocked\s*$/i;
+const UNBLOCKABLE_WORN = /^(?:equipped|enchanted) creature can['’]t be blocked(?:\s*$|\s+and\b)/i;
+
+/** Sentences of a card's front face, with its own name written "~". */
+function sentencesOf(oracleText: string, name: string): string[] {
+  const front = name.split(' // ')[0];
+  return standingLines(oracleText)
+    .flatMap((line) => line.split(/(?<=\.)\s+/))
+    .map((s) => (front ? s.split(front).join('~') : s).replace(/\.$/, '').trim());
+}
+
+/** What its own text forbids a creature. */
+export function restrictionsOf(oracleText: string, name = ''): Restrictions {
+  const out = { ...NO_RESTRICTIONS };
+  for (const s of sentencesOf(oracleText, name)) {
+    const m = s.match(CANT);
+    if (m) {
+      if (m[1].includes('attack')) out.cantAttack = true;
+      if (m[1].includes('block')) out.cantBlock = true;
+    }
+    if (UNBLOCKABLE.test(s)) out.unblockable = true;
+  }
+  return out;
+}
+
+/** What an Aura or Equipment forbids the creature it is on. */
+export function restrictionsGiven(oracleText: string): Restrictions {
+  const out = { ...NO_RESTRICTIONS };
+  for (const s of sentencesOf(oracleText, '')) {
+    const m = s.match(CANT_WORN);
+    if (m) {
+      if (m[1].includes('attack')) out.cantAttack = true;
+      if (m[1].includes('block')) out.cantBlock = true;
+    }
+    if (UNBLOCKABLE_WORN.test(s)) out.unblockable = true;
+  }
+  return out;
+}
+
+/** Both together. */
+export const joinRestrictions = (a: Restrictions, b: Restrictions): Restrictions => ({
+  cantAttack: a.cantAttack || b.cantAttack,
+  cantBlock: a.cantBlock || b.cantBlock,
+  unblockable: a.unblockable || b.unblockable,
+});
+
 /** Thousand-Year Elixir and Tyvar, Jubilant Brawler: "You may activate
  * abilities of creatures you control as though those creatures had haste."
  * That frees a fresh creature's tap (its mana above all) but is NOT haste —

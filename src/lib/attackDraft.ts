@@ -1,9 +1,9 @@
-import { keywordsNow, keywordsWorn } from './attach';
+import { keywordsNow, keywordsWorn, restrictionsWorn } from './attach';
 import { boostOf } from './boost';
 import { computedPT } from './board';
 import { liveCombat } from './combat';
 import type { CardRecords } from './combatEngine';
-import { isSummoningSick, permanentTexts, sickCopies } from './keywords';
+import { isSummoningSick, permanentTexts, restrictionsOf, sickCopies } from './keywords';
 import type { CombatUnit, GameState } from './types';
 
 /** Attacking the way it is done at a table: you turn your creatures
@@ -45,10 +45,17 @@ export function tappedToAttack(game: GameState, records: CardRecords): DraftPick
     const record = records[card.cardId];
     if (!record || !/\bCreature\b/.test(record.typeLine.split(' // ')[0])) continue;
     if (isSummoningSick(card, record, texts, keywordsNow(game, { seat, kind: 'card', id: card.iid }, records))) continue;
+    // "This creature can't attack", Pacifism on it: tapped, it is not an attack.
+    if (
+      restrictionsOf(record.oracleText, record.name).cantAttack ||
+      restrictionsWorn(game, { seat, kind: 'card', id: card.iid }, records).cantAttack
+    )
+      continue;
     picks.push({ unit: { kind: 'card', id: card.iid }, n: 1, name: record.name.split(' // ')[0] });
   }
   for (const item of player.board) {
     if (item.zone === 'lands' || computedPT({ ...item, counters: item.counters ?? {} }) === null) continue;
+    if (restrictionsOf(item.oracleText, item.name).cantAttack) continue;
     // What one token wears; what "until end of turn" gave every copy.
     const worn = new Set([
       ...(item.count === 1 ? keywordsWorn(game, { seat, kind: 'stack', id: item.id }, records) : []),

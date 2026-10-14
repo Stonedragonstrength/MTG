@@ -21,6 +21,7 @@ import {
   attackTap,
   attackingCopies,
   blockAnyway,
+  blockLegal,
   blockLess,
   blockTap,
   blockingCopies,
@@ -285,6 +286,9 @@ export function useSeatCombat(playerIdx: number, on = true): SeatCombat | null {
     }
     if (mode === 'block') {
       const lit = litAttack(fight, playerIdx, mine ? aim.attack : null);
+      // The lit attacker as the table reads it: a flier, one that can't be blocked.
+      const litRead = lit ? readUnit(game!, fight.active, lit.attack.unit, records) : null;
+      const legal = blockLegal(litRead, r);
       const free = freeToStand(fight, playerIdx, r);
       const force = blockAnyway(fight, playerIdx, r, lit);
       // A card stands in one place: one pick takes it out of the way.
@@ -294,8 +298,8 @@ export function useSeatCombat(playerIdx: number, on = true): SeatCombat | null {
         picks: r.creature,
         picked: blocking.total,
         free,
-        dim: r.creature && blocking.total === 0 && free === 0,
-        tap: () => stand(blockTap(fight, playerIdx, r, lit)),
+        dim: r.creature && blocking.total === 0 && (free === 0 || !legal),
+        tap: () => stand(blockTap(fight, playerIdx, r, lit, litRead)),
         less: () => stand(blockLess(fight, playerIdx, r, lit)),
         anyway: force ? () => stand(force) : null,
         stop: out ? () => stand(out) : null,

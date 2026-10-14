@@ -18,6 +18,7 @@ import {
   barSentence,
   litAttack,
   litTarget,
+  menaceShort,
   resultFlags,
   reviewLines,
   type Incoming,
@@ -309,7 +310,8 @@ function BlockersBar({ game, fight, defender }: { game: GameState; fight: Combat
               name={name}
               read={read}
               art={unitArt(game, fight.active, tile.attack.unit, records)}
-              way={inTheWay(game, tile)}
+              // Menace with a single blocker in front: the table says so (the second may still come).
+              way={`${inTheWay(game, tile)}${menaceShort(read, tile.attack) ? ' · menace: needs 2' : ''}`}
               lit={tile.index === lit?.index}
               onLight={() => aim.light(fight.id, tile.index)}
               onZoom={() => setZoom(tile.attack.unit)}

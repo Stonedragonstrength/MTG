@@ -1,4 +1,4 @@
-import { keywordsNow, keywordsWorn, sizeWorn, type Size } from './attach';
+import { keywordsNow, keywordsWorn, restrictionsWorn, sizeWorn, type Size } from './attach';
 import { boostOf } from './boost';
 import { computedPT } from './board';
 import { copiesOf, type CombatOutcome } from './combat';
@@ -6,8 +6,11 @@ import { commanderKey } from './commanders';
 import {
   combatGrants,
   isSummoningSick,
+  joinRestrictions,
   keywordsOf,
+  NO_RESTRICTIONS,
   permanentTexts,
+  restrictionsOf,
   sickCopies,
   toxicOf,
   type Grants,
@@ -107,6 +110,8 @@ export interface UnitRead {
   canAttack: number;
   /** How many copies a tap may put in the way: a creature, untapped. */
   canBlock: number;
+  /** Nothing may block it ("can't be blocked", by its text or what it wears). */
+  unblockable: boolean;
 }
 
 const unitKey = (u: CombatUnit) => `${u.kind}:${u.id}`;
@@ -166,6 +171,11 @@ function readCard(game: GameState, read: SeatRead, card: CardInstance, records: 
   // What it wears, and what "until end of turn" effects did to it this turn.
   const wornKeywords = keywordsNow(game, { seat: read.seat, kind: 'card', id: card.iid }, records);
   const boost = boostOf(game, card);
+  // "This creature can't block", Pacifism on it, Whispersilk Cloak.
+  const forbids = joinRestrictions(
+    restrictionsOf(record?.oracleText ?? '', record?.name ?? ''),
+    restrictionsWorn(game, { seat: read.seat, kind: 'card', id: card.iid }, records),
+  );
   return {
     unit,
     seat: read.seat,
@@ -177,8 +187,10 @@ function readCard(game: GameState, read: SeatRead, card: CardInstance, records: 
     ...keywordsFor(record?.oracleText ?? '', unitKey(unit), read.grants, wornKeywords),
     commander: commanderKey(game, read.seat, unit),
     count: 1,
-    canAttack: creature && !card.tapped && !isSummoningSick(card, record, read.texts, wornKeywords) ? 1 : 0,
-    canBlock: creature && !card.tapped ? 1 : 0,
+    canAttack:
+      creature && !card.tapped && !forbids.cantAttack && !isSummoningSick(card, record, read.texts, wornKeywords) ? 1 : 0,
+    canBlock: creature && !card.tapped && !forbids.cantBlock ? 1 : 0,
+    unblockable: forbids.unblockable,
   };
 }
 
@@ -200,6 +212,10 @@ function readStack(game: GameState, read: SeatRead, item: BoardItem, records: Ca
     ...(count === 1 ? keywordsWorn(game, { seat: read.seat, kind: 'stack', id: item.id }, records) : []),
     ...(boost?.keywords ?? []),
   ]);
+  const forbids = joinRestrictions(
+    restrictionsOf(item.oracleText ?? '', item.name),
+    count === 1 ? restrictionsWorn(game, { seat: read.seat, kind: 'stack', id: item.id }, records) : NO_RESTRICTIONS,
+  );
   return {
     unit,
     seat: read.seat,
@@ -211,8 +227,12 @@ function readStack(game: GameState, read: SeatRead, item: BoardItem, records: Ca
     ...keywordsFor(item.oracleText ?? '', unitKey(unit), read.grants, wornKeywords),
     commander: commanderKey(game, read.seat, unit),
     count,
-    canAttack: creature ? Math.max(0, Math.min(standing, count - sickCopies(item, read.texts, wornKeywords))) : 0,
-    canBlock: creature ? standing : 0,
+    canAttack:
+      creature && !forbids.cantAttack
+        ? Math.max(0, Math.min(standing, count - sickCopies(item, read.texts, wornKeywords)))
+        : 0,
+    canBlock: creature && !forbids.cantBlock ? standing : 0,
+    unblockable: forbids.unblockable,
   };
 }
 

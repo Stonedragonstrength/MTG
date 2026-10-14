@@ -209,18 +209,43 @@ function roomAt(tile: Incoming): number {
 
 const picksBlocks = (c: CombatState, defender: number) => c.step === 'blockers' && c.defender === defender;
 
+/** May this creature block that attacker, as far as the table can read
+ * them: nothing blocks what "can't be blocked", and only flying or reach
+ * blocks a flier. An attacker the table cannot read is no reason to refuse. */
+export function blockLegal(attacker: UnitRead | null, blocker: UnitRead): boolean {
+  if (!attacker) return true;
+  if (attacker.unblockable) return false;
+  if (hasKeyword(attacker, 'flying') && !hasKeyword(blocker, 'flying') && !hasKeyword(blocker, 'reach')) return false;
+  return true;
+}
+
+/** "Needs two": a menace attacker that one creature alone stands in front of. */
+export function menaceShort(attacker: UnitRead | null, attack: CombatAttack): boolean {
+  if (!attacker || !hasKeyword(attacker, 'menace') || attack.blocked) return false;
+  return sum((attack.blockers ?? []).map(copiesOf)) === 1;
+}
+
 /** A tap on one of the defender's units while they choose blockers — null
  * when the tap is not a pick or is ignored (it is tapped, or the lit
  * attack has a blocker for every copy already). A card in front of the
  * lit attacker is taken back, one in front of another moves; a stack gets
  * one more copy in front of the lit attacker and stops at its last free
  * copy. */
-export function blockTap(c: CombatState, defender: number, read: UnitRead, lit: Incoming | null): BlockPick | null {
+export function blockTap(
+  c: CombatState,
+  defender: number,
+  read: UnitRead,
+  lit: Incoming | null,
+  /** The lit attacker as the table reads it: a flier refuses a blocker without flying or reach. */
+  litRead: UnitRead | null = null,
+): BlockPick | null {
   if (!picksBlocks(c, defender) || !read.creature || !lit) return null;
   const blocker = plainUnit(read.unit);
   const attacker = plainUnit(lit.attack.unit);
   const { total, at } = blockingCopies(c, defender, blocker);
   const here = at.find(([no]) => no === lit.no)?.[1] ?? 0;
+  // Taking it back out of the way is always allowed; putting it there, only where it may.
+  if (here === 0 && !blockLegal(litRead, read)) return null;
   if (blocker.kind === 'card') {
     if (here > 0) return { attacker, blocker, n: 0 };
     if ((total === 0 && read.canBlock <= 0) || roomAt(lit) <= 0) return null;

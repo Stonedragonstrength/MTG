@@ -1,7 +1,7 @@
 import { computedPT } from './board';
 import { boostOf } from './boost';
 import { hostIsThere, type Host } from './cards';
-import { keywordList } from './keywords';
+import { joinRestrictions, keywordList, NO_RESTRICTIONS, restrictionsGiven, type Restrictions } from './keywords';
 import type { CardInstance, CardRecord, GameState } from './types';
 
 /** Auras and Equipment: what they can go on, what is on what. The screen's
@@ -143,6 +143,15 @@ export function keywordsWorn(g: GameState, host: Host, records: Records): Set<st
   const out = new Set<string>();
   for (const { card } of attachedTo(g, host)) for (const keyword of keywordsGiven(records[card.cardId])) out.add(keyword);
   return out;
+}
+
+/** What everything attached to that host forbids it (Pacifism: no
+ * attacking, no blocking), whoever each belongs to. */
+export function restrictionsWorn(g: GameState, host: Host, records: Records): Restrictions {
+  return attachedTo(g, host).reduce(
+    (all, { card }) => joinRestrictions(all, restrictionsGiven(records[card.cardId]?.oracleText.split('\n//\n')[0] ?? '')),
+    NO_RESTRICTIONS,
+  );
 }
 
 /** The keywords it has right now from outside its own text: what it wears,
