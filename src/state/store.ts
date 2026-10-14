@@ -20,6 +20,7 @@ import * as gameLib from '../lib/game';
 import * as payLib from '../lib/pay';
 import * as payWithLib from '../lib/payWith';
 import { planEffect, type SpellEffect } from '../lib/spellEffects';
+import { arrivalsBetween, type Arrival } from '../lib/triggers';
 import { isLandCard } from '../lib/turnRules';
 import { playDefeat, playLifeTick, playTurnChime } from '../lib/sound';
 import type {
@@ -52,6 +53,11 @@ export interface AppStore {
   profiles: PlayerProfile[];
   settings: Settings;
   log: LogEntry[];
+  /** What last entered a battlefield by a move made ON THIS DEVICE (not by
+   * an Undo, not by another device's move): the cards that trigger by
+   * themselves are set off from it (components/useTriggers.ts). It is not
+   * part of the game — never saved, never sent to the table. */
+  entered: { id: number; arrivals: Arrival[] } | null;
   updateSettings(settings: Settings): void;
   init(): Promise<void>;
   completeSetup(): void;
@@ -97,6 +103,9 @@ export interface AppStore {
     to: CardZone,
     opts?: { pos?: 'top' | 'bottom'; row?: CardInstance['row'] },
   ): void;
+  /** A permanent goes back to its owner's hand, and the table is told
+   * which: it was in plain sight, unlike a card put there from a library. */
+  returnToHand(seat: number, iid: string): void;
   millCards(seat: number, n: number): void;
   exileCards(seat: number, n: number): void;
   lookNotice(seat: number, n: number): void;
@@ -254,7 +263,7 @@ async function seatRecords(g: GameState, seat: number): Promise<SeatRecords> {
 
 /** The same for every battlefield on the table: what a spell reads when it
  * hits somebody else's creature, or all of them. */
-async function tableRecords(g: GameState): Promise<SeatRecords> {
+export async function tableRecords(g: GameState): Promise<SeatRecords> {
   const records: SeatRecords = {};
   for (let seat = 0; seat < g.players.length; seat++) Object.assign(records, await seatRecords(g, seat));
   return records;
@@ -398,6 +407,7 @@ function reread<T extends { id: string; updatedAt?: number }>(current: T[], fres
 export function createAppStore() {
   return create<AppStore>()((set, get) => {
     let history: GameState[] = [];
+    let enteredSeq = 0;
 
     const playerName = (g: GameState, idx: number) => g.config.profiles[idx]?.name ?? '?';
 
@@ -455,7 +465,11 @@ export function createAppStore() {
         return;
       }
       history = [...history.slice(-(HISTORY_CAP - 1)), game];
-      set({ game: next });
+      // What this move put onto a battlefield is noted beside the game, in
+      // the same breath: cards that trigger by themselves are set off by it.
+      const arrivals = arrivalsBetween(game, next);
+      if (arrivals.length > 0) set({ game: next, entered: { id: ++enteredSeq, arrivals } });
+      else set({ game: next });
       persistGame(next);
       tableSync.onLocalMutation(fn, game, sync); // no-op without a session
 
@@ -506,6 +520,7 @@ export function createAppStore() {
       seatFlips: {},
       settings: DEFAULT_SETTINGS,
       log: [],
+      entered: null,
 
       updateSettings(settings) {
         set({ settings });
@@ -861,6 +876,17 @@ export function createAppStore() {
           (base) => cardsLib.moveCard(base, seat, iid, from, to, opts),
           text,
           (base) => !!base.players[seat]?.cards?.[from].some((c) => c.iid === iid),
+        );
+      },
+
+      returnToHand(seat, iid) {
+        const g = get().game;
+        const card = g?.players[seat]?.cards?.battlefield.find((c) => c.iid === iid);
+        if (!g || !card) return;
+        cardMutate(
+          (base) => cardsLib.moveCard(base, seat, iid, 'battlefield', 'hand'),
+          `${card.name} returns to ${seatName(g, seat)}’s hand`,
+          (base) => !!base.players[seat]?.cards?.battlefield.some((c) => c.iid === iid),
         );
       },
 

@@ -3083,13 +3083,18 @@ input[type='checkbox'] {
    screen is wide, the board is not (PlayerZone measures it). */
 .zone--cards.zone--focused.zone--narrow .zone-header {
   flex-wrap: wrap;
-  row-gap: 4px;
+  row-gap: 0;
 }
 
+/* The hub's line keeps clear of the header's bottom edge: Pass turn sat
+   right on it (his words: "ever so slightly up so its not directly touching
+   the backdrop border"). The gap it had above went below it instead, so
+   the header is no taller. */
 .zone--cards.zone--focused.zone--narrow .header-hub {
   order: 10;
   flex-basis: 100%;
   justify-content: center;
+  margin-bottom: 4px;
 }
 
 /* Collapsed bars drop commander-damage gauges entirely — the data lives

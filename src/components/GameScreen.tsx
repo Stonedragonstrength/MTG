@@ -6,6 +6,7 @@ import HandScreen from './HandScreen';
 import LandBackground from './LandBackground';
 import PlayerZone from './PlayerZone';
 import RevealBanner from './RevealBanner';
+import TriggerBanner from './TriggerBanner';
 import { shieldBoard } from './Sheet';
 import TablePill from './TablePill';
 import '../styles/zones.css';
@@ -91,6 +92,7 @@ export default function GameScreen() {
         <HandScreen seatIdx={phoneSeat} onShowTable={() => setView('table')} />
         {online && <TablePill />}
         <RevealBanner />
+        <TriggerBanner />
       </div>
     );
   }
@@ -114,6 +116,7 @@ export default function GameScreen() {
         </button>
       )}
       <RevealBanner />
+      <TriggerBanner />
     </div>
   );
 }

@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState, type CSSProperties, type MouseEvent } from 'react';
-import { createBoardItem } from '../lib/board';
 import { REVEAL_FRESH_MS } from '../lib/cards';
 import { bestToken } from '../lib/deckTokens';
-import { effectOf, modesToChoose, spellPrompts, type SpellPrompt, type SpellTarget } from '../lib/spellEffects';
+import { modesToChoose, spellPrompts, type SpellPrompt, type SpellTarget } from '../lib/spellEffects';
 import type { CardRecord, Reveal } from '../lib/types';
 import { useAppStore } from '../state/store';
 import LibrarySearchSheet from './LibrarySearchSheet';
 import { shieldBoard } from './Sheet';
+import { carryOutPrompt } from './spellActs';
 import SpellTargetSheet from './SpellTargetSheet';
 import { useCardRecords } from './useCardRecords';
 
@@ -224,23 +224,7 @@ function RevealPanel({ reveal, who, onDone }: PanelProps) {
   /** Carries out one prompt (with its target, when it asked for one) and
    * marks its button done. Each is one move at the table: one Undo. */
   const carryOut = (prompt: SpellPrompt, target?: SpellTarget) => {
-    const store = useAppStore.getState();
-    if (prompt.kind === 'draw') store.drawCards(target?.seat ?? reveal.seat, prompt.n);
-    else if (prompt.kind === 'tokens') {
-      // As a token chip does it: more of a token already on the board
-      // joins its plain stack, otherwise a new stack arrives.
-      const card = tokenCards[prompt.key];
-      const stack = store.game?.players[reveal.seat]?.board.find(
-        (it) => it.cardId === card?.id && it.zone === 'board' && Object.keys(it.counters).length === 0,
-      );
-      if (!card) return;
-      if (stack) store.changeCount(reveal.seat, stack.id, prompt.n);
-      else store.addItem(reveal.seat, { ...createBoardItem(card, 'board'), count: prompt.n });
-    } else {
-      const effect = effectOf(prompt, reveal.seat, target);
-      if (!effect) return;
-      void store.castEffect(reveal.seat, reveal.cards[0].name, effect);
-    }
+    if (!carryOutPrompt(reveal.seat, reveal.cards[0].name, prompt, tokenCards[prompt.key], target)) return;
     setUsed({ id: reveal.id, keys: [...usedKeys, prompt.key] });
   };
   const pressed = (e: MouseEvent, prompt: SpellPrompt) => {
@@ -315,7 +299,9 @@ function RevealPanel({ reveal, who, onDone }: PanelProps) {
       {banner}
       {aiming && aiming.id === reveal.id && (
         <SpellTargetSheet
-          reveal={reveal}
+          caster={reveal.seat}
+          spell={reveal.cards[0]?.name ?? 'Spell'}
+          revealId={reveal.id}
           prompt={aiming.prompt}
           onPick={(target) => {
             carryOut(aiming.prompt, target);

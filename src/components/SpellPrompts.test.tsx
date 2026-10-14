@@ -399,13 +399,13 @@ test('what helps opens on the caster’s own side, what hurts on the first oppon
   const shown = cast('c-burst');
   act(() => useAppStore.setState({ game: table(shown) }));
   const onPick = vi.fn();
-  render(<SpellTargetSheet reveal={shown} prompt={promptOf('c-burst')} onPick={onPick} onClose={() => {}} />);
+  render(<SpellTargetSheet caster={shown.seat} spell={shown.cards[0].name} revealId={shown.id}prompt={promptOf('c-burst')} onPick={onPick} onClose={() => {}} />);
   await settle();
   expect(screen.getByRole('tab', { name: 'Mine' })).toHaveAttribute('aria-selected', 'true');
   tap(screen.getByRole('button', { name: 'Grizzly Bears' }));
   expect(onPick).toHaveBeenCalledWith({ seat: 0, kind: 'card', id: 'bear' });
   cleanup();
-  render(<SpellTargetSheet reveal={shown} prompt={promptOf('c-murder')} onPick={onPick} onClose={() => {}} />);
+  render(<SpellTargetSheet caster={shown.seat} spell={shown.cards[0].name} revealId={shown.id}prompt={promptOf('c-murder')} onPick={onPick} onClose={() => {}} />);
   await settle();
   expect(screen.getByRole('tab', { name: 'Sam' })).toHaveAttribute('aria-selected', 'true');
   expect(screen.queryByRole('button', { name: /life$/ })).toBeNull(); // a creature spell cannot hit a player
@@ -433,11 +433,11 @@ test('a token stack is one row, and counters only go on a stack of one', async (
   const g = table(shown);
   g.players[1] = { ...g.players[1], board: [soldiers] };
   act(() => useAppStore.setState({ game: g }));
-  render(<SpellTargetSheet reveal={shown} prompt={promptOf('c-murder')} onPick={() => {}} onClose={() => {}} />);
+  render(<SpellTargetSheet caster={shown.seat} spell={shown.cards[0].name} revealId={shown.id}prompt={promptOf('c-murder')} onPick={() => {}} onClose={() => {}} />);
   await settle();
   expect(screen.getByRole('button', { name: 'Soldier ×2' })).toBeInTheDocument();
   cleanup();
-  render(<SpellTargetSheet reveal={shown} prompt={promptOf('c-burst')} onPick={() => {}} onClose={() => {}} />);
+  render(<SpellTargetSheet caster={shown.seat} spell={shown.cards[0].name} revealId={shown.id}prompt={promptOf('c-burst')} onPick={() => {}} onClose={() => {}} />);
   await settle();
   tap(screen.getByRole('tab', { name: 'Sam' }));
   expect(screen.getByRole('button', { name: 'Hill Giant' })).toBeInTheDocument();
@@ -448,7 +448,7 @@ test('the list closes itself when the cast it belongs to is no longer the one on
   const shown = cast('c-murder');
   act(() => useAppStore.setState({ game: table(shown) }));
   const onClose = vi.fn();
-  render(<SpellTargetSheet reveal={shown} prompt={promptOf('c-murder')} onPick={() => {}} onClose={onClose} />);
+  render(<SpellTargetSheet caster={shown.seat} spell={shown.cards[0].name} revealId={shown.id}prompt={promptOf('c-murder')} onPick={() => {}} onClose={onClose} />);
   await settle();
   expect(onClose).not.toHaveBeenCalled();
   act(() => useAppStore.setState({ game: { ...game(), reveal: cast('c-bolt') } }));

@@ -167,17 +167,17 @@ test('a card that returns itself to its owner’s hand says so, and a tap sends 
     'Enchantment',
     "When a Dragon you control enters, return this enchantment to its owner's hand.",
   );
-  const moveVirtualCard = vi.fn();
+  const returnToHand = vi.fn();
   useAppStore.setState({
     game: gameWith([...BOARD, { iid: 'd1', cardId: 'c-storm', name: 'Encroaching Dragonstorm', row: 'front' }]),
-    moveVirtualCard,
+    returnToHand,
   });
   render(<SideShelf playerIdx={0} />);
   const storm = await screen.findByRole('button', { name: 'return Encroaching Dragonstorm' });
   expect(storm).toHaveTextContent('return'); // the band on the card
   fireEvent.pointerDown(storm);
   fireEvent.pointerUp(storm);
-  expect(moveVirtualCard).toHaveBeenCalledWith(0, 'd1', 'battlefield', 'hand');
+  expect(returnToHand).toHaveBeenCalledWith(0, 'd1');
   expect(useAppStore.getState().tapVirtualCard).not.toHaveBeenCalled();
   // An ordinary enchantment beside it still just taps.
   expect(screen.getByRole('button', { name: 'tap Rhystic Study' })).toBeInTheDocument();

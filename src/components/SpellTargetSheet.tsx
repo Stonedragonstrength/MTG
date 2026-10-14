@@ -1,14 +1,18 @@
 import { useEffect, useState } from 'react';
 import { opponentsOf, spellChoices, type SpellPrompt, type SpellTarget } from '../lib/spellEffects';
-import type { Reveal } from '../lib/types';
 import { useAppStore } from '../state/store';
 import Sheet from './Sheet';
 import { useTableRecords } from './useCombat';
 import { useSettleTaps } from './useSettleTaps';
 
 interface Props {
-  /** The cast this is an effect of: its seat is the caster. */
-  reveal: Reveal;
+  /** Whose effect it is: "you" in its text. */
+  caster: number;
+  /** The card it is an effect of, by name. */
+  spell: string;
+  /** The cast it belongs to, when it is a spell's: put aside (another
+   * spell, an Undo), the list closes with it. */
+  revealId?: string;
   /** The effect being pointed at something. */
   prompt: SpellPrompt;
   /** A row was tapped: the caller applies the effect and closes this. */
@@ -21,9 +25,8 @@ interface Props {
  * own. Where players can be hit, the player is the first row; then that
  * side's permanents of the kinds the card names. A tap on a row does it.
  * No picking on the board: the list is the whole of it. */
-export default function SpellTargetSheet({ reveal, prompt, onPick, onClose }: Props) {
+export default function SpellTargetSheet({ caster, spell, revealId, prompt, onPick, onClose }: Props) {
   const game = useAppStore((s) => s.game);
-  const caster = reveal.seat;
   const helps = prompt.kind === 'counters' || prompt.kind === 'draw';
   const [tab, setTab] = useState(() => (helps || !game ? caster : (opponentsOf(game, caster)[0] ?? caster)));
   // It opens under the finger that pressed the banner's button: the rest
@@ -31,7 +34,7 @@ export default function SpellTargetSheet({ reveal, prompt, onPick, onClose }: Pr
   useSettleTaps();
   const records = useTableRecords();
   // The cast was put aside meanwhile (another spell, an Undo): really close.
-  const gone = game?.reveal?.id !== reveal.id;
+  const gone = revealId !== undefined && game?.reveal?.id !== revealId;
   useEffect(() => {
     if (gone) onClose();
   }, [gone, onClose]);
@@ -41,7 +44,6 @@ export default function SpellTargetSheet({ reveal, prompt, onPick, onClose }: Pr
   const seats = game.players.map((_, i) => (caster + i) % game.players.length);
   const shown = seats.includes(tab) ? tab : caster;
   const choices = spellChoices(game, shown, prompt, caster, records);
-  const spell = reveal.cards[0]?.name ?? 'Spell';
 
   return (
     <Sheet

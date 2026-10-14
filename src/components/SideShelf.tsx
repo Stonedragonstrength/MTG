@@ -26,7 +26,7 @@ interface Props {
 export default function SideShelf({ playerIdx, picks = true }: Props) {
   const game = useAppStore((s) => s.game);
   const tapVirtualCard = useAppStore((s) => s.tapVirtualCard);
-  const moveVirtualCard = useAppStore((s) => s.moveVirtualCard);
+  const returnToHand = useAppStore((s) => s.returnToHand);
   const combat = useSeatCombat(playerIdx, picks);
   const [cardSheet, setCardSheet] = useState<string | null>(null);
   const [attachFor, setAttachFor] = useState<string | null>(null); // the Equipment tapped to be put on something
@@ -80,7 +80,7 @@ export default function SideShelf({ playerIdx, picks = true }: Props) {
                 worn={sizeWorn(game, { seat: playerIdx, kind: 'card', id: c.iid }, records)}
                 use={use}
                 onTap={() => {
-                  if (use === 'return') moveVirtualCard(playerIdx, c.iid, 'battlefield', 'hand');
+                  if (use === 'return') returnToHand(playerIdx, c.iid);
                   else if (use) setAttachFor(c.iid);
                   else tapVirtualCard(playerIdx, c.iid);
                 }}
