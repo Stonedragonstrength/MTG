@@ -79,7 +79,8 @@ interface Props {
  * cards, held like a hand — side by side while there is room, each one
  * under the next past that. Tap plays (undo covers misclicks); a card
  * lying under the others comes to the front on the first tap and plays on
- * the next. Hold for options.
+ * the next. Hold for options. The button that folds the cards away again
+ * sits on the corner of the card lying furthest back.
  * Turn one offers the London mulligan with select-to-bottom on keep. */
 export default function HandTray({ playerIdx, forceFanned = false }: Props) {
   const game = useAppStore((s) => s.game);
@@ -205,6 +206,21 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
       ) : (
         <div className="hand-fan">
           <div className="hand-cards">
+            {!forceFanned && (
+              // The button that folds the hand rides the hand itself, on the
+              // bottom corner of the card lying furthest back: it takes no
+              // line of its own from the board. It wears the same "✋ 7" the
+              // folded pill does, so the count stays in sight.
+              <span className="hand-anchor">
+                <button
+                  className="hand-fold"
+                  aria-label={`collapse hand, ${seat.hand.length} cards`}
+                  onClick={() => setFolded(true)}
+                >
+                  ✋ {seat.hand.length} ▾
+                </button>
+              </span>
+            )}
             {seat.hand.map((c) => (
               <HandCard
                 key={c.iid}
@@ -227,66 +243,59 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
               />
             ))}
           </div>
-          <div className="hand-tools">
-            {!forceFanned && (
-              // The count stays in sight while the cards are up: the same
-              // "✋ 7" the folded pill shows, on the button that folds them.
-              <button
-                className="ghost hand-fold"
-                aria-label={`collapse hand, ${seat.hand.length} cards`}
-                onClick={() => setFolded(true)}
-              >
-                ✋ {seat.hand.length} ▾
-              </button>
-            )}
-            {(canMulligan || keepWindow) && !bottoming && (
-              <>
-                {canMulligan && (
-                  <button className="ghost" onClick={() => mulliganSeat(playerIdx)}>
-                    Mulligan
+          {/* Only the opening hand has tools: with nothing to offer, the
+              line they stand on is not there at all. */}
+          {(canMulligan || keepWindow || bottoming) && (
+            <div className="hand-tools">
+              {(canMulligan || keepWindow) && !bottoming && (
+                <>
+                  {canMulligan && (
+                    <button className="ghost" onClick={() => mulliganSeat(playerIdx)}>
+                      Mulligan
+                    </button>
+                  )}
+                  {keepWindow &&
+                    (needBottom > 0 ? (
+                      <button className="ghost" onClick={() => setBottoming(true)}>
+                        Keep (bottom {needBottom})
+                      </button>
+                    ) : (
+                      <button className="ghost" onClick={() => keepHand(playerIdx, [])}>
+                        Keep hand
+                      </button>
+                    ))}
+                </>
+              )}
+              {bottoming && (
+                <>
+                  <span className="hint">
+                    Pick {needBottom} to bottom · {selected.length}/{needBottom}
+                  </span>
+                  <button
+                    className="primary"
+                    disabled={selected.length !== needBottom}
+                    onClick={() => {
+                      keepHand(playerIdx, selected);
+                      setBottoming(false);
+                      setSelected([]);
+                    }}
+                  >
+                    Bottom them
                   </button>
-                )}
-                {keepWindow &&
-                  (needBottom > 0 ? (
-                    <button className="ghost" onClick={() => setBottoming(true)}>
-                      Keep (bottom {needBottom})
-                    </button>
-                  ) : (
-                    <button className="ghost" onClick={() => keepHand(playerIdx, [])}>
-                      Keep hand
-                    </button>
-                  ))}
-              </>
-            )}
-            {bottoming && (
-              <>
-                <span className="hint">
-                  Pick {needBottom} to bottom · {selected.length}/{needBottom}
-                </span>
-                <button
-                  className="primary"
-                  disabled={selected.length !== needBottom}
-                  onClick={() => {
-                    keepHand(playerIdx, selected);
-                    setBottoming(false);
-                    setSelected([]);
-                  }}
-                >
-                  Bottom them
-                </button>
-                <button
-                  className="ghost"
-                  onClick={() => {
-                    keepHand(playerIdx, []); // house rule: keep all
-                    setBottoming(false);
-                    setSelected([]);
-                  }}
-                >
-                  Keep all (house rule)
-                </button>
-              </>
-            )}
-          </div>
+                  <button
+                    className="ghost"
+                    onClick={() => {
+                      keepHand(playerIdx, []); // house rule: keep all
+                      setBottoming(false);
+                      setSelected([]);
+                    }}
+                  >
+                    Keep all (house rule)
+                  </button>
+                </>
+              )}
+            </div>
+          )}
         </div>
       )}
       {detail && (

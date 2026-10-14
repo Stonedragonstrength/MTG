@@ -821,3 +821,31 @@ test('choosing cards to bottom picks them where they lie: nothing comes to the f
   expect(useAppStore.getState().playCard).not.toHaveBeenCalled();
   undo();
 });
+
+test('the button that folds the hand rides the hand: it is in the row of cards, ahead of the first one', () => {
+  const { container } = render(<HandTray playerIdx={0} />);
+  const fold = screen.getByRole('button', { name: 'collapse hand, 7 cards' });
+  const row = container.querySelector('.hand-cards')!;
+  expect(row).toContainElement(fold);
+  // Ahead of the card lying furthest back, so it sits on that card's corner.
+  expect(row.firstElementChild).toContainElement(fold);
+  expect(row.children[1]).toHaveClass('hand-slot');
+});
+
+test('after the opening hand there is no line of tools at all: the row is the cards alone', () => {
+  const { container } = render(<HandTray playerIdx={0} />);
+  // Turn one: mulligan stands on the tools line.
+  expect(container.querySelector('.hand-tools')).toContainElement(screen.getByRole('button', { name: /mulligan/i }));
+  const g = useAppStore.getState().game!;
+  act(() => useAppStore.setState({ game: { ...g, turnNumber: 3 } }));
+  expect(container.querySelector('.hand-tools')).toBeNull();
+  expect(screen.getByRole('button', { name: 'collapse hand, 7 cards' })).toBeInTheDocument();
+});
+
+test('an empty hand still has its fold button', () => {
+  const g = useAppStore.getState().game!;
+  const players = g.players.map((p, i) => (i === 0 ? { ...p, cards: { ...p.cards!, hand: [] } } : p));
+  useAppStore.setState({ game: { ...g, players, turnNumber: 3 } });
+  render(<HandTray playerIdx={0} />);
+  expect(screen.getByRole('button', { name: 'collapse hand, 0 cards' })).toBeInTheDocument();
+});

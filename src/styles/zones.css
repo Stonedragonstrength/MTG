@@ -3362,13 +3362,44 @@ input[type='checkbox'] {
   font-weight: 700;
 }
 
-/* The fanned hand's fold button wears the same count the pill does. */
+/* The button that folds the open hand rides the hand itself: on the bottom
+   corner of the card lying furthest back, where it is in nobody's way, and
+   over every card it reaches. Its anchor takes no room in the row, and
+   keeps to the row's start when a very full hand scrolls. The button wears
+   the same count the pill does. */
+.hand-anchor {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  flex: 0 0 0;
+  align-self: flex-end;
+  width: 0;
+  height: 0;
+}
+
 .hand-fold {
+  position: absolute;
+  left: 5px;
+  bottom: 6px;
   border-radius: 999px;
   padding: 6px 12px;
+  border-color: rgba(255, 255, 255, 0.35);
+  background: rgba(10, 10, 14, 0.86);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
   font-weight: 700;
+  line-height: 1.2;
   white-space: nowrap;
 }
+
+/* An empty hand has no card to ride: the button stands in the row itself. */
+.hand-anchor:only-child {
+  position: static;
+  flex: 0 0 auto;
+  width: auto;
+  height: auto;
+}
+
+.hand-anchor:only-child .hand-fold { position: static; }
 
 .hand-fan {
   display: flex;
@@ -3969,7 +4000,8 @@ input[type='checkbox'] {
 
 /* ---- the hand ---- */
 
-/* Hand tools stand beside the cards, not under them. */
+/* The opening hand's tools (mulligan, keep) stand beside the cards, not
+   under them; after that the row is the cards' alone. */
 .zone--cards.zone--focused .hand-tray {
   display: flex;
   justify-content: center;
@@ -4052,8 +4084,8 @@ input[type='checkbox'] {
 }
 
 /* A seat too narrow for a row of tools beside its cards (a tablet held
-   upright, a side seat): the tools take a line above, and the fan the
-   full width under it. */
+   upright, a side seat): the opening hand's tools take a line above, and
+   the fan the full width under it. */
 .zone--cards.zone--focused.zone--narrow .hand-fan {
   flex-direction: column;
   align-items: stretch;
@@ -4287,6 +4319,13 @@ input[type='checkbox'] {
 
 .focus-mode .zone--cards:not(.zone--focused) .hand-tools button {
   padding: 3px 10px;
+  font-size: 0.8rem;
+}
+
+.focus-mode .zone--cards:not(.zone--focused) .hand-fold {
+  left: 3px;
+  bottom: 3px;
+  padding: 4px 9px;
   font-size: 0.8rem;
 }
 
