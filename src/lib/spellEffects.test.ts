@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { attachCard } from './cards';
+import { readUnit } from './combatEngine';
 import { createGame } from './game';
 import { effectOf, modesToChoose, opponentsOf, planEffect, spellChoices, spellPrompts, type SpellEffect } from './spellEffects';
 import type { BoardItem, CardInstance, CardRecord, GameConfig, GameState } from './types';
@@ -128,7 +129,7 @@ describe('reading a spell', () => {
       ),
     ).toEqual(['Search library…']); // Cultivate: its search is a list of its own
     expect(labels('Counter target spell.')).toEqual([]);
-    expect(labels('Target creature gets +3/+3 until end of turn.')).toEqual([]);
+    expect(labels('Tap target creature.')).toEqual([]);
     expect(labels('Target player discards two cards.')).toEqual([]);
     expect(labels('You gain 2 life for each creature you control.')).toEqual([]);
     expect(labels('Each player sacrifices a creature.')).toEqual([]);
@@ -530,5 +531,84 @@ describe('applying an effect', () => {
     expect(plan(g, { kind: 'counters', n: 1, on: gone })).toBeNull();
     expect(plan(g, { kind: 'damage', n: 3, on: { seat: 9, kind: 'player' } })).toBeNull();
     expect(plan(g, { kind: 'damage', n: 0, on: { seat: 1, kind: 'player' } })).toBeNull();
+  });
+});
+
+describe('until end of turn', () => {
+  test('a creature getting bigger, smaller, or a keyword, for the turn: one creature is picked, the team is one tap', () => {
+    expect(spellPrompts(spell('Target creature gets +3/+3 until end of turn.'))).toMatchObject([
+      { kind: 'pump', label: '+3/+3…', power: 3, toughness: 3, keywords: [], team: false, pick: { players: null, kinds: ['creature'] } },
+    ]); // Giant Growth
+    expect(labels('Target creature gets +2/+0 and gains first strike until end of turn.')).toEqual(['+2/+0 and first strike…']);
+    expect(labels('Target creature you control gains hexproof and indestructible until end of turn.')).toEqual([
+      'Hexproof and indestructible…',
+    ]);
+    expect(spellPrompts(spell('Target creature gets -2/-2 until end of turn.'))[0]).toMatchObject({ power: -2, toughness: -2 }); // Disfigure
+    expect(spellPrompts(spell('Creatures you control get +3/+3 and gain trample until end of turn.'))).toMatchObject([
+      { label: 'Your creatures +3/+3 and trample', pick: null, team: true, other: false, keywords: ['trample'] },
+    ]); // Overrun
+    expect(spellPrompts(spell('Other creatures you control get +1/+1 until end of turn.'))[0]).toMatchObject({ team: true, other: true });
+    expect(labels('Target creature gets +X/+X until end of turn.', 4)).toEqual(['+4/+4…']);
+    expect(labels('Target creature gets +X/+X until end of turn.')).toEqual([]); // nobody named X
+    expect(labels('Target creature gets +1/+1 until end of turn for each creature you control.')).toEqual([]);
+  });
+
+  test('Giant Growth: the creature is +3/+3 for the turn, and its fight says so', () => {
+    const g = table();
+    const on = { seat: 0, kind: 'card' as const, id: 'bear' };
+    const p = plan(g, { kind: 'pump', power: 3, toughness: 3, keywords: [], on }, 'Giant Growth')!;
+    expect(p.text).toBe('Nathan’s Giant Growth gives Nathan’s Grizzly Bears +3/+3 until end of turn');
+    const after = p.apply(g);
+    const bear = readUnit(after, 0, { kind: 'card', id: 'bear' }, RECORDS);
+    expect([bear?.power, bear?.toughness]).toEqual([5, 5]);
+    // Two of them this turn add up; keywords join.
+    const twice = plan(after, { kind: 'pump', power: 1, toughness: 0, keywords: ['trample'], on })!.apply(after);
+    const big = readUnit(twice, 0, { kind: 'card', id: 'bear' }, RECORDS);
+    expect([big?.power, big?.toughness, big?.granted]).toEqual([6, 5, ['trample']]);
+    // The turn passes: it was until end of turn.
+    const next = { ...twice, turnNumber: twice.turnNumber + 1, activePlayerIndex: 1 };
+    const later = readUnit(next, 0, { kind: 'card', id: 'bear' }, RECORDS);
+    expect([later?.power, later?.toughness, later?.granted]).toEqual([2, 2, []]);
+  });
+
+  test('a shrink to 0 toughness kills — even what is indestructible — and the list says so first', () => {
+    const g = table();
+    const p = plan(g, { kind: 'pump', power: -2, toughness: -2, keywords: [], on: { seat: 0, kind: 'card', id: 'bear' } }, 'Disfigure')!;
+    expect(p.text).toBe('Nathan’s Disfigure gives Nathan’s Grizzly Bears -2/-2 until end of turn, which dies');
+    expect(p.apply(g).players[0].cards!.graveyard.map((c) => c.iid)).toEqual(['bear']);
+    const giant = plan(g, { kind: 'pump', power: -2, toughness: -2, keywords: [], on: { seat: 1, kind: 'card', id: 'giant' } })!;
+    expect(field(giant.apply(g), 1)).toContain('giant'); // 3/3 → 1/1
+    const god = plan(g, { kind: 'pump', power: -11, toughness: -11, keywords: [], on: { seat: 1, kind: 'card', id: 'god' } })!;
+    expect(field(god.apply(g), 1)).not.toContain('god'); // 0 toughness is no damage: indestructible does not help
+    const disfigure = spellPrompts(spell('Target creature gets -2/-2 until end of turn.'))[0];
+    const rows = spellChoices(g, 1, disfigure, 0, RECORDS).map((r) => [r.name, r.fate]);
+    expect(rows).toContainEqual(['Hill Giant', 'survives']);
+    expect(spellChoices(g, 0, disfigure, 0, RECORDS).map((r) => [r.name, r.fate])).toContainEqual(['Grizzly Bears', 'dies']);
+  });
+
+  test('Overrun: every creature of the caster’s, cards and every copy of a stack — not the lands, not anybody else’s', () => {
+    const g = table();
+    g.players[0] = { ...g.players[0], board: [stack('elves', 'Elf', 2)] };
+    const p = plan(g, { kind: 'pump', power: 3, toughness: 3, keywords: ['trample'], on: 'team' }, 'Overrun')!;
+    expect(p.text).toBe('Nathan’s Overrun: creatures Nathan controls get +3/+3 and trample until end of turn');
+    const after = p.apply(g);
+    const bear = readUnit(after, 0, { kind: 'card', id: 'bear' }, RECORDS);
+    expect([bear?.power, bear?.granted]).toEqual([5, ['trample']]);
+    const elves = readUnit(after, 0, { kind: 'stack', id: 'elves' }, RECORDS);
+    expect([elves?.power, elves?.toughness, elves?.granted]).toEqual([4, 4, ['trample']]);
+    expect(readUnit(after, 1, { kind: 'card', id: 'giant' }, RECORDS)?.power).toBe(3);
+  });
+
+  test('"other creatures you control" leaves out the card that said so', () => {
+    const g = table();
+    const p = plan(g, { kind: 'pump', power: 1, toughness: 1, keywords: [], on: 'team', except: 'bear' })!;
+    expect(p).toBeNull(); // the bear is Nathan's only creature
+  });
+
+  test('a card leaving the battlefield sheds its boost', () => {
+    const g = table();
+    const pumped = plan(g, { kind: 'pump', power: 3, toughness: 3, keywords: [], on: { seat: 0, kind: 'card', id: 'bear' } })!.apply(g);
+    const gone = plan(pumped, { kind: 'remove', how: 'bounce', on: { seat: 0, kind: 'card', id: 'bear' } })!.apply(pumped);
+    expect(gone.players[0].cards!.hand.find((c) => c.iid === 'bear')).not.toHaveProperty('boost');
   });
 });

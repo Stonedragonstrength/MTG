@@ -1,4 +1,6 @@
 import { hostName } from './attach';
+import { boostCard, boostStack, boostWords } from './boost';
+import { keywordList } from './keywords';
 import { changeCount, computedPT, removeItem, setCounter } from './board';
 import { hostIsThere, moveCard, setCardCounter, type Host } from './cards';
 import { hasKeyword, readSeat, readUnit, type CardRecords, type UnitRead } from './combatEngine';
@@ -50,6 +52,9 @@ export type SpellPrompt = {
   | { kind: 'remove'; how: 'destroy' | 'exile' | 'bounce' }
   | { kind: 'sweep'; how: 'destroy' | 'exile' }
   | { kind: 'counters'; n: number }
+  // "Until end of turn": one creature (picked) or all of its caster's
+  // (`team`; `other`: but the card that said so).
+  | { kind: 'pump'; power: number; toughness: number; keywords: string[]; team: boolean; other: boolean }
   // "Search your library for…": a list of its own, carried out by its player.
   | { kind: 'search'; ask: SearchAsk }
 );
@@ -104,6 +109,20 @@ const REMOVE = new RegExp(`\\b(destroy|exile) target ${THING}`, 'gi');
 const BOUNCE = new RegExp(`\\breturn target ${THING} to (?:its|their) owner['’]s hand\\b`, 'gi');
 const SWEEP = /\b(destroy|exile) all creatures(?=\s*(?:,|$))/gi;
 const COUNTERS = new RegExp(`\\bput ${N} \\+1\\/\\+1 counters? on target creature\\b`, 'gi');
+// "Target creature gets +3/+3 until end of turn", "…gets +2/+0 and gains
+// first strike until end of turn", "Target creature gains indestructible
+// until end of turn"; and for the team, "Creatures you control get +3/+3
+// and gain trample until end of turn".
+const SIGNED = '([+-](?:\\d+|X))\\/([+-](?:\\d+|X))';
+const GAINED = '([a-z][a-z ,]*?)';
+const PUMP_ONE = new RegExp(
+  `\\b(?:up to one )?target creature(?: you control)? (?:gets ${SIGNED}(?: and gains ${GAINED})?|gains ${GAINED}) until end of turn\\b`,
+  'gi',
+);
+const PUMP_TEAM = new RegExp(
+  `\\b(other )?creatures you control (?:get ${SIGNED}(?: and gain ${GAINED})?|gain ${GAINED}) until end of turn\\b`,
+  'gi',
+);
 
 /** One option of a modal spell: a line that starts with a bullet. */
 const OPTION = /^[ \t]*•[^\n]*/gm;
@@ -297,6 +316,32 @@ export function spellPrompts(record: Read, opts?: { x?: number }): SpellPrompt[]
         how,
       });
     }
+    // A size change written "+3", "-2" or "+X" (X: what the spell was cast for).
+    const signed = (word: string): number | null => {
+      const sign = word.startsWith('-') ? -1 : 1;
+      const n = word.slice(1).toUpperCase() === 'X' ? num('X') : Number(word.slice(1));
+      return n === null || !Number.isFinite(n) ? null : sign * n;
+    };
+    const pump = (m: RegExpMatchArray, at: number, team: boolean, other: boolean) => {
+      const power = m[at] ? signed(m[at]) : 0;
+      const toughness = m[at + 1] ? signed(m[at + 1]) : 0;
+      const keywords = keywordList(m[at + 2] ?? m[at + 3] ?? '');
+      if (power === null || toughness === null || (power === 0 && toughness === 0 && keywords.length === 0)) return;
+      const words = boostWords({ power, toughness, keywords });
+      add(m, {
+        key: `pump:${team ? 'team' : 'one'}:${words}`,
+        label: team ? `Your ${other ? 'other ' : ''}creatures ${words}` : `${words.charAt(0).toUpperCase()}${words.slice(1)}…`,
+        pick: team ? null : { players: null, kinds: ['creature'] },
+        kind: 'pump',
+        power,
+        toughness,
+        keywords,
+        team,
+        other,
+      });
+    };
+    for (const m of sentence.matchAll(PUMP_ONE)) pump(m, 1, false, false);
+    for (const m of sentence.matchAll(PUMP_TEAM)) pump(m, 2, true, !!m[1]);
     for (const m of sentence.matchAll(COUNTERS)) {
       const n = num(m[1]);
       if (n !== null)
@@ -340,12 +385,20 @@ export type SpellEffect =
   | { kind: 'life'; n: number; gain: boolean; on: number | 'opponents' }
   | { kind: 'remove'; how: 'destroy' | 'exile' | 'bounce'; on: Host }
   | { kind: 'sweep'; how: 'destroy' | 'exile' }
-  | { kind: 'counters'; n: number; on: Host };
+  | { kind: 'counters'; n: number; on: Host }
+  /** `except`: the one creature of the team that does not get it ("other"). */
+  | { kind: 'pump'; power: number; toughness: number; keywords: string[]; on: Host | 'team'; except?: string };
 
 /** The effect a prompt comes to once its target (if it asks for one) is
  * picked; null when the two do not go together, and for the prompts that
  * are not the store's to apply (a draw, tokens). */
-export function effectOf(prompt: SpellPrompt, caster: number, target?: SpellTarget): SpellEffect | null {
+export function effectOf(
+  prompt: SpellPrompt,
+  caster: number,
+  target?: SpellTarget,
+  /** The card whose effect it is, when it is on the battlefield (a trigger): "other creatures" leaves it out. */
+  sourceIid?: string,
+): SpellEffect | null {
   switch (prompt.kind) {
     case 'damage':
       if (!prompt.pick) return { kind: 'damage', n: prompt.n, on: 'opponents' };
@@ -360,6 +413,11 @@ export function effectOf(prompt: SpellPrompt, caster: number, target?: SpellTarg
       return { kind: 'sweep', how: prompt.how };
     case 'counters':
       return target && target.kind !== 'player' ? { kind: 'counters', n: prompt.n, on: target } : null;
+    case 'pump': {
+      const size = { power: prompt.power, toughness: prompt.toughness, keywords: prompt.keywords };
+      if (prompt.team) return { kind: 'pump', ...size, on: 'team', ...(prompt.other && sourceIid ? { except: sourceIid } : {}) };
+      return target && target.kind !== 'player' ? { kind: 'pump', ...size, on: target } : null;
+    }
     default:
       return null;
   }
@@ -431,7 +489,14 @@ export function spellChoices(
 
   const seatRead = readSeat(g, seat, records);
   const fateOf = (read: UnitRead | null) =>
-    prompt.kind !== 'damage' || !read || read.unread ? null : diesTo(read, prompt.n) ? 'dies' : 'survives';
+    !read || read.unread
+      ? null
+      : prompt.kind === 'damage'
+        ? diesTo(read, prompt.n) ? 'dies' : 'survives'
+        : // A shrink ("gets -2/-2") kills what it takes to 0 toughness.
+          prompt.kind === 'pump' && prompt.toughness < 0
+          ? read.toughness + prompt.toughness <= 0 ? 'dies' : 'survives'
+          : null;
   const sizeOf = (read: UnitRead | null) => (read && !read.unread ? `${read.power}/${read.toughness}` : null);
 
   for (const c of player.cards?.battlefield ?? []) {
@@ -462,7 +527,7 @@ export function spellChoices(
     );
     if (!fits) continue;
     // Counters sit on a whole stack: only a stack of one can take them.
-    if (prompt.kind === 'counters' && it.count !== 1) continue;
+    if ((prompt.kind === 'counters' || prompt.kind === 'pump') && it.count !== 1) continue;
     const read = sized ? readUnit(g, seat, { kind: 'stack', id: it.id }, records, seatRead) : null;
     out.push({
       target: { seat, kind: 'stack', id: it.id },
@@ -635,6 +700,47 @@ export function planEffect(
             base,
           ),
         guard: always,
+      };
+    }
+
+    case 'pump': {
+      const add = { power: effect.power, toughness: effect.toughness, keywords: effect.keywords };
+      const words = boostWords(add);
+      if (effect.on === 'team') {
+        // Every creature of the caster's the table can see is one: a card it
+        // has read, a stack with a size — never what sits on the lands shelf.
+        const player = g.players[seat];
+        const cards = (player?.cards?.battlefield ?? [])
+          .filter((c) => {
+            const r = records[c.cardId];
+            return !!r && isCreatureCard(r) && shelfOf(c, r) !== 'lands' && c.iid !== effect.except;
+          })
+          .map((c) => c.iid);
+        const stacks = (player?.board ?? [])
+          .filter((it) => it.zone !== 'lands' && computedPT({ ...it, counters: it.counters ?? {} }) !== null)
+          .map((it) => it.id);
+        if (cards.length + stacks.length === 0) return null;
+        return {
+          text: `${lead}: ${effect.except ? 'other ' : ''}creatures ${nameOf(seat)} controls get ${words} until end of turn`,
+          apply: (base) =>
+            stacks.reduce((next, id) => boostStack(next, seat, id, add), cards.reduce((next, iid) => boostCard(next, seat, iid, add), base)),
+          guard: always,
+        };
+      }
+      const on = effect.on;
+      if (!hostIsThere(g, on)) return null;
+      // A shrink to 0 toughness or less kills, whatever stands in the way of damage.
+      const read = readUnit(g, on.seat, { kind: on.kind, id: on.id }, records);
+      const dies = !!read && !read.unread && read.toughness + effect.toughness <= 0;
+      return {
+        text: `${lead} gives ${theirs(on)} ${words} until end of turn${dies ? ', which dies' : ''}`,
+        apply: (base) =>
+          dies
+            ? leave(base, on, 'graveyard')
+            : on.kind === 'card'
+              ? boostCard(base, on.seat, on.id, add)
+              : boostStack(base, on.seat, on.id, add),
+        guard: (base) => hostIsThere(base, on),
       };
     }
 

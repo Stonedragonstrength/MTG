@@ -1,4 +1,5 @@
-import { keywordsWorn, sizeWorn, type Size } from './attach';
+import { keywordsNow, keywordsWorn, sizeWorn, type Size } from './attach';
+import { boostOf } from './boost';
 import { computedPT } from './board';
 import { copiesOf, type CombatOutcome } from './combat';
 import { commanderKey } from './commanders';
@@ -162,15 +163,17 @@ function readCard(game: GameState, read: SeatRead, card: CardInstance, records: 
   const toughness = plainNumber(record?.toughness);
   const unsized = power === null || toughness === null || (power === 0 && toughness === 0);
   const worn = sizeWorn(game, { seat: read.seat, kind: 'card', id: card.iid }, records);
-  const wornKeywords = keywordsWorn(game, { seat: read.seat, kind: 'card', id: card.iid }, records);
+  // What it wears, and what "until end of turn" effects did to it this turn.
+  const wornKeywords = keywordsNow(game, { seat: read.seat, kind: 'card', id: card.iid }, records);
+  const boost = boostOf(game, card);
   return {
     unit,
     seat: read.seat,
     name: record?.name ?? card.name,
     creature,
     unread: !record || (unsized && plus === 0),
-    power: Math.max(0, (power ?? 0) + plus + worn.power),
-    toughness: (toughness ?? 0) + plus + worn.toughness,
+    power: Math.max(0, (power ?? 0) + plus + worn.power + (boost?.power ?? 0)),
+    toughness: (toughness ?? 0) + plus + worn.toughness + (boost?.toughness ?? 0),
     ...keywordsFor(record?.oracleText ?? '', unitKey(unit), read.grants, wornKeywords),
     commander: commanderKey(game, read.seat, unit),
     count: 1,
@@ -191,15 +194,20 @@ function readStack(game: GameState, read: SeatRead, item: BoardItem, records: Ca
   const standing = Math.max(0, count - (item.tapped ?? 0));
   // One Equipment is on one token: a stack of several does not all wear it.
   const worn = count === 1 ? sizeWorn(game, { seat: read.seat, kind: 'stack', id: item.id }, records) : NO_SIZE;
-  const wornKeywords = count === 1 ? keywordsWorn(game, { seat: read.seat, kind: 'stack', id: item.id }, records) : new Set<string>();
+  // A boost is on every copy (Overrun pumps them all); what is worn, on one only.
+  const boost = boostOf(game, item);
+  const wornKeywords = new Set([
+    ...(count === 1 ? keywordsWorn(game, { seat: read.seat, kind: 'stack', id: item.id }, records) : []),
+    ...(boost?.keywords ?? []),
+  ]);
   return {
     unit,
     seat: read.seat,
     name: item.name,
     creature,
     unread: unsized && plus === 0,
-    power: Math.max(0, (item.basePower ?? 0) + plus + worn.power),
-    toughness: (item.baseToughness ?? 0) + plus + worn.toughness,
+    power: Math.max(0, (item.basePower ?? 0) + plus + worn.power + (boost?.power ?? 0)),
+    toughness: (item.baseToughness ?? 0) + plus + worn.toughness + (boost?.toughness ?? 0),
     ...keywordsFor(item.oracleText ?? '', unitKey(unit), read.grants, wornKeywords),
     commander: commanderKey(game, read.seat, unit),
     count,

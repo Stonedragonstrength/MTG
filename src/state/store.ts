@@ -1602,7 +1602,9 @@ export function createAppStore() {
         if (!seen) return;
         // Sizes and types are on the cards; life is not.
         const reads =
-          effect.kind === 'sweep' || (effect.kind === 'damage' && effect.on !== 'opponents' && effect.on.kind !== 'player');
+          effect.kind === 'sweep' ||
+          effect.kind === 'pump' ||
+          (effect.kind === 'damage' && effect.on !== 'opponents' && effect.on.kind !== 'player');
         const records = reads ? await tableRecords(seen) : {};
         const g = get().game;
         if (!g) return;

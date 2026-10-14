@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { attachedTo, isAttached, keywordsWorn, sizeWorn } from '../lib/attach';
+import { attachedTo, isAttached, keywordsNow, sizeWorn } from '../lib/attach';
+import { boostOf, withBoost } from '../lib/boost';
 import { commanderTax, owesDraw } from '../lib/cards';
 import { isSummoningSick, permanentTexts } from '../lib/keywords';
 import { affordable, castCosts, sourcesFrom } from '../lib/pay';
@@ -160,10 +161,10 @@ export default function BattlefieldRow({ playerIdx, picks = true, corner = null 
               key={c.iid}
               card={c}
               art={records[c.cardId]?.imageNormal ?? null}
-              sick={isSummoningSick(c, records[c.cardId], texts, keywordsWorn(game, { seat: playerIdx, kind: 'card', id: c.iid }, tableRecords))}
+              sick={isSummoningSick(c, records[c.cardId], texts, keywordsNow(game, { seat: playerIdx, kind: 'card', id: c.iid }, tableRecords))}
               look={combat?.look({ kind: 'card', id: c.iid }) ?? null}
               names={names}
-              worn={sizeWorn(game, { seat: playerIdx, kind: 'card', id: c.iid }, tableRecords)}
+              worn={withBoost(sizeWorn(game, { seat: playerIdx, kind: 'card', id: c.iid }, tableRecords), boostOf(game, c))}
               onTap={() => tapVirtualCard(playerIdx, c.iid)}
               onDetail={() => setCardSheet({ seat: playerIdx, iid: c.iid })}
             />

@@ -442,7 +442,7 @@ const WORKED_OUT = /\bfor each\b|\bequal to\b|\bwhere X is\b/i;
  * each draw a card". */
 const OWN_DRAW = /(?:^|[,.;] |\band |\bthen )(?:you )?draw /i;
 /** Effects that touch nothing but numbers and the seat's own things. */
-const BY_ITSELF = new Set<SpellPrompt['kind']>(['life', 'draw', 'tokens', 'damage']);
+const BY_ITSELF = new Set<SpellPrompt['kind']>(['life', 'draw', 'tokens', 'damage', 'pump']);
 
 /** A prompt for a trigger that went off `times` times at once (three
  * tokens entered together): what has a number is that many times as much. */
@@ -460,6 +460,8 @@ function manyTimes(prompt: SpellPrompt, times: number): SpellPrompt {
       return { ...prompt, n: prompt.n * times, label: `Deal ${prompt.n * times} to each opponent` };
     case 'tokens':
       return { ...prompt, n: prompt.n * times, label: `${prompt.label} ×${times}` };
+    case 'pump':
+      return { ...prompt, power: prompt.power * times, toughness: prompt.toughness * times, label: `${prompt.label} ×${times}` };
     default:
       return prompt;
   }

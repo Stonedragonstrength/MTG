@@ -1,4 +1,5 @@
 import { computedPT } from './board';
+import { boostOf } from './boost';
 import { hostIsThere, type Host } from './cards';
 import { keywordList } from './keywords';
 import type { CardInstance, CardRecord, GameState } from './types';
@@ -141,6 +142,19 @@ export function sizeWorn(g: GameState, host: Host, records: Records): Size {
 export function keywordsWorn(g: GameState, host: Host, records: Records): Set<string> {
   const out = new Set<string>();
   for (const { card } of attachedTo(g, host)) for (const keyword of keywordsGiven(records[card.cardId])) out.add(keyword);
+  return out;
+}
+
+/** The keywords it has right now from outside its own text: what it wears,
+ * and what "…gains flying until end of turn" gave it this turn. */
+export function keywordsNow(g: GameState, host: Host, records: Records): Set<string> {
+  const out = keywordsWorn(g, host, records);
+  const player = g.players[host.seat];
+  const it =
+    host.kind === 'card'
+      ? player?.cards?.battlefield.find((c) => c.iid === host.id)
+      : player?.board.find((item) => item.id === host.id);
+  for (const keyword of boostOf(g, it)?.keywords ?? []) out.add(keyword);
   return out;
 }
 

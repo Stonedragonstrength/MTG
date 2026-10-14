@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { attachedTo, sizeWorn, type Size } from '../lib/attach';
+import { boostOf, withBoost } from '../lib/boost';
 import { computedPT } from '../lib/board';
 import { sickCopies } from '../lib/keywords';
 import { COLOR_NAMES, effectiveManaColors } from '../lib/mana';
@@ -228,7 +229,14 @@ export default function BoardStrip({ playerIdx, cornerRef }: Props) {
               look={look}
               names={names}
               attached={attachedTo(game, { seat: playerIdx, kind: 'stack', id: item.id }).length}
-              worn={item.count === 1 ? sizeWorn(game, { seat: playerIdx, kind: 'stack', id: item.id }, tableRecords) : null}
+              // What one token wears, and what "until end of turn" did to every copy.
+              worn={
+                item.count === 1
+                  ? withBoost(sizeWorn(game, { seat: playerIdx, kind: 'stack', id: item.id }, tableRecords), boostOf(game, item))
+                  : boostOf(game, item)
+                    ? withBoost({ power: 0, toughness: 0 }, boostOf(game, item))
+                    : null
+              }
               onTap={() => tapItem(playerIdx, item.id, 1)}
               onDetail={() => setDetailId(item.id)}
             />

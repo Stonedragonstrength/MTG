@@ -15,8 +15,11 @@ import { kvDelete, kvGet, kvSet } from './db';
  *    first reference from one seat's card to another's). An older build
  *    keeps the field but moves cards without settling it: a host that left
  *    would still wear its Aura's counters, and find the Aura on it again if
- *    it came back. */
-export const GAME_SCHEMA = 5;
+ *    it came back.
+ * 6: "until end of turn" boosts (CardInstance.boost, BoardItem.boost —
+ *    Giant Growth's +3/+3). An older build keeps the field but does not
+ *    count it: its fights would kill the creature the spell saved. */
+export const GAME_SCHEMA = 6;
 
 export type TableStatus =
   | { kind: 'connecting' }

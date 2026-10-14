@@ -27,7 +27,8 @@ interface Props {
  * No picking on the board: the list is the whole of it. */
 export default function SpellTargetSheet({ caster, spell, revealId, prompt, onPick, onClose }: Props) {
   const game = useAppStore((s) => s.game);
-  const helps = prompt.kind === 'counters' || prompt.kind === 'draw';
+  const helps =
+    prompt.kind === 'counters' || prompt.kind === 'draw' || (prompt.kind === 'pump' && prompt.power + prompt.toughness >= 0);
   const [tab, setTab] = useState(() => (helps || !game ? caster : (opponentsOf(game, caster)[0] ?? caster)));
   // It opens under the finger that pressed the banner's button: the rest
   // of that tap must not pick a row.

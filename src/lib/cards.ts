@@ -112,7 +112,7 @@ export function seedSeat(g: GameState, seat: number, cards: SeatCards): GameStat
 /** Battlefield-only fields never travel to other zones — and neither does
  * the face that was up: a card that leaves is its front face again. */
 function stripped(c: CardInstance): CardInstance {
-  const { tapped: _t, counters: _c, row: _r, spent: _s, sick: _k, on: _o, ...rest } = c;
+  const { tapped: _t, counters: _c, row: _r, spent: _s, sick: _k, on: _o, boost: _b, ...rest } = c;
   return isBackId(rest.cardId) ? { ...rest, cardId: frontId(rest.cardId) } : rest;
 }
 

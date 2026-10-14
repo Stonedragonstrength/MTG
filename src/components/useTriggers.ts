@@ -80,7 +80,7 @@ function run(key: string, actKey: string, target: SpellTarget | undefined, depth
     } else if (act.kind === 'grow') {
       if (card) store.setVirtualCounter(trigger.seat, card.iid, 'p1p1', (card.counters?.p1p1 ?? 0) + act.n);
       did = !!card;
-    } else did = carryOutPrompt(trigger.seat, trigger.source.name, act.prompt, act.token, target);
+    } else did = carryOutPrompt(trigger.seat, trigger.source.name, act.prompt, act.token, target, trigger.source.iid);
   } finally {
     chain = 0;
   }

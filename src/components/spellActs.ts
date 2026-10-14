@@ -25,6 +25,8 @@ export function carryOutPrompt(
   prompt: SpellPrompt,
   token: CardRecord | undefined,
   target?: SpellTarget,
+  /** The card it comes from, when that is on the battlefield (a trigger). */
+  sourceIid?: string,
 ): boolean {
   const store = useAppStore.getState();
   if (prompt.kind === 'search') return false;
@@ -45,7 +47,7 @@ export function carryOutPrompt(
     else store.addItem(seat, { ...createBoardItem(token, 'board'), count: prompt.n });
     return true;
   }
-  const effect = effectOf(prompt, seat, target);
+  const effect = effectOf(prompt, seat, target, sourceIid);
   if (!effect) return false;
   void store.castEffect(seat, source, effect);
   return true;

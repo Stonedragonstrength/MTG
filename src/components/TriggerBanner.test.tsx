@@ -1,6 +1,8 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, test, vi } from 'vitest';
+import { keywordsNow } from '../lib/attach';
+import { isSummoningSick } from '../lib/keywords';
 import type { BoardItem, CardInstance, CardRecord, GameConfig, GameState } from '../lib/types';
 import { useAppStore } from '../state/store';
 import TriggerBanner from './TriggerBanner';
@@ -341,4 +343,32 @@ test('a trampler’s damage past its blocker is a hit: Apply passes it on, and w
   // Blocked, yet 3 went through (the review says which attacker it was).
   act(() => store().applyCombat({ players: [{ seat: 1, life: -3 }], deaths: [] }, [{ kind: 'card', id: 'b1' }]));
   await waitFor(() => expect(mine().cards!.hand.map((c) => c.iid)).toEqual(['l1']));
+});
+
+// ---- until end of turn, by a trigger ----
+
+Object.assign(RECORDS, {
+  guide: rec('guide', 'Chasm Guide', 'Creature — Human Scout Ally', 'Rally — Whenever this creature or another Ally you control enters, creatures you control gain haste until end of turn.'),
+  banner: rec('banner', 'Rallying Banner', 'Enchantment', 'Whenever you attack, creatures you control get +1/+0 until end of turn.'),
+});
+
+test('"creatures you control gain haste until end of turn": what arrived this turn may attack this turn', async () => {
+  start([{ ...card('b1', 'bear'), sick: true }], [card('h1', 'guide')]);
+  const bear = () => mine().cards!.battlefield.find((c) => c.iid === 'b1')!;
+  expect(isSummoningSick(bear(), RECORDS.bear, [], keywordsNow(useAppStore.getState().game!, { seat: 0, kind: 'card', id: 'b1' }, RECORDS))).toBe(true);
+  await act(() => useAppStore.getState().playCard(0, 'h1'));
+  await waitFor(() => expect(bear().boost?.keywords).toEqual(['haste']));
+  const g = useAppStore.getState().game!;
+  expect(isSummoningSick(bear(), RECORDS.bear, [], keywordsNow(g, { seat: 0, kind: 'card', id: 'b1' }, RECORDS))).toBe(false);
+});
+
+test('"Whenever you attack, creatures you control get +1/+0 until end of turn" happens by itself', async () => {
+  start([card('k1', 'banner'), card('b1', 'bear')]);
+  const store = () => useAppStore.getState();
+  act(() => store().startCombat());
+  await quiet();
+  act(() => store().setAttacker({ kind: 'card', id: 'b1' }, 1, 1));
+  await act(() => store().confirmAttackers());
+  await waitFor(() => expect(mine().cards!.battlefield.find((c) => c.iid === 'b1')?.boost).toMatchObject({ power: 1, toughness: 0 }));
+  expect(useAppStore.getState().game!.feed?.at(-1)?.text).toBe('Nathan’s Rallying Banner: creatures Nathan controls get +1/+0 until end of turn');
 });

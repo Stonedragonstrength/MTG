@@ -242,13 +242,14 @@ describe('push loop', () => {
     expect(ops[2] ?? saveMock.mock.calls[2]?.[3]).not.toBe(ops[0]); // rebase = fresh opId
   });
 
-  test('this build writes schema 5, so one that predates attachments stops writing at its table', () => {
+  test('this build writes schema 6, so one that predates boosts stops writing at its table', () => {
     // Sick flags and land plays (3), the combat (4) and attachments (5) live in the shared
     // state. A build that does not know the combat would show no bar, could not block, and
     // its Pass turn would end a fight it never saw; one that does not know attachments
     // would move a host away and leave its Aura's counters and link behind. Either has to
-    // go read-only.
-    expect(GAME_SCHEMA).toBe(5);
+    // go read-only. And one that does not know "until end of turn" boosts (6)
+    // would kill in a fight the creature a Giant Growth saved.
+    expect(GAME_SCHEMA).toBe(6);
   });
 
   test('a build behind the table goes read-only instead of fighting', async () => {

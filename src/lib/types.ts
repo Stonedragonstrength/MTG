@@ -69,6 +69,21 @@ export interface CardInstance {
    * read cards. Whether it means summoning sickness is for the table and
    * the mana engine to say (lib/keywords.ts). */
   sick?: true;
+  /** Battlefield only: what "until end of turn" effects did to it this turn
+   * (lib/boost.ts — read it through boostOf: a stamp from another turn is
+   * no boost at all). */
+  boost?: Boost;
+}
+
+/** "Until end of turn": so much power and toughness, and some keywords, for
+ * the turn named by its stamp only (the game's turnNumber and
+ * activePlayerIndex, as land drops are stamped). */
+export interface Boost {
+  turn: number;
+  active: number;
+  power: number;
+  toughness: number;
+  keywords?: string[];
 }
 
 export interface SeatCards {
@@ -142,6 +157,8 @@ export interface BoardItem {
   /** Copies that arrived since their controller's turn began (≤ count).
    * Omitted when none did. */
   sick?: number;
+  /** What "until end of turn" effects did to every copy of it this turn (lib/boost.ts). */
+  boost?: Boost;
   // Mana override: a color/'any' makes this stack a mana source (Ashaya,
   // Cryptolith Rite…), 'none' silences a real dork, unset = read oracle text.
   manaMode?: 'W' | 'U' | 'B' | 'R' | 'G' | 'C' | 'any' | 'none';

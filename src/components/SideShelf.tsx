@@ -1,5 +1,6 @@
 import { useState, type CSSProperties } from 'react';
-import { attachedTo, isAttached, isAura, isEquipment, keywordsWorn, sizeWorn } from '../lib/attach';
+import { attachedTo, isAttached, isAura, isEquipment, keywordsNow, sizeWorn } from '../lib/attach';
+import { boostOf, withBoost } from '../lib/boost';
 import { isSummoningSick, permanentTexts } from '../lib/keywords';
 import { returnsItself, shelfOf } from '../lib/shelf';
 import { useAppStore } from '../state/store';
@@ -73,11 +74,11 @@ export default function SideShelf({ playerIdx, picks = true }: Props) {
                 key={c.iid}
                 card={c}
                 art={record?.imageNormal ?? null}
-                sick={isSummoningSick(c, record, texts, keywordsWorn(game, { seat: playerIdx, kind: 'card', id: c.iid }, records))}
+                sick={isSummoningSick(c, record, texts, keywordsNow(game, { seat: playerIdx, kind: 'card', id: c.iid }, records))}
                 look={combat?.look({ kind: 'card', id: c.iid }) ?? null}
                 names={names}
                 attached={attachedTo(game, { seat: playerIdx, kind: 'card', id: c.iid }).length}
-                worn={sizeWorn(game, { seat: playerIdx, kind: 'card', id: c.iid }, records)}
+                worn={withBoost(sizeWorn(game, { seat: playerIdx, kind: 'card', id: c.iid }, records), boostOf(game, c))}
                 use={use}
                 onTap={() => {
                   if (use === 'return') returnToHand(playerIdx, c.iid);
