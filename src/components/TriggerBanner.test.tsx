@@ -195,3 +195,63 @@ test('a tap on the banner puts it away', async () => {
   await userEvent.click(screen.getByRole('status', { name: 'triggered' }));
   expect(screen.queryByRole('status', { name: 'triggered' })).not.toBeInTheDocument();
 });
+
+// ---- more than entering ----
+
+Object.assign(RECORDS, {
+  arena: rec('arena', 'Phyrexian Arena', 'Enchantment', 'At the beginning of your upkeep, you draw a card and you lose 1 life.'),
+  cutthroat: rec('cutthroat', 'Zulaport Cutthroat', 'Creature — Human Rogue', 'Whenever this creature or another creature you control dies, each opponent loses 1 life and you gain 1 life.'),
+  hellrider: rec('hellrider', 'Hellrider', 'Creature — Devil', 'Whenever you attack, each opponent loses 1 life.'),
+  prayer: rec('prayer', 'Prayerful Monk', 'Creature — Human Monk', 'Whenever you cast a noncreature spell, you gain 1 life.'),
+  bolt: rec('bolt', 'Lightning Bolt', 'Instant', 'Lightning Bolt deals 3 damage to any target.'),
+  wish: rec('wish', 'Dying Wish', 'Creature — Spirit', "When this creature dies, return it to its owner's hand."),
+});
+const theirs = () => useAppStore.getState().game!.players[1];
+
+test('"At the beginning of your upkeep, you draw a card and you lose 1 life" happens when the turn comes round — and the turn’s own draw is still owed', async () => {
+  start([card('a1', 'arena')]);
+  act(() => useAppStore.getState().passTurn()); // Sam's turn: not Nathan's upkeep
+  await quiet();
+  expect(mine().cards!.hand).toEqual([]);
+  act(() => useAppStore.getState().passTurn()); // Nathan's again
+  await waitFor(() => expect(mine().cards!.hand.map((c) => c.iid)).toEqual(['l1']));
+  await waitFor(() => expect(mine().life).toBe(39));
+  const g = useAppStore.getState().game!;
+  expect(mine().cards!.drew?.turn === g.turnNumber && mine().cards!.drew?.active === 0).toBe(false);
+  expect(shown()[0]).toMatchObject({ because: 'Nathan’s turn began' });
+});
+
+test('a creature dying sets off the cards watching deaths', async () => {
+  start([card('z1', 'cutthroat'), card('b1', 'bear')]);
+  act(() => useAppStore.getState().sacrificeCard(0, 'b1'));
+  await waitFor(() => expect(theirs().life).toBe(39));
+  await waitFor(() => expect(mine().life).toBe(41));
+  expect(shown()[0]).toMatchObject({ because: 'Grizzly Bears died' });
+});
+
+test('"When this creature dies, return it to its owner’s hand": back from the graveyard by itself', async () => {
+  start([card('w1', 'wish')]);
+  act(() => useAppStore.getState().moveVirtualCard(0, 'w1', 'battlefield', 'graveyard'));
+  await waitFor(() => expect(mine().cards!.hand.map((c) => c.iid)).toEqual(['w1']));
+  expect(useAppStore.getState().game!.feed?.at(-1)?.text).toBe('Dying Wish returns to Nathan’s hand');
+});
+
+test('declaring an attack sets off "whenever you attack"', async () => {
+  start([card('h1', 'hellrider'), card('b1', 'bear')]);
+  act(() => useAppStore.getState().startCombat());
+  act(() => useAppStore.getState().setAttacker({ kind: 'card', id: 'b1' }, 1, 1));
+  await quiet();
+  expect(theirs().life).toBe(40); // picked is not declared
+  await act(() => useAppStore.getState().confirmAttackers());
+  await waitFor(() => expect(theirs().life).toBe(39));
+});
+
+test('casting a noncreature spell sets off the cards waiting for one; a creature spell does not', async () => {
+  start([card('p1', 'prayer')], [card('h1', 'bolt'), card('h2', 'bear')]);
+  await act(() => useAppStore.getState().playCard(0, 'h2'));
+  await quiet();
+  expect(mine().life).toBe(40);
+  await act(() => useAppStore.getState().playCard(0, 'h1'));
+  await waitFor(() => expect(mine().life).toBe(41));
+  expect(shown().at(-1)).toMatchObject({ because: 'Lightning Bolt was cast' });
+});

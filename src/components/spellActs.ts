@@ -29,7 +29,9 @@ export function carryOutPrompt(
   const store = useAppStore.getState();
   if (prompt.kind === 'search') return false;
   if (prompt.kind === 'draw') {
-    store.drawCards(target?.seat ?? seat, prompt.n);
+    // A card's draw, not the draw step's: an upkeep trigger that draws must
+    // not leave the turn's own draw looking done.
+    store.drawCards(target?.seat ?? seat, prompt.n, { extra: true });
     return true;
   }
   if (prompt.kind === 'tokens') {

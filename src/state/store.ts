@@ -20,7 +20,7 @@ import * as gameLib from '../lib/game';
 import * as payLib from '../lib/pay';
 import * as payWithLib from '../lib/payWith';
 import { planEffect, type SpellEffect } from '../lib/spellEffects';
-import { arrivalsBetween, type Arrival } from '../lib/triggers';
+import { happeningsBetween, type Happening } from '../lib/triggers';
 import { isLandCard } from '../lib/turnRules';
 import { playDefeat, playLifeTick, playTurnChime } from '../lib/sound';
 import type {
@@ -53,11 +53,12 @@ export interface AppStore {
   profiles: PlayerProfile[];
   settings: Settings;
   log: LogEntry[];
-  /** What last entered a battlefield by a move made ON THIS DEVICE (not by
-   * an Undo, not by another device's move): the cards that trigger by
+  /** What the last move made ON THIS DEVICE did that cards may be waiting
+   * for (not an Undo, not another device's move): something entered or
+   * died, an attack, a cast, a turn passed. The cards that trigger by
    * themselves are set off from it (components/useTriggers.ts). It is not
    * part of the game — never saved, never sent to the table. */
-  entered: { id: number; arrivals: Arrival[] } | null;
+  happened: { id: number; events: Happening[] } | null;
   updateSettings(settings: Settings): void;
   init(): Promise<void>;
   completeSetup(): void;
@@ -79,7 +80,9 @@ export interface AppStore {
   setSeatFlip(seat: number, flipped: boolean): void;
   // ---- cards mode ----
   seedSeatFromDeck(seat: number, deck: Deck, seed?: number): void;
-  drawCards(seat: number, n: number): void;
+  /** `extra`: a card's effect draws, not the draw step — the turn's
+   * draw is still owed ("has drawn this turn" is not stamped). */
+  drawCards(seat: number, n: number, opts?: { extra?: boolean }): void;
   /** `x`: the value chosen for a card with {X} in its cost (the X sheet asks).
    * `asLand`: play the land on the card's back face instead of casting it. */
   /** `extras`: how often each optional extra cost of the card is paid, in
@@ -407,7 +410,7 @@ function reread<T extends { id: string; updatedAt?: number }>(current: T[], fres
 export function createAppStore() {
   return create<AppStore>()((set, get) => {
     let history: GameState[] = [];
-    let enteredSeq = 0;
+    let happenedSeq = 0;
 
     const playerName = (g: GameState, idx: number) => g.config.profiles[idx]?.name ?? '?';
 
@@ -453,6 +456,7 @@ export function createAppStore() {
       fn: (g: GameState) => GameState,
       describe?: (prev: GameState, next: GameState) => string | null,
       sync?: SyncOpts,
+      also: Happening[] = [],
     ) => {
       const game = get().game;
       if (!game) return;
@@ -465,10 +469,11 @@ export function createAppStore() {
         return;
       }
       history = [...history.slice(-(HISTORY_CAP - 1)), game];
-      // What this move put onto a battlefield is noted beside the game, in
-      // the same breath: cards that trigger by themselves are set off by it.
-      const arrivals = arrivalsBetween(game, next);
-      if (arrivals.length > 0) set({ game: next, entered: { id: ++enteredSeq, arrivals } });
+      // What this move did is noted beside the game, in the same breath:
+      // cards that trigger by themselves are set off by it. A cast is said
+      // by the move that made it (`also`); the rest is read off the table.
+      const events = [...also, ...happeningsBetween(game, next)];
+      if (events.length > 0) set({ game: next, happened: { id: ++happenedSeq, events } });
       else set({ game: next });
       persistGame(next);
       tableSync.onLocalMutation(fn, game, sync); // no-op without a session
@@ -492,6 +497,7 @@ export function createAppStore() {
       feedText: string | null,
       guard?: SyncOpts['guard'],
       maxAgeMs: number = DAY_MS,
+      also?: Happening[],
     ) => {
       const entry = feedText ? feedEntry(feedText) : null;
       const fn = (g: GameState) => {
@@ -499,7 +505,7 @@ export function createAppStore() {
         if (after === g) return g;
         return entry ? cardsLib.appendFeed(after, entry) : after;
       };
-      mutateGame(fn, undefined, { guard: guard ?? (() => true), maxAgeMs });
+      mutateGame(fn, undefined, { guard: guard ?? (() => true), maxAgeMs }, also);
     };
 
     // A look made on this device is not news to it: when the table calls
@@ -520,7 +526,7 @@ export function createAppStore() {
       seatFlips: {},
       settings: DEFAULT_SETTINGS,
       log: [],
-      entered: null,
+      happened: null,
 
       updateSettings(settings) {
         set({ settings });
@@ -691,7 +697,7 @@ export function createAppStore() {
         );
       },
 
-      drawCards(seat, n) {
+      drawCards(seat, n, opts) {
         const g = get().game;
         const lib = g?.players[seat]?.cards?.library;
         if (!g || !lib || lib.length === 0) return;
@@ -710,7 +716,7 @@ export function createAppStore() {
           (base) => {
             const drawn = cardsLib.draw(base, seat, iids);
             if (drawn === base) return base;
-            return seat === drawnIn.active && isTurn(base, drawnIn)
+            return seat === drawnIn.active && isTurn(base, drawnIn) && !opts?.extra
               ? cardsLib.markDrew(drawn, seat)
               : drawn;
           },
@@ -800,6 +806,9 @@ export function createAppStore() {
           },
           `${seatName(g, seat)} ${verb} ${card.name}${asksX ? ` (X=${x})` : ''}${payLib.extrasWords(extras, times)}`,
           (base) => !!base.players[seat]?.cards?.hand.some((c) => c.iid === iid),
+          undefined,
+          // Cast, not played: cards waiting for a spell are set off by it.
+          isLand ? [] : [{ kind: 'cast', seat, spell: { seat, kind: 'card', id: iid, cardId: card.cardId, name: card.name, n: 1 } }],
         );
       },
 
@@ -881,12 +890,20 @@ export function createAppStore() {
 
       returnToHand(seat, iid) {
         const g = get().game;
-        const card = g?.players[seat]?.cards?.battlefield.find((c) => c.iid === iid);
-        if (!g || !card) return;
+        const cards = g?.players[seat]?.cards;
+        // From the battlefield, or from the graveyard it has just died into
+        // ("When this creature dies, return it to its owner's hand").
+        const from = cards?.battlefield.some((c) => c.iid === iid)
+          ? 'battlefield'
+          : cards?.graveyard.some((c) => c.iid === iid)
+            ? 'graveyard'
+            : null;
+        const card = from && cards?.[from].find((c) => c.iid === iid);
+        if (!g || !from || !card) return;
         cardMutate(
-          (base) => cardsLib.moveCard(base, seat, iid, 'battlefield', 'hand'),
+          (base) => cardsLib.moveCard(base, seat, iid, from, 'hand'),
           `${card.name} returns to ${seatName(g, seat)}’s hand`,
-          (base) => !!base.players[seat]?.cards?.battlefield.some((c) => c.iid === iid),
+          (base) => !!base.players[seat]?.cards?.[from].some((c) => c.iid === iid),
         );
       },
 
@@ -1064,6 +1081,8 @@ export function createAppStore() {
             },
             `${seatName(g, seat)} casts ${cmd.name}${tax > 0 ? ` (tax +${tax})` : ''}${asksX ? ` (X=${x})` : ''}`,
             (base) => !!base.players[seat]?.cards?.command.some((c) => c.iid === cmd.iid),
+            undefined,
+            [{ kind: 'cast', seat, spell: { seat, kind: 'card', id: cmd.iid, cardId: cmd.cardId, name: cmd.name, n: 1 } }],
           );
         })();
       },

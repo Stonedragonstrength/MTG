@@ -1,6 +1,17 @@
 import { expect, test } from 'vitest';
 import { createGame } from './game';
-import { actsOf, arrivalsBetween, entersTriggers, firedBy, type Arrival } from './triggers';
+import { confirmAttackers, setAttack, startCombat } from './combat';
+import {
+  actsOf,
+  arrivalsBetween,
+  entersTriggers,
+  firedBy,
+  happeningsBetween,
+  readTriggers,
+  stillHappened,
+  type Arrival,
+  type Happening,
+} from './triggers';
 import type { BoardItem, CardInstance, CardRecord, GameConfig, GameState } from './types';
 
 const config: GameConfig = {
@@ -115,7 +126,7 @@ test('a stack split in two has gained nothing', () => {
 
 test('"When this creature enters" waits for the card itself', () => {
   expect(entersTriggers(RECORDS.visionary)).toEqual([
-    { text: 'When this creature enters, draw a card.', self: true, other: null, unsure: false, may: false, effect: 'draw a card.' },
+    { text: 'When this creature enters, draw a card.', event: 'enters', self: true, other: null, unsure: false, may: false, effect: 'draw a card.' },
   ]);
 });
 
@@ -197,7 +208,7 @@ test('"one or more … enter" goes off once, however many came in together', () 
   const swarm = rec('s', 'Cloakwood Swarmkeeper', 'Creature', 'Gathered Swarm — Whenever one or more tokens you control enter, put a +1/+1 counter on this creature.');
   const g = table([{ iid: 'k1', cardId: 's', name: 'Cloakwood Swarmkeeper' }], [], [soldiers(3)]);
   const tokens: Arrival = { seat: 0, kind: 'stack', id: 'soldiers', cardId: null, name: 'Soldier', n: 3, typeLine: 'Token Creature — Soldier' };
-  const [fired] = firedBy(g, [tokens], { s: swarm });
+  const [fired] = firedBy(g, enters([tokens]), { s: swarm });
   expect(fired.times).toBe(1);
   expect(actsOf(fired.trigger, fired.times)).toMatchObject([{ kind: 'grow', n: 1 }]);
 });
@@ -242,6 +253,7 @@ test('three things entering at once is the effect three times over', () => {
 
 // ---- which cards an arrival sets off ----
 
+const enters = (things: Arrival[]): Happening => ({ kind: 'enters', things });
 const arrive = (g: GameState, seatIdx: number, iid: string): Arrival => {
   const c = g.players[seatIdx].cards!.battlefield.find((x) => x.iid === iid)!;
   return { seat: seatIdx, kind: 'card', id: iid, cardId: c.cardId, name: c.name, n: 1 };
@@ -249,51 +261,50 @@ const arrive = (g: GameState, seatIdx: number, iid: string): Arrival => {
 
 test('a Dragon entering sets off the Dragonstorm; a bear does not', () => {
   const g = table([card('s1', 'storm'), card('d1', 'dragon'), card('b1', 'bear')]);
-  const fired = firedBy(g, [arrive(g, 0, 'd1')], RECORDS);
+  const fired = firedBy(g, enters([arrive(g, 0, 'd1')]), RECORDS);
   expect(fired).toHaveLength(1);
   expect(fired[0]).toMatchObject({
     seat: 0,
     source: { iid: 's1', name: 'Encroaching Dragonstorm' },
     times: 1,
-    because: ['Shivan Dragon'],
-    arrived: [{ seat: 0, kind: 'card', id: 'd1' }],
+    because: 'Shivan Dragon entered',
     own: false,
   });
-  expect(firedBy(g, [arrive(g, 0, 'b1')], RECORDS)).toEqual([]);
+  expect(firedBy(g, enters([arrive(g, 0, 'b1')]), RECORDS)).toEqual([]);
 });
 
 test('"you control" is the card’s own side: an opponent’s Dragon does not set it off', () => {
   const g = table([card('s1', 'storm')], [card('d9', 'dragon')]);
-  expect(firedBy(g, [arrive(g, 1, 'd9')], RECORDS)).toEqual([]);
+  expect(firedBy(g, enters([arrive(g, 1, 'd9')]), RECORDS)).toEqual([]);
 });
 
 test('a card entering sets off its own "when this enters", and only its own entering', () => {
   const g = table([card('v1', 'visionary'), card('v2', 'visionary')]);
-  const fired = firedBy(g, [arrive(g, 0, 'v2')], RECORDS);
+  const fired = firedBy(g, enters([arrive(g, 0, 'v2')]), RECORDS);
   expect(fired.map((f) => [f.source.iid, f.own])).toEqual([['v2', true]]);
 });
 
 test('"another creature" never counts the card itself; anybody’s creature counts where the text says so', () => {
   const g = table([card('w1', 'warden'), card('b1', 'bear')], [card('b9', 'bear')]);
-  expect(firedBy(g, [arrive(g, 0, 'w1')], RECORDS)).toEqual([]);
-  expect(firedBy(g, [arrive(g, 0, 'b1')], RECORDS).map((f) => f.source.iid)).toEqual(['w1']);
-  expect(firedBy(g, [arrive(g, 1, 'b9')], RECORDS).map((f) => f.source.iid)).toEqual(['w1']);
+  expect(firedBy(g, enters([arrive(g, 0, 'w1')]), RECORDS)).toEqual([]);
+  expect(firedBy(g, enters([arrive(g, 0, 'b1')]), RECORDS).map((f) => f.source.iid)).toEqual(['w1']);
+  expect(firedBy(g, enters([arrive(g, 1, 'b9')]), RECORDS).map((f) => f.source.iid)).toEqual(['w1']);
 });
 
 test('"a creature an opponent controls" is set off by the other side only', () => {
   const g = table([card('p1', 'priest'), card('b1', 'bear')], [card('b9', 'bear')]);
-  const mine = firedBy(g, [arrive(g, 0, 'b1')], RECORDS);
+  const mine = firedBy(g, enters([arrive(g, 0, 'b1')]), RECORDS);
   expect(mine.map((f) => f.trigger.other?.whose)).toEqual(['you']);
-  const theirs = firedBy(g, [arrive(g, 1, 'b9')], RECORDS);
+  const theirs = firedBy(g, enters([arrive(g, 1, 'b9')]), RECORDS);
   expect(theirs.map((f) => f.trigger.other?.whose)).toEqual(['opponent']);
 });
 
 test('tokens entering count one by one; a land played is a landfall', () => {
   const g = table([card('w1', 'warden'), card('j1', 'jaddi'), card('f1', 'forest')], [], [soldiers(3)]);
   const tokens: Arrival = { seat: 0, kind: 'stack', id: 'soldiers', cardId: null, name: 'Soldier', n: 3, typeLine: 'Token Creature — Soldier' };
-  const fired = firedBy(g, [tokens], RECORDS);
-  expect(fired.map((f) => [f.source.iid, f.times, f.because])).toEqual([['w1', 3, ['Soldier ×3']]]);
-  expect(firedBy(g, [arrive(g, 0, 'f1')], RECORDS).map((f) => f.source.iid)).toEqual(['j1']);
+  const fired = firedBy(g, enters([tokens]), RECORDS);
+  expect(fired.map((f) => [f.source.iid, f.times, f.because])).toEqual([['w1', 3, 'Soldier ×3 entered']]);
+  expect(firedBy(g, enters([arrive(g, 0, 'f1')]), RECORDS).map((f) => f.source.iid)).toEqual(['j1']);
 });
 
 test('"nontoken creature" is not set off by a token, and a color has to be known', () => {
@@ -301,13 +312,115 @@ test('"nontoken creature" is not set off by a token, and a color has to be known
   const records = { ...RECORDS, picky };
   const g = table([{ iid: 'k1', cardId: 'picky', name: 'Picky' }, card('d1', 'dragon'), card('b1', 'bear')], [], [soldiers(1)]);
   const tokens: Arrival = { seat: 0, kind: 'stack', id: 'soldiers', cardId: null, name: 'Soldier', n: 1, typeLine: 'Token Creature — Soldier' };
-  expect(firedBy(g, [tokens], records)).toEqual([]);
-  expect(firedBy(g, [arrive(g, 0, 'b1')], records).map((f) => f.trigger.other?.kinds)).toEqual([[['nontoken', 'creature']]]);
-  expect(firedBy(g, [arrive(g, 0, 'd1')], records)).toHaveLength(2);
+  expect(firedBy(g, enters([tokens]), records)).toEqual([]);
+  expect(firedBy(g, enters([arrive(g, 0, 'b1')]), records).map((f) => f.trigger.other?.kinds)).toEqual([[['nontoken', 'creature']]]);
+  expect(firedBy(g, enters([arrive(g, 0, 'd1')]), records)).toHaveLength(2);
 });
 
 test('a card this device cannot read waits for nothing and sets nothing off', () => {
   const g = table([card('s1', 'storm'), card('d1', 'dragon')]);
-  expect(firedBy(g, [arrive(g, 0, 'd1')], { storm: RECORDS.storm })).toEqual([]);
-  expect(firedBy(g, [arrive(g, 0, 'd1')], { dragon: RECORDS.dragon })).toEqual([]);
+  expect(firedBy(g, enters([arrive(g, 0, 'd1')]), { storm: RECORDS.storm })).toEqual([]);
+  expect(firedBy(g, enters([arrive(g, 0, 'd1')]), { dragon: RECORDS.dragon })).toEqual([]);
+});
+
+// ---- more than entering: deaths, attacks, casts, the turn ----
+
+const R = (id: string, name: string, typeLine: string, oracleText: string) => rec(id, name, typeLine, oracleText);
+// Known to the card helper as well: these sit on the table in the tests below.
+const MORE: Record<string, CardRecord> = Object.assign(RECORDS, {
+  artist: R('artist', 'Zulaport Cutthroat', 'Creature — Human Rogue', 'Whenever this creature or another creature you control dies, each opponent loses 1 life and you gain 1 life.'),
+  arena: R('arena', 'Phyrexian Arena', 'Enchantment', 'At the beginning of your upkeep, you draw a card and you lose 1 life.'),
+  tithe: R('tithe', 'Tithe Taker', 'Creature', "At the beginning of each opponent's end step, create a 1/1 white Spirit creature token with flying."),
+  pillager: R('pillager', 'Goblin Rabblemaster', 'Creature — Goblin', 'At the beginning of combat on your turn, create a 1/1 red Goblin creature token.'),
+  raider: R('raider', 'Raid Bombardment', 'Enchantment', 'Whenever a creature you control attacks, each opponent loses 1 life.'),
+  war: R('war', 'Hellrider', 'Creature', 'Whenever you attack, each opponent loses 1 life.'),
+  scavenger: R('scavenger', 'Urborg Scavengers', 'Creature', 'Whenever this creature enters or attacks, put a +1/+1 counter on this creature.'),
+  monk: R('monk', 'Monastery Mentor', 'Creature — Human Monk', 'Whenever you cast a noncreature spell, create a 1/1 white Monk creature token.'),
+  wizard: R('wizard', 'Archmage Emeritus', 'Creature — Human Wizard', 'Magecraft — Whenever you cast or copy an instant or sorcery spell, draw a card.'),
+  bolt: R('bolt', 'Lightning Bolt', 'Instant', 'Lightning Bolt deals 3 damage to any target.'),
+  bomb: R('bomb', 'Dying Wish', 'Creature', "When this creature dies, return it to its owner's hand."),
+});
+
+test('deaths, attacks, casts and the steps of a turn are read, each for the event it waits for', () => {
+  expect(readTriggers(MORE.artist).map((t) => [t.event, t.self, t.other?.whose, t.other?.another])).toEqual([['dies', true, 'you', true]]);
+  expect(readTriggers(MORE.arena).map((t) => [t.event, t.other?.whose])).toEqual([['upkeep', 'you']]);
+  expect(readTriggers(MORE.tithe).map((t) => [t.event, t.other?.whose])).toEqual([['end', 'opponent']]);
+  expect(readTriggers(MORE.pillager).map((t) => [t.event, t.other?.whose])).toEqual([['combat', 'you']]);
+  expect(readTriggers(MORE.raider).map((t) => [t.event, t.other?.kinds])).toEqual([['attacks', [['creature']]]]);
+  expect(readTriggers(MORE.war).map((t) => [t.event, t.other?.once])).toEqual([['attacks', true]]);
+  expect(readTriggers(MORE.scavenger).map((t) => t.event)).toEqual(['enters', 'attacks']);
+  expect(readTriggers(MORE.monk).map((t) => [t.event, t.other?.kinds])).toEqual([['cast', [['noncreature']]]]);
+  expect(readTriggers(MORE.wizard).map((t) => [t.event, t.other?.kinds])).toEqual([['cast', [['instant'], ['sorcery']]]]);
+  // A dead card takes no counters; it can go back to hand from its graveyard.
+  expect(actsOf(readTriggers(MORE.bomb)[0])).toEqual([{ key: 'return', label: 'Return it to hand', kind: 'return', auto: true }]);
+});
+
+test('a creature put into its graveyard has died; one sent to exile has not', () => {
+  const before = table([card('b1', 'bear'), card('b2', 'bear')]);
+  const after = structuredClone(before);
+  const [b1] = after.players[0].cards!.battlefield.splice(0, 1);
+  after.players[0].cards!.graveyard.push(b1);
+  const [b2] = after.players[0].cards!.battlefield.splice(0, 1);
+  after.players[0].cards!.exile.push(b2);
+  expect(happeningsBetween(before, after)).toEqual([
+    { kind: 'dies', things: [{ seat: 0, kind: 'card', id: 'b1', cardId: 'bear', name: 'Grizzly Bears', n: 1 }] },
+  ]);
+});
+
+test('a creature dying sets off its own "when this dies" and the cards watching deaths — the dead card too', () => {
+  const g = table([card('z1', 'artist'), card('b1', 'bear')]);
+  const died = (iid: string, cardId: string): Happening => ({ kind: 'dies', things: [{ seat: 0, kind: 'card', id: iid, cardId, name: 'x', n: 1 }] });
+  expect(firedBy(g, died('b1', 'bear'), MORE).map((f) => [f.source.iid, f.because])).toEqual([['z1', 'x died']]);
+  // The Cutthroat itself died: it was waiting for that too.
+  const gone = structuredClone(g);
+  gone.players[0].cards!.battlefield = gone.players[0].cards!.battlefield.filter((c) => c.iid !== 'z1');
+  expect(firedBy(gone, died('z1', 'artist'), MORE).map((f) => [f.source.iid, f.because, f.own])).toEqual([['z1', 'It died', true]]);
+});
+
+test('passing the turn is the end of one player’s turn and the start of the next one’s', () => {
+  const g = table([card('a1', 'arena')], [card('t9', 'tithe')]);
+  const passed: GameState = { ...g, activePlayerIndex: 1, turnNumber: g.turnNumber + 1 };
+  const [turn] = happeningsBetween(g, passed);
+  expect(turn).toEqual({ kind: 'turn', ended: 0, began: 1, turn: passed.turnNumber });
+  // Nathan's turn ended: Sam's Tithe Taker (an opponent's end step). Sam's upkeep: not Nathan's Arena.
+  expect(firedBy(passed, turn, MORE).map((f) => [f.source.iid, f.because])).toEqual([['t9', 'Nathan’s turn ended']]);
+  const back: GameState = { ...passed, activePlayerIndex: 0, turnNumber: passed.turnNumber + 1 };
+  const [mine] = happeningsBetween(passed, back);
+  expect(firedBy(back, mine, MORE).map((f) => [f.source.iid, f.because])).toEqual([['a1', 'Nathan’s turn began']]);
+  expect(actsOf(readTriggers(MORE.arena)[0]).map((a) => [a.label, a.auto])).toEqual([
+    ['Draw 1', true],
+    ['Lose 1 life', true],
+  ]);
+});
+
+test('an attack declared sets off the cards watching attacks; "whenever you attack" once, however many', () => {
+  const g = table([card('r1', 'raider'), card('w1', 'war'), card('b1', 'bear'), card('b2', 'bear'), card('p1', 'pillager')]);
+  const stamp = { id: 'f1', turn: g.turnNumber, active: 0 };
+  let fight = startCombat(g, stamp);
+  fight = setAttack(fight, 'f1', { kind: 'card', id: 'b1' }, 1, 1);
+  fight = setAttack(fight, 'f1', { kind: 'card', id: 'b2' }, 1, 1);
+  const declared = confirmAttackers(fight, 'f1', { cards: [], stacks: {} });
+  const events = happeningsBetween(g, declared);
+  expect(events.map((e) => e.kind)).toEqual(['combat', 'attacks']);
+  expect(firedBy(declared, events[0], MORE).map((f) => f.source.iid)).toEqual(['p1']);
+  const fired = firedBy(declared, events[1], MORE);
+  expect(fired.map((f) => [f.source.iid, f.times, f.because])).toEqual([
+    ['r1', 2, 'Grizzly Bears, Grizzly Bears attacked'],
+    ['w1', 1, 'Nathan attacked'],
+  ]);
+  // Only declaring is attacking: picking attackers before Confirm is not.
+  expect(happeningsBetween(g, fight).map((e) => e.kind)).toEqual(['combat']);
+  expect(stillHappened(declared, events[1])).toBe(true);
+  expect(stillHappened(fight, events[1])).toBe(false); // an Undo back to picking
+});
+
+test('a spell cast sets off the cards waiting for that kind of spell, its caster’s', () => {
+  const g = table([card('m1', 'monk'), card('a1', 'wizard')], [card('m9', 'monk')]);
+  const cast: Happening = { kind: 'cast', seat: 0, spell: { seat: 0, kind: 'card', id: 'h1', cardId: 'bolt', name: 'Lightning Bolt', n: 1 } };
+  expect(firedBy(g, cast, MORE).map((f) => [f.source.iid, f.because])).toEqual([
+    ['m1', 'Lightning Bolt was cast'],
+    ['a1', 'Lightning Bolt was cast'],
+  ]);
+  const creature: Happening = { kind: 'cast', seat: 0, spell: { seat: 0, kind: 'card', id: 'h2', cardId: 'bear', name: 'Grizzly Bears', n: 1 } };
+  expect(firedBy(g, creature, MORE)).toEqual([]);
 });
