@@ -159,3 +159,20 @@ test('firebreathing: each {R} is another +1/+0 until end of turn', async () => {
   expect(boostOf(g, it(store, 's1'))).toMatchObject({ power: 3, toughness: 0 });
   expect(tappedLands(store)).toBe(3);
 });
+
+test('Level up: one more level counter each time it is paid for', async () => {
+  const student = rec(
+    'c-student',
+    'Student of Warfare',
+    'Creature — Human Knight',
+    'Level up {W}\nLEVEL 2-6\n3/3\nFirst strike\nLEVEL 7+\n4/4\nDouble strike',
+    ['1', '1'],
+  );
+  await getDb().cards.put(student);
+  const store = table([{ iid: 's1', cardId: 'c-student', name: 'Student of Warfare' }]);
+  const key = abilitiesOf(student)[0].key;
+  await store.getState().activateAbility(0, 's1', key, { free: true });
+  await store.getState().activateAbility(0, 's1', key, { free: true });
+  expect(it(store, 's1').counters).toEqual({ level: 2 });
+  expect(store.getState().game!.feed?.at(-1)?.text).toBe('Nathan: Student of Warfare levels up (level 2)');
+});

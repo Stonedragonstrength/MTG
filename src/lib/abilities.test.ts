@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { abilitiesOf, abilityBlocked } from './abilities';
+import { abilitiesOf, abilityBlocked, levelChange, levelNow, levelsOf } from './abilities';
 
 const card = (name: string, oracleText: string) => ({ name, oracleText });
 
@@ -53,4 +53,33 @@ test('what would do nothing says why', () => {
   expect(abilityBlocked(adapt, { counters: { p1p1: 1 } })).toBe('It has +1/+1 counters already.');
   const [outlast] = abilitiesOf(card('Priest', 'Outlast {W}'));
   expect(abilityBlocked(outlast, { tapped: true })).toBe('It is tapped.');
+});
+
+// ---- Level up ----
+
+const STUDENT = card(
+  'Student of Warfare',
+  'Level up {W} ({W}: Put a level counter on this. Level up only as a sorcery.)\nLEVEL 2-6\n3/3\nFirst strike\nLEVEL 7+\n4/4\nDouble strike',
+);
+const KARGAN = card(
+  'Kargan Dragonlord',
+  'Level up {R} ({R}: Put a level counter on this. Level up only as a sorcery.)\nLEVEL 4-7\n4/4\nFlying\nLEVEL 8+\n8/8\nFlying, trample\n{R}: This creature gets +1/+0 until end of turn.',
+);
+
+test('Level up is a button of its own; the level sections are read with their sizes', () => {
+  expect(abilitiesOf(STUDENT)).toMatchObject([{ label: 'Level up', cost: { generic: 0, pips: [['W']] }, effect: { kind: 'level' } }]);
+  expect(levelsOf(STUDENT).map((b) => [b.min, b.max, b.power, b.toughness, b.text])).toEqual([
+    [2, 6, 3, 3, 'First strike'],
+    [7, Infinity, 4, 4, 'Double strike'],
+  ]);
+  expect(levelNow(STUDENT, 1)).toBeNull();
+  expect(levelNow(STUDENT, 2)?.power).toBe(3);
+  expect(levelNow(STUDENT, 9)?.power).toBe(4);
+  expect(levelChange({ ...STUDENT, power: '1', toughness: '1' }, 7)).toEqual({ power: 3, toughness: 3 });
+  expect(levelChange({ ...STUDENT, power: '1', toughness: '1' }, 0)).toEqual({ power: 0, toughness: 0 });
+});
+
+test('an ability under a level is there only once the creature has reached it', () => {
+  expect(abilitiesOf(KARGAN, 0).map((a) => a.label)).toEqual(['Level up']);
+  expect(abilitiesOf(KARGAN, 8).map((a) => a.label)).toEqual(['Level up', '+1/+0 until end of turn']);
 });

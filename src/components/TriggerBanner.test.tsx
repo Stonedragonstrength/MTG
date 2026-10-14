@@ -471,3 +471,73 @@ test('Renown: the first hit on a player makes it renowned with its counters; the
   await act(() => new Promise((r) => setTimeout(r, 200)));
   expect(maulers().counters).toEqual({ p1p1: 2, renowned: 1 });
 });
+
+// ---- Undying, Persist, Evolve, Training ----
+
+Object.assign(RECORDS, {
+  geist: rec('geist', 'Geralf’s Messenger', 'Creature — Zombie', 'This creature enters tapped.\nUndying (When this creature dies, if it had no +1/+1 counters on it, return it to the battlefield under its owner’s control with a +1/+1 counter on it.)', { power: '3', toughness: '2' }),
+  kitchen: rec('kitchen', 'Kitchen Finks', 'Creature — Ouphe', 'When this creature enters, you gain 2 life.\nPersist (When this creature dies, if it had no -1/-1 counters on it, return it to the battlefield under its owner’s control with a -1/-1 counter on it.)', { power: '3', toughness: '2' }),
+  shapeshifter: rec('shapeshifter', 'Cloudfin Raptor', 'Creature — Bird Mutant', 'Flying\nEvolve (Whenever a creature you control enters, if that creature has greater power or toughness than this creature, put a +1/+1 counter on this creature.)', { power: '0', toughness: '1' }),
+  trainee: rec('trainee', 'Hopeful Initiate', 'Creature — Human Warlock', 'Training (Whenever this creature attacks with another creature with greater power, put a +1/+1 counter on this creature.)', { power: '1', toughness: '2' }),
+  giantcard: rec('giantcard', 'Hill Giant', 'Creature — Giant', '', { power: '3', toughness: '3' }),
+  mite: rec('mite', 'Mite', 'Creature — Insect', '', { power: '0', toughness: '1' }),
+});
+const field = () => mine().cards!.battlefield;
+const on = (iid: string) => field().find((c) => c.iid === iid);
+
+test('Undying: a creature that dies without a +1/+1 counter comes back with one; with one, it stays dead', async () => {
+  start([card('u1', 'geist')]);
+  act(() => useAppStore.getState().sacrificeCard(0, 'u1'));
+  await waitFor(() => expect(on('u1')?.counters).toEqual({ p1p1: 1 }));
+  expect(useAppStore.getState().game!.feed?.at(-1)?.text).toBe('Geralf’s Messenger returns to the battlefield with a +1/+1 counter (undying)');
+  await quiet();
+  act(() => useAppStore.getState().sacrificeCard(0, 'u1'));
+  await quiet();
+  await act(() => new Promise((r) => setTimeout(r, 100)));
+  expect(on('u1')).toBeUndefined();
+  expect(mine().cards!.graveyard.map((c) => c.iid)).toEqual(['u1']);
+});
+
+test('Persist: back with a -1/-1 counter, and it counts against its size', async () => {
+  start([card('k1', 'kitchen')]);
+  act(() => useAppStore.getState().moveVirtualCard(0, 'k1', 'battlefield', 'graveyard'));
+  await waitFor(() => expect(on('k1')?.counters).toEqual({ m1m1: 1 }));
+  const { readUnit } = await import('../lib/combatEngine');
+  const g = useAppStore.getState().game!;
+  const finks = readUnit(g, 0, { kind: 'card', id: 'k1' }, RECORDS);
+  expect([finks?.power, finks?.toughness]).toEqual([2, 1]);
+});
+
+test('Evolve: a bigger creature coming in grows it; a smaller one does not', async () => {
+  start([card('e1', 'shapeshifter')], [card('h1', 'giantcard'), card('h2', 'mite')]);
+  await act(() => useAppStore.getState().playCard(0, 'h2')); // 0/1 is not bigger than 0/1
+  await quiet();
+  await act(() => new Promise((r) => setTimeout(r, 100)));
+  expect(on('e1')?.counters).toBeUndefined();
+  await act(() => useAppStore.getState().playCard(0, 'h1')); // 3/3 is
+  await waitFor(() => expect(on('e1')?.counters).toEqual({ p1p1: 1 }));
+});
+
+test('Training: attacking beside a creature with greater power gives it a counter', async () => {
+  start([card('t1', 'trainee'), card('g1', 'giantcard')]);
+  const store = () => useAppStore.getState();
+  act(() => store().startCombat());
+  await quiet();
+  act(() => store().setAttacker({ kind: 'card', id: 't1' }, 1, 1));
+  act(() => store().setAttacker({ kind: 'card', id: 'g1' }, 1, 1));
+  await act(() => store().confirmAttackers());
+  await waitFor(() => expect(on('t1')?.counters).toEqual({ p1p1: 1 }));
+});
+
+test('Training alone does nothing', async () => {
+  start([card('t1', 'trainee')]);
+  const store = () => useAppStore.getState();
+  act(() => store().startCombat());
+  await quiet();
+  act(() => store().setAttacker({ kind: 'card', id: 't1' }, 1, 1));
+  await act(() => store().confirmAttackers());
+  await quiet();
+  await act(() => new Promise((r) => setTimeout(r, 100)));
+  expect(on('t1')?.counters).toBeUndefined();
+  expect(shown()).toEqual([]);
+});

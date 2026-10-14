@@ -38,9 +38,10 @@ interface Props {
 export default function VCard({ card, art, sick, look, names, attached = 0, worn, use, onTap, onDetail }: Props) {
   const picks = look?.picks === true;
   const press = useLongPress(picks ? look.tap : onTap, onDetail);
-  const p1p1 = card.counters?.p1p1 ?? 0;
+  // +1/+1 counters, less -1/-1 counters.
+  const plus = (card.counters?.p1p1 ?? 0) - (card.counters?.m1m1 ?? 0);
   // How much bigger (or smaller) than printed: counters and what it wears.
-  const change: Size = { power: p1p1 + (worn?.power ?? 0), toughness: p1p1 + (worn?.toughness ?? 0) };
+  const change: Size = { power: plus + (worn?.power ?? 0), toughness: plus + (worn?.toughness ?? 0) };
   const job = look?.mode === 'attack' ? 'attack' : 'block';
   // The result is waiting and it fought: the tap says whether it dies.
   const judged = picks && look.mode === 'damage';

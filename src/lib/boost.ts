@@ -37,8 +37,10 @@ export function addBoost(g: Turn, was: Boost | undefined, add: BoostChange): Boo
 }
 
 /** A size with this turn's boost on top. */
-export const withBoost = (size: Size, b: Boost | null): Size =>
-  b ? { power: size.power + b.power, toughness: size.toughness + b.toughness } : size;
+export const withBoost = (size: Size, b: Boost | null): Size => (b ? plusSize(size, b) : size);
+
+/** Two changes of size together. */
+export const plusSize = (a: Size, b: Size): Size => ({ power: a.power + b.power, toughness: a.toughness + b.toughness });
 
 /** "+3/+3 and trample", "first strike": a boost as the table says it. */
 export function boostWords(add: BoostChange): string {

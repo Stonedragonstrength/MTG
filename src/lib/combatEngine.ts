@@ -1,3 +1,4 @@
+import { levelNow } from './abilities';
 import { keywordsNow, keywordsWorn, restrictionsWorn, sizeWorn, type Size } from './attach';
 import { boostOf } from './boost';
 import { computedPT } from './board';
@@ -163,13 +164,18 @@ function readCard(game: GameState, read: SeatRead, card: CardInstance, records: 
   const record = records[card.cardId] ?? null;
   const frontRow = card.row !== 'lands';
   const creature = frontRow && (record ? /\bCreature\b/.test(record.typeLine.split(' // ')[0]) : true);
-  const plus = Math.max(0, card.counters?.['p1p1'] ?? 0);
-  const power = plainNumber(record?.power);
-  const toughness = plainNumber(record?.toughness);
+  // +1/+1 counters, less -1/-1 counters (Persist).
+  const p1p1 = Math.max(0, card.counters?.['p1p1'] ?? 0);
+  const plus = p1p1 - Math.max(0, card.counters?.['m1m1'] ?? 0);
+  // A leveler is the size of the level it has reached, with that level's keywords.
+  const level = levelNow(record, card.counters?.level ?? 0);
+  const power = level ? level.power : plainNumber(record?.power);
+  const toughness = level ? level.toughness : plainNumber(record?.toughness);
   const unsized = power === null || toughness === null || (power === 0 && toughness === 0);
   const worn = sizeWorn(game, { seat: read.seat, kind: 'card', id: card.iid }, records);
   // What it wears, and what "until end of turn" effects did to it this turn.
   const wornKeywords = keywordsNow(game, { seat: read.seat, kind: 'card', id: card.iid }, records);
+  if (level) for (const keyword of keywordsOf(level.text)) wornKeywords.add(keyword);
   const boost = boostOf(game, card);
   // "This creature can't block", Pacifism on it, Whispersilk Cloak.
   const forbids = joinRestrictions(
@@ -181,7 +187,7 @@ function readCard(game: GameState, read: SeatRead, card: CardInstance, records: 
     seat: read.seat,
     name: record?.name ?? card.name,
     creature,
-    unread: !record || (unsized && plus === 0),
+    unread: !record || (unsized && p1p1 === 0),
     power: Math.max(0, (power ?? 0) + plus + worn.power + (boost?.power ?? 0)),
     toughness: (toughness ?? 0) + plus + worn.toughness + (boost?.toughness ?? 0),
     ...keywordsFor(record?.oracleText ?? '', unitKey(unit), read.grants, wornKeywords),

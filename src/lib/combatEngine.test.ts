@@ -1209,3 +1209,31 @@ describe('what a creature wears', () => {
     expect(readUnit(t.g, 0, card('bear'), t.records)?.granted).toEqual([]);
   });
 });
+
+describe('a leveler', () => {
+  const STUDENT = rec(
+    'Student of Warfare',
+    '1',
+    '1',
+    'Level up {W} ({W}: Put a level counter on this. Level up only as a sorcery.)\nLEVEL 2-6\n3/3\nFirst strike\nLEVEL 7+\n4/4\nDouble strike',
+    'Creature — Human Knight',
+  );
+
+  test('fights at the size of the level it has reached, with that level’s keywords', () => {
+    const at = (level: number) => {
+      const t = table({ cards: { s: STUDENT }, wear: { s: level ? { counters: { level } } : {} } });
+      const r = readUnit(t.g, 0, card('s'), t.records)!;
+      return [r.power, r.toughness, [...r.printed, ...r.granted]];
+    };
+    expect(at(0)).toEqual([1, 1, []]);
+    expect(at(1)).toEqual([1, 1, []]);
+    expect(at(2)).toEqual([3, 3, ['first strike']]);
+    expect(at(7)).toEqual([4, 4, ['double strike']]);
+  });
+
+  test('a -1/-1 counter counts against its size', () => {
+    const t = table({ cards: { s: STUDENT }, wear: { s: { counters: { level: 2, m1m1: 1 } } } });
+    const r = readUnit(t.g, 0, card('s'), t.records)!;
+    expect([r.power, r.toughness]).toEqual([2, 2]);
+  });
+});

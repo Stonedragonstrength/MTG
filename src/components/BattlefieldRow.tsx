@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { attachedTo, isAttached, keywordsNow, sizeWorn } from '../lib/attach';
-import { boostOf, withBoost } from '../lib/boost';
+import { levelChange } from '../lib/abilities';
+import { boostOf, plusSize, withBoost } from '../lib/boost';
 import { commanderTax, owesDraw } from '../lib/cards';
 import { isSummoningSick, permanentTexts } from '../lib/keywords';
 import { affordable, castCosts, sourcesFrom } from '../lib/pay';
@@ -164,7 +165,11 @@ export default function BattlefieldRow({ playerIdx, picks = true, corner = null 
               sick={isSummoningSick(c, records[c.cardId], texts, keywordsNow(game, { seat: playerIdx, kind: 'card', id: c.iid }, tableRecords))}
               look={combat?.look({ kind: 'card', id: c.iid }) ?? null}
               names={names}
-              worn={withBoost(sizeWorn(game, { seat: playerIdx, kind: 'card', id: c.iid }, tableRecords), boostOf(game, c))}
+              worn={plusSize(
+                withBoost(sizeWorn(game, { seat: playerIdx, kind: 'card', id: c.iid }, tableRecords), boostOf(game, c)),
+                // A leveler is bigger than printed once it reaches a level.
+                levelChange(records[c.cardId], c.counters?.level ?? 0),
+              )}
               onTap={() => tapVirtualCard(playerIdx, c.iid)}
               onDetail={() => setCardSheet({ seat: playerIdx, iid: c.iid })}
             />

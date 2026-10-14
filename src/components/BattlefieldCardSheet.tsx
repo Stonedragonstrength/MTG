@@ -58,7 +58,9 @@ function AbilityRow({
         {(ability.cost.generic > 0 || ability.cost.pips.length > 0 || (xs === 0 && !ability.tap)) && <CostSymbols cost={ability.cost} />}
         {ability.tap && <ManaSymbol symbol="T" label="tap it" />}
       </span>
-      <span className="ability-label">{ability.label}</span>
+      <span className="ability-label">
+        {ability.effect.kind === 'level' ? `Level up · now level ${card.counters?.level ?? 0}` : ability.label}
+      </span>
       {xs > 0 && (
         <span className="stepper">
           <button aria-label="less X" onClick={() => setX((n) => Math.max(0, n - 1))}>
@@ -165,7 +167,7 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose, picks = 
     /\bsacrifice (?:this \w+|it)\b[^.\n]*:[^\n]*\bsearch your library for\b/i.test(record?.oracleText ?? '');
   const faces = faceNames(record, card.name);
   // Monstrosity, Adapt, Outlast, firebreathing…: paid from this seat's lands.
-  const abilities = abilitiesOf(record);
+  const abilities = abilitiesOf(record, card.counters?.level ?? 0);
   const sources = abilities.length > 0 ? sourcesFrom(seat.battlefield, tableRecords, game.players[playerIdx].board) : [];
 
   return (
@@ -305,7 +307,7 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose, picks = 
         </div>
         {named.map(([name, value]) => (
           <div className="detail-row" key={name}>
-            <span>{name}</span>
+            <span>{name === 'm1m1' ? '−1/−1' : name}</span>
             <div className="stepper">
               <button aria-label={`fewer ${name}`} onClick={() => setVirtualCounter(playerIdx, iid, name, value - 1)}>−</button>
               <span>{value}</span>

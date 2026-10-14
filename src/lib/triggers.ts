@@ -1,4 +1,6 @@
 import { liveCombat } from './combat';
+import { readUnit } from './combatEngine';
+import { keywordsOf } from './keywords';
 import { spellPrompts, type SpellPrompt } from './spellEffects';
 import type { BoardItem, CardRecord, GameState } from './types';
 
@@ -32,6 +34,8 @@ export interface Thing {
   n: number;
   /** A stack carries its own type line; a card's is on its record. */
   typeLine?: string;
+  /** A card that died: the counters it had on it then (Undying, Persist). */
+  counters?: Record<string, number>;
 }
 /** Something that has just entered a battlefield. */
 export type Arrival = Thing;
@@ -109,7 +113,7 @@ export function departuresBetween(prev: GameState, next: GameState): Thing[] {
     const went = new Set([...(player.cards?.graveyard ?? []), ...(player.cards?.command ?? [])].map((c) => c.iid));
     for (const c of before.cards?.battlefield ?? [])
       if (!now.has(c.iid) && went.has(c.iid))
-        out.push({ seat, kind: 'card', id: c.iid, cardId: c.cardId, name: c.name, n: 1 });
+        out.push({ seat, kind: 'card', id: c.iid, cardId: c.cardId, name: c.name, n: 1, ...(c.counters ? { counters: c.counters } : {}) });
     const shrank = totals(before.board);
     for (const [key, n] of totals(player.board)) shrank.set(key, (shrank.get(key) ?? 0) - n);
     for (const it of before.board) {
@@ -401,6 +405,17 @@ export function readTriggers(record: Pick<CardRecord, 'name' | 'oracleText'> | n
     return other ? { self: false, host: false, other } : null;
   };
 
+  // Keywords that are triggers of their own (their reminder text is not
+  // read): Undying, Persist, Evolve, Training.
+  const keywords = keywordsOf(record.oracleText);
+  const keyword = (text: string, event: TriggerEvent, effect: string, other: Trigger['other'] = null) =>
+    out.push({ text, event, self: other === null, other, unsure: false, may: false, effect });
+  if (keywords.has('undying')) keyword('Undying', 'dies', 'undying');
+  if (keywords.has('persist')) keyword('Persist', 'dies', 'persist');
+  if (keywords.has('evolve'))
+    keyword('Evolve', 'enters', 'evolve', { whose: 'you', kinds: [['creature']], another: true, once: false });
+  if (keywords.has('training')) keyword('Training', 'attacks', 'training');
+
   for (const raw of record.oracleText.split('\n//\n')[0].split('\n')) {
     const text = raw.replace(/\s*\([^)]*\)/g, '').trim();
     let line = text.split(name).join('~');
@@ -493,6 +508,10 @@ export type TriggerAct = { key: string; label: string; auto: boolean } & (
   | { kind: 'release' }
   /** Renown: so many +1/+1 counters, and it becomes renowned — once. */
   | { kind: 'renown'; n: number }
+  /** Undying (+1/+1) / Persist (-1/-1): back from the graveyard with that counter. */
+  | { kind: 'comeback'; counter: 'p1p1' | 'm1m1' }
+  /** Evolve, Training: so many +1/+1 counters on it (worked out by the engine). */
+  | { kind: 'evolve' | 'training'; n: number }
   /** An effect a spell could have too (lib/spellEffects.ts). */
   | { kind: 'prompt'; prompt: SpellPrompt }
 );
@@ -542,6 +561,12 @@ export function actsOf(trigger: Trigger, times = 1): TriggerAct[] {
   const own = trigger.self && !trigger.other;
   const dead = (trigger.event === 'dies' || trigger.event === 'leaves') && own;
   const out: TriggerAct[] = [];
+  if (trigger.effect === 'undying')
+    return [{ key: 'undying', label: 'Undying: back with a +1/+1 counter', kind: 'comeback', counter: 'p1p1', auto: true }];
+  if (trigger.effect === 'persist')
+    return [{ key: 'persist', label: 'Persist: back with a -1/-1 counter', kind: 'comeback', counter: 'm1m1', auto: true }];
+  if (trigger.effect === 'evolve') return [{ key: 'evolve', label: 'Evolve: a +1/+1 counter', kind: 'evolve', n: 1, auto: true }];
+  if (trigger.effect === 'training') return [{ key: 'training', label: 'Training: a +1/+1 counter', kind: 'training', n: 1, auto: true }];
   const renown = trigger.effect.match(/^renown (\d+)$/);
   if (renown) {
     const n = Number(renown[1]);
@@ -592,6 +617,44 @@ export function actsOf(trigger: Trigger, times = 1): TriggerAct[] {
     });
   }
   return out;
+}
+
+// ---- the keyword triggers that compare sizes ----
+
+type ReadRecords = Parameters<typeof readUnit>[3];
+
+/** Evolve: how many of these creatures entering under its controller are
+ * bigger — in power or in toughness — than it is, each counted against
+ * its size after the counters the ones before gave it. */
+export function evolveCount(g: GameState, seat: number, iid: string, things: Thing[], records: ReadRecords): number {
+  const me = readUnit(g, seat, { kind: 'card', id: iid }, records);
+  if (!me || me.unread) return 0;
+  let power = me.power;
+  let toughness = me.toughness;
+  let n = 0;
+  for (const t of things) {
+    if (t.seat !== seat || (t.kind === 'card' && t.id === iid)) continue;
+    const it = readUnit(g, seat, { kind: t.kind, id: t.id }, records);
+    if (!it || it.unread || !it.creature) continue;
+    for (let copy = 0; copy < t.n; copy++) {
+      if (it.power <= power && it.toughness <= toughness) continue;
+      n += 1;
+      power += 1;
+      toughness += 1;
+    }
+  }
+  return n;
+}
+
+/** Training: does it attack beside a creature with greater power? */
+export function trainingFires(g: GameState, seat: number, iid: string, attackers: Thing[], records: ReadRecords): boolean {
+  const me = readUnit(g, seat, { kind: 'card', id: iid }, records);
+  if (!me || me.unread) return false;
+  return attackers.some((t) => {
+    if (t.seat !== seat || (t.kind === 'card' && t.id === iid)) return false;
+    const it = readUnit(g, seat, { kind: t.kind, id: t.id }, records);
+    return !!it && !it.unread && it.power > me.power;
+  });
 }
 
 // ---- which cards it sets off ----

@@ -1,7 +1,17 @@
 import { create } from 'zustand';
 import type { SpellTarget } from '../lib/spellEffects';
 import { heldBy } from '../lib/cards';
-import { actsOf, firedBy, holdsExiled, stillHappened, type Happening, type Thing, type TriggerAct } from '../lib/triggers';
+import {
+  actsOf,
+  evolveCount,
+  firedBy,
+  holdsExiled,
+  stillHappened,
+  trainingFires,
+  type Happening,
+  type Thing,
+  type TriggerAct,
+} from '../lib/triggers';
 import type { CardRecord, GameState } from '../lib/types';
 import { tableRecords, useAppStore } from '../state/store';
 import { carryOutPrompt, findTokenCard } from './spellActs';
@@ -86,13 +96,19 @@ function run(key: string, actKey: string, target: SpellTarget | undefined, depth
     } else if (act.kind === 'grow') {
       if (card) store.setVirtualCounter(trigger.seat, card.iid, 'p1p1', (card.counters?.p1p1 ?? 0) + act.n);
       did = !!card;
+    } else if (act.kind === 'comeback') {
+      did = !!cards?.graveyard.some((c) => c.iid === trigger.source.iid);
+      if (did) store.returnFromGraveyard(trigger.seat, trigger.source.iid, act.counter);
+    } else if (act.kind === 'evolve' || act.kind === 'training') {
+      did = !!card;
+      if (card) store.growCard(trigger.seat, card.iid, act.n);
     } else if (act.kind === 'renown') {
       did = !!card && !((card.counters?.renowned ?? 0) > 0);
       if (did) store.growCard(trigger.seat, trigger.source.iid, act.n, 'renowned');
     } else if (act.kind === 'release') {
       did = heldBy(store.game, { seat: trigger.seat, iid: trigger.source.iid }).length > 0;
       if (did) store.releaseHeld(trigger.seat, trigger.source.iid, trigger.source.name);
-    } else
+    } else if (act.kind === 'prompt')
       did = carryOutPrompt(trigger.seat, trigger.source.name, act.prompt, act.token, target, {
         sourceIid: trigger.source.iid,
         holds: act.holds,
@@ -157,6 +173,25 @@ async function raise(events: Happening[], depth: number): Promise<void> {
     const acts: ShownAct[] = [];
     const holder = { seat: fired.seat, iid: fired.source.iid };
     for (const act of actsOf(fired.trigger, fired.times)) {
+      const h = fired.happening;
+      // Undying / Persist: only if it had no such counter as it died, and it is in its graveyard.
+      if (act.kind === 'comeback') {
+        const died = h.kind === 'dies' ? h.things.find((t) => t.kind === 'card' && t.id === fired.source.iid && t.seat === fired.seat) : undefined;
+        const inGrave = !!g.players[fired.seat]?.cards?.graveyard.some((c) => c.iid === fired.source.iid);
+        if (died && inGrave && !((died.counters?.[act.counter] ?? 0) > 0)) acts.push({ ...act, done: false });
+        continue;
+      }
+      // Evolve: one counter for each creature that came in bigger than it.
+      if (act.kind === 'evolve') {
+        const n = h.kind === 'enters' ? evolveCount(g, fired.seat, fired.source.iid, h.things, records) : 0;
+        if (n > 0) acts.push({ ...act, n, label: n === 1 ? 'Evolve: a +1/+1 counter' : `Evolve: ${n} +1/+1 counters`, done: false });
+        continue;
+      }
+      // Training: it attacked beside a creature with greater power.
+      if (act.kind === 'training') {
+        if (h.kind === 'attacks' && trainingFires(g, fired.seat, fired.source.iid, h.things, records)) acts.push({ ...act, done: false });
+        continue;
+      }
       // Renowned already: Renown does nothing more.
       if (act.kind === 'renown') {
         const it = g.players[fired.seat]?.cards?.battlefield.find((c) => c.iid === fired.source.iid);
@@ -181,8 +216,9 @@ async function raise(events: Happening[], depth: number): Promise<void> {
     // else — a death, an attack, a turn — is shown either way: those are
     // the triggers people forget.
     if (fired.own && fired.happening.kind === 'enters' && acts.length === 0) continue;
-    // Renown on a creature that is renowned already: nothing to say.
-    if (/^renown \d+$/.test(fired.trigger.effect) && acts.length === 0) continue;
+    // A keyword that did not go off this time (renowned already, had its
+    // counter, nothing bigger came in…): nothing to say.
+    if (/^(?:renown \d+|undying|persist|evolve|training)$/.test(fired.trigger.effect) && acts.length === 0) continue;
     fresh.push({
       key: `t${++serial}`,
       seat: fired.seat,

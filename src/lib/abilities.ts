@@ -1,3 +1,4 @@
+import type { Size } from './attach';
 import { boostWords } from './boost';
 import { keywordList } from './keywords';
 import { parseCost, type PayCost } from './pay';
@@ -20,7 +21,9 @@ export type AbilityEffect =
    * only while it has no +1/+1 counters. */
   | { kind: 'counters'; n: number | 'X'; once?: 'monstrous'; ifNone?: true }
   /** Until end of turn (lib/boost.ts). */
-  | { kind: 'boost'; power: number; toughness: number; keywords: string[] };
+  | { kind: 'boost'; power: number; toughness: number; keywords: string[] }
+  /** Level up: one more level counter. */
+  | { kind: 'level' };
 
 export interface Ability {
   /** The same for the same ability of the same card: its line, and what it is. */
@@ -52,17 +55,85 @@ function costOf(text: string): { mana: string; tap: boolean } | null {
   return { mana, tap };
 }
 
-/** The creature's own growing abilities, in the order printed. */
-export function abilitiesOf(record: Read): Ability[] {
+// ---- levels ----
+
+/** One "LEVEL 2-6" section of a leveler: from which level to which, the
+ * size it has there, and the lines it has on top. */
+export interface LevelBlock {
+  min: number;
+  max: number;
+  power: number;
+  toughness: number;
+  /** Where its lines are, in the card's front text (first, and one past the last). */
+  from: number;
+  to: number;
+  text: string;
+}
+
+const LEVEL = /^LEVEL (\d+)(?:-(\d+)|\+)$/i;
+
+/** The level sections of a creature with Level up, in the order printed. */
+export function levelsOf(record: Read): LevelBlock[] {
+  if (!record) return [];
+  const lines = record.oracleText.split('\n//\n')[0].split('\n').map((l) => l.trim());
+  const out: LevelBlock[] = [];
+  lines.forEach((line, i) => {
+    const m = line.match(LEVEL);
+    const pt = lines[i + 1]?.match(/^(\d+)\/(\d+)$/);
+    if (!m || !pt) return;
+    let to = i + 2;
+    while (to < lines.length && !LEVEL.test(lines[to])) to += 1;
+    out.push({
+      min: Number(m[1]),
+      max: m[2] ? Number(m[2]) : Infinity,
+      power: Number(pt[1]),
+      toughness: Number(pt[2]),
+      from: i + 2,
+      to,
+      text: lines.slice(i + 2, to).join('\n'),
+    });
+  });
+  return out;
+}
+
+/** The section a creature with that many level counters is in; null below the first. */
+export function levelNow(record: Read, level: number): LevelBlock | null {
+  return levelsOf(record).find((b) => level >= b.min && level <= b.max) ?? null;
+}
+
+/** How much bigger its level makes it than printed (0/0 below the first section). */
+export function levelChange(record: (Read & { power?: string | null; toughness?: string | null }) | null | undefined, level: number): Size {
+  const block = levelNow(record, level);
+  const power = Number(record?.power);
+  const toughness = Number(record?.toughness);
+  if (!block || !Number.isFinite(power) || !Number.isFinite(toughness)) return { power: 0, toughness: 0 };
+  return { power: block.power - power, toughness: block.toughness - toughness };
+}
+
+/** The creature's own growing abilities, in the order printed — those under a
+ * level only once it has reached that level (`level`: its level counters). */
+export function abilitiesOf(record: Read, level = 0): Ability[] {
   if (!record) return [];
   const name = record.name.split(' // ')[0];
   const out: Ability[] = [];
+  const blocks = levelsOf(record);
+  const current = blocks.find((b) => level >= b.min && level <= b.max) ?? null;
   record.oracleText
     .split('\n//\n')[0]
     .split('\n')
     .forEach((raw, i) => {
+      // A line under a level the creature has not reached is not on it.
+      const inBlock = blocks.find((b) => i >= b.from && i < b.to);
+      if (inBlock && inBlock !== current) return;
       const line = raw.replace(/\s*\([^)]*\)/g, '').replace(RESTRICTION, '').trim().split(name).join('~');
       const add = (ability: Omit<Ability, 'key'>, kind: string) => out.push({ key: `${i}:${kind}`, ...ability });
+
+      // "Level up {W}": one more level counter (as a sorcery).
+      const levelUp = line.match(/^Level up ((?:\{[^}]+\})+)$/i);
+      if (levelUp) {
+        add({ label: 'Level up', cost: parseCost(levelUp[1]), tap: false, effect: { kind: 'level' } }, 'level');
+        return;
+      }
 
       // "Outlast {1}{W}" is "{1}{W}, {T}: Put a +1/+1 counter on this creature" (as a sorcery).
       const outlast = line.match(/^Outlast ((?:\{[^}]+\})+)$/i);

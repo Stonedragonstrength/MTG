@@ -120,6 +120,9 @@ export interface AppStore {
   /** So many +1/+1 counters on a card, and maybe a mark it now wears
    * ('renowned'): one move. */
   growCard(seat: number, iid: string, n: number, mark?: string): void;
+  /** Undying (+1/+1) and Persist (-1/-1): the card comes back from its
+   * graveyard to the battlefield with that counter on it. */
+  returnFromGraveyard(seat: number, iid: string, counter: 'p1p1' | 'm1m1'): void;
   /** What that permanent held in exile ("until it leaves the battlefield")
    * comes back to the battlefield, each card to its owner's side. `why`:
    * the holder's name, for the feed. */
@@ -930,18 +933,21 @@ export function createAppStore() {
         const card = g?.players[seat]?.cards?.battlefield.find((c) => c.iid === iid);
         if (!g || !card) return;
         const records = await seatRecords(g, seat);
-        const ability = abilitiesOf(records[card.cardId]).find((a) => a.key === key);
+        const ability = abilitiesOf(records[card.cardId], card.counters?.level ?? 0).find((a) => a.key === key);
         if (!ability || abilityBlocked(ability, card)) return;
         const x = ability.cost.x ? wholeX(opts?.x) : 0;
         const effect = ability.effect;
         const n = effect.kind === 'counters' ? (effect.n === 'X' ? x : effect.n) : 0;
+        const level = (card.counters?.level ?? 0) + 1;
         const monstrous = effect.kind === 'counters' && effect.once === 'monstrous';
         const paidIn = { turn: g.turnNumber, active: g.activePlayerIndex };
         const who = seatName(g, seat);
         const text =
           effect.kind === 'boost'
             ? `${who}: ${card.name} gets ${boostWords(effect)} until end of turn`
-            : monstrous
+            : effect.kind === 'level'
+              ? `${who}: ${card.name} levels up (level ${level})`
+              : monstrous
               ? `${who}: ${card.name} becomes monstrous (${n} +1/+1 counter${n === 1 ? '' : 's'})`
               : effect.ifNone
                 ? `${who}: ${card.name} adapts (${n} +1/+1 counter${n === 1 ? '' : 's'})`
@@ -954,6 +960,7 @@ export function createAppStore() {
             const pay = opts?.free ? null : payFrom(base, seat, [payLib.withX(ability.cost, x)], records, paidIn);
             let next = ability.tap ? cardsLib.tapSpent(base, seat, iid) : base;
             if (effect.kind === 'boost') next = boostCard(next, seat, iid, effect);
+            else if (effect.kind === 'level') next = cardsLib.setCardCounter(next, seat, iid, 'level', (now.counters?.level ?? 0) + 1);
             else {
               next = cardsLib.setCardCounter(next, seat, iid, 'p1p1', (now.counters?.p1p1 ?? 0) + n);
               if (monstrous) next = cardsLib.setCardCounter(next, seat, iid, 'monstrous', 1);
@@ -964,6 +971,21 @@ export function createAppStore() {
           (base) => !!base.players[seat]?.cards?.battlefield.some((c) => c.iid === iid),
           undefined,
           monstrous ? [{ kind: 'monstrous', thing: { seat, kind: 'card', id: iid, cardId: card.cardId, name: card.name, n: 1 } }] : [],
+        );
+      },
+
+      returnFromGraveyard(seat, iid, counter) {
+        const g = get().game;
+        const card = g?.players[seat]?.cards?.graveyard.find((c) => c.iid === iid);
+        if (!g || !card) return;
+        const plus = counter === 'p1p1';
+        cardMutate(
+          (base) => {
+            const back = cardsLib.moveCard(base, seat, iid, 'graveyard', 'battlefield', { row: 'front' });
+            return back === base ? base : cardsLib.setCardCounter(back, seat, iid, counter, 1);
+          },
+          `${card.name} returns to the battlefield with a ${plus ? '+1/+1' : '-1/-1'} counter (${plus ? 'undying' : 'persist'})`,
+          (base) => !!base.players[seat]?.cards?.graveyard.some((c) => c.iid === iid),
         );
       },
 
