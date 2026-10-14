@@ -112,10 +112,12 @@ function table(): GameState {
 }
 
 const attachVirtualCard = vi.fn();
+const equipCard = vi.fn(async () => {});
 
 beforeEach(() => {
   attachVirtualCard.mockClear();
-  useAppStore.setState({ game: table(), online: null, attachVirtualCard });
+  equipCard.mockClear();
+  useAppStore.setState({ game: table(), online: null, attachVirtualCard, equipCard });
 });
 
 /** A deliberate tap, a moment after the sheet opened (for its first moment it takes none). */
@@ -293,6 +295,139 @@ test('a host’s own sheet lists what is on it, each with a way off', async () =
   expect(attachVirtualCard).toHaveBeenCalledWith(0, 'might', null);
   // The bear itself is no Aura: it is offered nothing to attach to.
   expect(screen.queryByRole('button', { name: /attach…|equip…/i })).not.toBeInTheDocument();
+});
+
+// ---- paying to equip ----
+
+RECORDS['c-splitter'] = rec('c-splitter', 'Bonesplitter', 'Artifact — Equipment', 'Equipped creature gets +2/+0.\nEquip {1}');
+RECORDS['c-blade'] = rec(
+  'c-blade',
+  'Blackblade Reforged',
+  'Legendary Artifact — Equipment',
+  'Equipped creature gets +1/+1 for each land you control.\nEquip legendary creature {1}\nEquip {7}',
+);
+RECORDS['c-king'] = rec('c-king', 'Kenrith, the Returned King', 'Legendary Creature — Human Noble', '', '5');
+RECORDS['c-maul'] = rec(
+  'c-maul',
+  'Maul of the Skyclaves',
+  'Artifact — Equipment',
+  'When this Equipment enters, attach it to target creature you control.\nEquipped creature gets +2/+2.\nEquip {2}{W}{W}',
+);
+
+/** The table with more cards on Nathan's side, and his one Forest tapped out when asked. */
+function equipTable(more: CardInstance[], forestTapped = false): GameState {
+  const g = table();
+  const mine = g.players[0].cards!;
+  mine.battlefield = [
+    ...mine.battlefield.map((c) => (c.iid === 'forest' && forestTapped ? { ...c, tapped: true, spent: 1 } : c)),
+    ...more,
+  ];
+  return g;
+}
+const costLine = () => screen.getByRole('group', { name: 'equip cost' });
+
+test('an Equipment says what equipping costs; with the mana ready a tap on a creature equips and pays', async () => {
+  useAppStore.setState({ game: equipTable([card('splitter', 'c-splitter')]) });
+  const onClose = vi.fn();
+  render(<AttachSheet playerIdx={0} iid="splitter" onClose={onClose} />);
+  await waitFor(() => expect(within(costLine()).getByText('Your lands pay for it.')).toBeInTheDocument());
+  expect(within(costLine()).getByRole('img', { name: '1 of any color' })).toBeInTheDocument();
+  tap(screen.getByRole('button', { name: 'put it on Grizzly Bears' }));
+  expect(equipCard).toHaveBeenCalledWith(0, 'splitter', { seat: 0, kind: 'card', id: 'bear' });
+  expect(attachVirtualCard).not.toHaveBeenCalled();
+  expect(onClose).toHaveBeenCalled();
+});
+
+test('without the mana the creatures are dimmed and refuse; "Equip anyway" puts it on without paying', async () => {
+  useAppStore.setState({ game: equipTable([card('splitter', 'c-splitter')], true) });
+  const onClose = vi.fn();
+  render(<AttachSheet playerIdx={0} iid="splitter" onClose={onClose} />);
+  await waitFor(() => expect(within(costLine()).getByText('Not enough mana ready.')).toBeInTheDocument());
+  const bear = screen.getByRole('button', { name: 'put it on Grizzly Bears' });
+  expect(bear).toHaveAttribute('aria-disabled', 'true');
+  tap(bear);
+  expect(equipCard).not.toHaveBeenCalled();
+  expect(onClose).not.toHaveBeenCalled();
+  tap(screen.getByRole('button', { name: 'Equip anyway' }));
+  expect(within(costLine()).getByText('Not paying for it.')).toBeInTheDocument();
+  expect(bear).not.toHaveAttribute('aria-disabled');
+  tap(bear);
+  expect(equipCard).toHaveBeenCalledWith(0, 'splitter', { seat: 0, kind: 'card', id: 'bear' }, { free: true });
+  expect(onClose).toHaveBeenCalled();
+});
+
+test('"Don’t pay" equips for nothing while the mana is there, and "Pay for it" takes that back', async () => {
+  useAppStore.setState({ game: equipTable([card('splitter', 'c-splitter')]) });
+  render(<AttachSheet playerIdx={0} iid="splitter" onClose={() => {}} />);
+  tap(await screen.findByRole('button', { name: 'Don’t pay' }));
+  expect(within(costLine()).getByText('Not paying for it.')).toBeInTheDocument();
+  tap(screen.getByRole('button', { name: 'Pay for it' }));
+  expect(within(costLine()).getByText('Your lands pay for it.')).toBeInTheDocument();
+  tap(screen.getByRole('button', { name: 'Don’t pay' }));
+  tap(screen.getByRole('button', { name: 'put it on Hill Giant' }));
+  expect(equipCard).toHaveBeenCalledWith(0, 'splitter', { seat: 0, kind: 'card', id: 'giant' }, { free: true });
+});
+
+test('Equip {0} has nothing to pay: the cost is shown, and no switch', async () => {
+  render(<AttachSheet playerIdx={0} iid="greaves" onClose={() => {}} />);
+  await waitFor(() => expect(within(costLine()).getByRole('img', { name: '0 of any color' })).toBeInTheDocument());
+  expect(within(costLine()).queryByRole('button')).not.toBeInTheDocument();
+  tap(screen.getByRole('button', { name: 'put it on Grizzly Bears' }));
+  expect(equipCard).toHaveBeenCalledWith(0, 'greaves', { seat: 0, kind: 'card', id: 'bear' });
+});
+
+test('an Equipment that attaches itself as it enters owes nothing the turn it arrives', async () => {
+  useAppStore.setState({ game: equipTable([card('maul', 'c-maul', { sick: true })]) });
+  render(<AttachSheet playerIdx={0} iid="maul" onClose={() => {}} />);
+  await waitFor(() => expect(within(costLine()).getByText(/attaches itself as it comes in/)).toBeInTheDocument());
+  tap(screen.getByRole('button', { name: 'put it on Grizzly Bears' }));
+  expect(equipCard).toHaveBeenCalledWith(0, 'maul', { seat: 0, kind: 'card', id: 'bear' }, { free: true });
+});
+
+test('…but a turn later, or told to pay, it costs what it prints', async () => {
+  useAppStore.setState({ game: equipTable([card('maul', 'c-maul')]) });
+  render(<AttachSheet playerIdx={0} iid="maul" onClose={() => {}} />);
+  // {2}{W}{W} against one Forest.
+  await waitFor(() => expect(within(costLine()).getByText('Not enough mana ready.')).toBeInTheDocument());
+  expect(screen.getByRole('button', { name: 'put it on Grizzly Bears' })).toHaveAttribute('aria-disabled', 'true');
+});
+
+test('the creature it is on already costs nothing to tap: the sheet closes and nothing is paid', async () => {
+  const g = attachCard(equipTable([card('splitter', 'c-splitter')], true), 0, 'splitter', { seat: 0, kind: 'card', id: 'bear' });
+  useAppStore.setState({ game: g });
+  const onClose = vi.fn();
+  render(<AttachSheet playerIdx={0} iid="splitter" onClose={onClose} />);
+  const here = await screen.findByRole('button', { name: 'Grizzly Bears — it is on this now' });
+  await waitFor(() => expect(within(costLine()).getByText('Not enough mana ready.')).toBeInTheDocument());
+  expect(here).not.toHaveAttribute('aria-disabled');
+  // Moving it costs again: the giant is dimmed.
+  expect(screen.getByRole('button', { name: 'put it on Hill Giant' })).toHaveAttribute('aria-disabled', 'true');
+  tap(here);
+  expect(equipCard).not.toHaveBeenCalled();
+  expect(onClose).toHaveBeenCalled();
+});
+
+test('two equip abilities: each creature pays the cheapest it may use, and its row says which', async () => {
+  useAppStore.setState({ game: equipTable([card('blade', 'c-blade'), card('king', 'c-king')]) });
+  render(<AttachSheet playerIdx={0} iid="blade" onClose={() => {}} />);
+  await waitFor(() => expect(within(costLine()).getByText(/Equip legendary creature/)).toBeInTheDocument());
+  const king = await screen.findByRole('button', { name: 'put it on Kenrith, the Returned King' });
+  const bear = screen.getByRole('button', { name: 'put it on Grizzly Bears' });
+  // One Forest pays {1} for the legend, not {7} for the bear.
+  await waitFor(() => expect(bear).toHaveAttribute('aria-disabled', 'true'));
+  expect(king).not.toHaveAttribute('aria-disabled');
+  expect(within(king).getByRole('img', { name: '1 of any color' })).toBeInTheDocument();
+  expect(within(bear).getByRole('img', { name: '7 of any color' })).toBeInTheDocument();
+  expect(within(costLine()).getByText('Your lands pay for it.')).toBeInTheDocument();
+});
+
+test('an Aura was paid for when it was cast: no cost, no switch, the plain attach', async () => {
+  render(<AttachSheet playerIdx={0} iid="might" onClose={() => {}} />);
+  await screen.findByRole('button', { name: 'put it on Grizzly Bears' });
+  expect(screen.queryByRole('group', { name: 'equip cost' })).not.toBeInTheDocument();
+  tap(screen.getByRole('button', { name: 'put it on Grizzly Bears' }));
+  expect(attachVirtualCard).toHaveBeenCalledWith(0, 'might', { seat: 0, kind: 'card', id: 'bear' });
+  expect(equipCard).not.toHaveBeenCalled();
 });
 
 test('an unattached Aura’s sheet offers Attach…, says where Auras with no host go, and opens the list in its place', async () => {

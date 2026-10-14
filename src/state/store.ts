@@ -14,6 +14,7 @@ import { DEFAULT_SETTINGS, getSettings, saveSettings, type Settings } from '../d
 import { hostName, hostOf } from '../lib/attach';
 import { opponentsOf, tappedToAttack } from '../lib/attackDraft';
 import * as boardLib from '../lib/board';
+import { equipHost, equipWay } from '../lib/equip';
 import { backView, faceNames, frontId, isBackId, turnsOver } from '../lib/faces';
 import * as gameLib from '../lib/game';
 import * as payLib from '../lib/pay';
@@ -161,6 +162,10 @@ export interface AppStore {
   /** Puts an Aura or Equipment on a host (any seat's), or takes it off
    * (null). `plus`: +1/+1 counters it shows on a card host while it is there. */
   attachVirtualCard(seat: number, iid: string, host: cardsLib.Host | null, plus?: number): void;
+  /** Puts an Equipment on a creature and pays its equip cost in the same
+   * move (lib/equip.ts). `free`: it goes on without paying — "Equip anyway",
+   * or an Equipment that attaches itself as it enters. */
+  equipCard(seat: number, iid: string, host: cardsLib.Host, opts?: { free?: boolean }): Promise<void>;
   /** One effect of a spell that seat cast, picked off the cast banner
    * (lib/spellEffects.ts): damage, life, removal, counters. One move, one Undo. */
   castEffect(seat: number, spellName: string, effect: SpellEffect): Promise<void>;
@@ -1488,6 +1493,37 @@ export function createAppStore() {
           (base) =>
             !!base.players[seat]?.cards?.battlefield.some((c) => c.iid === iid) &&
             (!host || cardsLib.hostIsThere(base, host)),
+        );
+      },
+
+      // An Equipment goes onto a creature, and what the card asks for that
+      // ("Equip {2}") is paid as it does: the lands are tapped inside the
+      // same op, against the table it lands on, so one Undo takes both back
+      // and two equips fired together cannot spend the same land. The way
+      // the host pays is read here as the screen reads it (lib/equip.ts).
+      // Where nothing can pay, it goes on all the same and nothing is
+      // tapped — the screen is the gate, as it is for a spell.
+      async equipCard(seat, iid, host, opts) {
+        const g = get().game;
+        const card = g?.players[seat]?.cards?.battlefield.find((c) => c.iid === iid);
+        if (!g || !card || !cardsLib.hostIsThere(g, host)) return;
+        const was = hostOf(g, card);
+        // On it already: nothing moves, so nothing is owed.
+        if (was && was.seat === host.seat && was.kind === host.kind && was.id === host.id) return;
+        const records = host.seat === seat ? await seatRecords(g, seat) : await tableRecords(g);
+        const way = opts?.free ? null : equipWay(records[card.cardId], equipHost(g, host, records));
+        const paidIn = { turn: g.turnNumber, active: g.activePlayerIndex };
+        const whose = host.seat === seat ? '' : `${seatName(g, host.seat)}’s `;
+        cardMutate(
+          (base) => {
+            const pay = way ? payFrom(base, seat, [way.cost], records, paidIn) : null;
+            const moved = cardsLib.attachCard(base, seat, iid, host);
+            return moved === base || !pay ? moved : pay(moved);
+          },
+          `${seatName(g, seat)} puts ${card.name} on ${whose}${hostName(g, host)}`,
+          (base) =>
+            !!base.players[seat]?.cards?.battlefield.some((c) => c.iid === iid) &&
+            cardsLib.hostIsThere(base, host),
         );
       },
 

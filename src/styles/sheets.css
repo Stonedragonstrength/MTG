@@ -581,6 +581,67 @@ button.primary {
   font-weight: 700;
 }
 
+/* What equipping costs, as the card prints it; whether the seat can pay;
+   and the way round ("Equip anyway"), all on one line above the list. */
+.equip-cost {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 8px 8px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px;
+  font-family: var(--font-body);
+}
+
+.equip-ways {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  font-weight: 700;
+}
+
+.equip-way {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.equip-state {
+  flex: 1 1 14ch;
+  color: #b9b7b1;
+  font-size: 0.92rem;
+}
+
+.equip-state--short {
+  color: #e9a79f;
+  font-weight: 700;
+}
+
+.equip-switch {
+  flex: 0 0 auto;
+  min-height: 44px;
+}
+
+/* A creature the seat cannot pay to equip: dimmed like a card in hand that
+   cannot be cast. The frame stays, so the row still reads as a row. */
+.attach-row--short {
+  cursor: default;
+}
+
+.attach-row--short .pile-art,
+.attach-row--short .pile-name,
+.attach-row--short .attach-size {
+  opacity: 0.45;
+  filter: saturate(0.4);
+}
+
+.attach-cost {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 3px;
+}
+
 .attach-where {
   margin: 0;
   text-align: center;

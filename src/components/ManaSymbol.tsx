@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { COLOR_NAMES } from '../lib/mana';
+import type { PayCost } from '../lib/pay';
 
 /** Scryfall's drawings of the mana symbols, one small file each (kept by
  * the service worker once seen: vite.config.ts). */
@@ -35,5 +37,19 @@ export default function ManaSymbol({ symbol, label }: Props) {
       draggable={false}
       onError={() => setFailed(true)}
     />
+  );
+}
+
+/** A cost as the card prints it: the generic amount, then one symbol a pip. */
+export function CostSymbols({ cost }: { cost: PayCost }) {
+  return (
+    <>
+      {(cost.generic > 0 || cost.pips.length === 0) && (
+        <ManaSymbol symbol={String(cost.generic)} label={`${cost.generic} of any color`} />
+      )}
+      {cost.pips.map((pip, i) => (
+        <ManaSymbol key={i} symbol={pip.join('')} label={pip.map((c) => COLOR_NAMES[c]).join(' or ')} />
+      ))}
+    </>
   );
 }

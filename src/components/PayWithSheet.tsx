@@ -26,7 +26,7 @@ import {
 } from '../lib/payWith';
 import type { BoardItem, CardInstance } from '../lib/types';
 import { useAppStore } from '../state/store';
-import ManaSymbol from './ManaSymbol';
+import ManaSymbol, { CostSymbols } from './ManaSymbol';
 import Sheet from './Sheet';
 import { useCardRecords } from './useCardRecords';
 
@@ -41,20 +41,6 @@ interface Props {
   /** Back to the sheet this one took the place of; left out, Back closes. */
   onBack?: () => void;
   onClose: () => void;
-}
-
-/** A cost as the card prints it: the generic amount, then one symbol a pip. */
-function CostSymbols({ cost }: { cost: PayCost }) {
-  return (
-    <>
-      {(cost.generic > 0 || cost.pips.length === 0) && (
-        <ManaSymbol symbol={String(cost.generic)} label={`${cost.generic} of any color`} />
-      )}
-      {cost.pips.map((pip, i) => (
-        <ManaSymbol key={i} symbol={pip.join('')} label={pip.map((c) => COLOR_NAMES[c]).join(' or ')} />
-      ))}
-    </>
-  );
 }
 
 /** What one of them taps for: "G", "G or U", two colorless for a Sol Ring. */
