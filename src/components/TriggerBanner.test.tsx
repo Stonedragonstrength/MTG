@@ -782,3 +782,29 @@ test('rebound left alone: the card stays in exile and comes up no more', async (
   expect(shown().filter((t) => t.effect === 'rebound')).toEqual([]);
   expect(mine().cards!.exile.map((c) => c.iid)).toEqual(['h1']);
 });
+
+// ---- discover ----
+
+Object.assign(RECORDS, {
+  carnosaur: rec('carnosaur', 'Trumpeting Carnosaur', 'Creature — Dinosaur', 'Trample\nWhen this creature enters, discover 5. (Exile cards from the top of your library until you exile a nonland card with mana value 5 or less. Cast it without paying its mana cost or put it into your hand. Put the rest on the bottom in a random order.)', { manaCost: '{4}{R}{R}', power: '7', toughness: '6' }),
+});
+
+test('"When this creature enters, discover 5": a button on the banner opens the discover; casting from it marks it done', async () => {
+  start([], [card('h1', 'carnosaur')]);
+  setLibrary([card('l1', 'forest'), card('l2', 'bolt'), card('l3', 'bear')]);
+  await act(() => useAppStore.getState().playCard(0, 'h1'));
+  await waitFor(() => expect(shown().at(-1)?.acts.map((a) => [a.label, a.done])).toEqual([['Discover 5…', false]]));
+  expect(libraryIids()).toEqual(['l1', 'l2', 'l3']); // nothing happens by itself: it asks
+
+  render(<TriggerBanner />);
+  await act(() => new Promise((r) => setTimeout(r, 400)));
+  await userEvent.click(screen.getByRole('button', { name: 'Discover 5…' }));
+  expect(await screen.findByRole('heading', { name: 'Discover 5 · Trumpeting Carnosaur' })).toBeInTheDocument();
+  await screen.findByRole('button', { name: 'Cast Lightning Bolt' });
+  await act(() => new Promise((r) => setTimeout(r, 400)));
+  await userEvent.click(screen.getByRole('button', { name: 'Cast Lightning Bolt' }));
+  expect(mine().cards!.graveyard.map((c) => c.iid)).toEqual(['l2']);
+  expect(libraryIids()).toEqual(['l3', 'l1']);
+  expect(lastFeed()).toBe('Nathan: Trumpeting Carnosaur — discover 5: casts Lightning Bolt (Forest to the bottom)');
+  expect(screen.getByRole('button', { name: '✓ Discover 5' })).toBeDisabled();
+});

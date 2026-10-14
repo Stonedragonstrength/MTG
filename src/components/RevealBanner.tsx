@@ -4,6 +4,7 @@ import { bestToken } from '../lib/deckTokens';
 import { modesToChoose, spellPrompts, type SpellPrompt, type SpellTarget } from '../lib/spellEffects';
 import type { CardRecord, Reveal } from '../lib/types';
 import { useAppStore } from '../state/store';
+import DiscoverSheet from './DiscoverSheet';
 import LibrarySearchSheet from './LibrarySearchSheet';
 import { shieldBoard } from './Sheet';
 import { carryOutPrompt } from './spellActs';
@@ -155,6 +156,8 @@ function RevealPanel({ reveal, who, onDone }: PanelProps) {
   const [aiming, setAiming] = useState<{ id: string; prompt: SpellPrompt } | null>(null);
   // The spell sends its caster through their library: that list is open.
   const [searching, setSearching] = useState<{ id: string; prompt: SpellPrompt } | null>(null);
+  // …or turns cards over for a discover: that sheet is open.
+  const [discovering, setDiscovering] = useState<{ id: string; prompt: SpellPrompt } | null>(null);
 
   // The tap that puts it away is often the first half of a double tap, and a
   // finger may be on its way when it times out: either way the board it was
@@ -231,6 +234,7 @@ function RevealPanel({ reveal, who, onDone }: PanelProps) {
     e.stopPropagation(); // the banner's own tap puts it away: a button's must not
     if (performance.now() - up.current.since < SETTLE_MS) return; // aimed at the board it now covers
     if (prompt.kind === 'search') setSearching({ id: reveal.id, prompt });
+    else if (prompt.kind === 'discover') setDiscovering({ id: reveal.id, prompt });
     else if (prompt.pick) setAiming({ id: reveal.id, prompt });
     else carryOut(prompt);
   };
@@ -319,6 +323,18 @@ function RevealPanel({ reveal, who, onDone }: PanelProps) {
             // Carried out, its button is done; closed unsearched, it still waits.
             if (searched) setUsed({ id: reveal.id, keys: [...usedKeys, searching.prompt.key] });
             setSearching(null);
+          }}
+        />
+      )}
+      {discovering && discovering.id === reveal.id && discovering.prompt.kind === 'discover' && (
+        <DiscoverSheet
+          playerIdx={reveal.seat}
+          n={discovering.prompt.n}
+          source={reveal.cards[0].name}
+          onClose={(did) => {
+            // Answered, its button is done; closed unanswered, it still waits.
+            if (did) setUsed({ id: reveal.id, keys: [...usedKeys, discovering.prompt.key] });
+            setDiscovering(null);
           }}
         />
       )}

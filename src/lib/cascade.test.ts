@@ -6,6 +6,7 @@ import {
   castsWithRebound,
   givesRebound,
   planCascade,
+  planDiscover,
   reboundTurn,
   spellManaValue,
 } from './cascade';
@@ -197,4 +198,21 @@ test('a card cast with rebound is marked in exile; the mark goes as the card mov
   expect(zones(marked).exile).toEqual([{ iid: 'x1', cardId: 'bolt', name: 'Lightning Bolt', rebound: { turn: 3, active: 1 } }]);
   expect(markRebound(g, 0, 'nope', { turn: 3, active: 1 })).toBe(g);
   expect(zones(moveCard(marked, 0, 'x1', 'exile', 'graveyard')).graveyard).toEqual([{ iid: 'x1', cardId: 'bolt', name: 'Lightning Bolt' }]);
+});
+
+// ---- discover ----
+
+test('discover N stops at a nonland card with mana value N or less — N itself included', async () => {
+  const library = [card('l1', 'forest'), card('l2', 'giant'), card('l3', 'bolt')];
+  expect((await planDiscover(library, 4, read))?.found).toMatchObject({ iid: 'l2', spell: false });
+  expect((await planDiscover(library, 3, read))?.found).toMatchObject({ iid: 'l3', spell: true });
+  expect((await planDiscover(library, 0, read))?.found).toBeNull();
+});
+
+test('the card discovered may go to its owner’s hand instead; the rest go under the library all the same', () => {
+  const g = table([card('l1', 'forest'), card('l2', 'bolt'), card('l3', 'giant')]);
+  const taken = cascade(g, 0, ['l1', 'l2'], { iid: 'l2', to: 'hand' }, 3);
+  expect(zones(taken).hand).toEqual([{ iid: 'l2', cardId: 'bolt', name: 'Lightning Bolt' }]);
+  expect(zones(taken).library.map((c) => c.iid)).toEqual(['l3', 'l1']);
+  expect(zones(taken).graveyard).toEqual([]);
 });

@@ -57,6 +57,10 @@ export type SpellPrompt = {
   | { kind: 'pump'; power: number; toughness: number; keywords: string[]; team: boolean; other: boolean }
   // "Search your library for…": a list of its own, carried out by its player.
   | { kind: 'search'; ask: SearchAsk }
+  // "Discover 4": a sheet of its own (components/DiscoverSheet.tsx), which
+  // turns the cards over and asks: cast the one it finds, or take it. `n`
+  // null: "discover X, where X is…" — its player says how much X is.
+  | { kind: 'discover'; n: number | null }
 );
 
 /** No more buttons than this under one spell. */
@@ -110,6 +114,10 @@ const REMOVE = new RegExp(`\\b(destroy|exile) (?:up to one )?(?:another )?target
 const BOUNCE = new RegExp(`\\breturn (?:up to one )?(?:another )?target ${THING} to (?:its|their) owner['’]s hand\\b`, 'gi');
 const SWEEP = /\b(destroy|exile) all creatures(?=\s*(?:,|$))/gi;
 const COUNTERS = new RegExp(`\\bput ${N} \\+1\\/\\+1 counters? on target creature\\b`, 'gi');
+// "Discover 4", "…, discover 3": the caster's ("that player discovers X" is not).
+const DISCOVER = new RegExp(`\\bdiscover ${N}\\b`, 'gi');
+// "Discover X, where X is that spell's mana value": X is the players' to work out.
+const DISCOVER_X = /\bdiscover X, where X is\b/gi;
 // "Target creature gets +3/+3 until end of turn", "…gets +2/+0 and gains
 // first strike until end of turn", "Target creature gains indestructible
 // until end of turn"; and for the team, "Creatures you control get +3/+3
@@ -201,12 +209,17 @@ export function spellPrompts(record: Read, opts?: { x?: number }): SpellPrompt[]
 
   for (const s of text.matchAll(/[^.\n]+/g)) {
     const sentence = s[0];
-    if (WORKED_OUT.test(sentence)) continue;
     const add = (m: RegExpMatchArray, prompt: SpellPrompt) => {
       const at = (s.index ?? 0) + (m.index ?? 0);
       const mode = options.findIndex((o) => at >= o.from && at < o.to);
       found.push({ at, prompt: mode < 0 ? prompt : { ...prompt, mode } });
     };
+    if (WORKED_OUT.test(sentence)) {
+      // Its sheet asks how much X is: the one number worked out that is asked for.
+      for (const m of sentence.matchAll(DISCOVER_X))
+        add(m, { key: 'discover:X', label: 'Discover X…', pick: null, kind: 'discover', n: null });
+      continue;
+    }
 
     for (const m of sentence.matchAll(DAMAGE)) {
       const n = num(m[1]);
@@ -353,6 +366,10 @@ export function spellPrompts(record: Read, opts?: { x?: number }): SpellPrompt[]
           kind: 'counters',
           n,
         });
+    }
+    for (const m of sentence.matchAll(DISCOVER)) {
+      const n = num(m[1]);
+      if (n !== null) add(m, { key: `discover:${n}`, label: `Discover ${n}…`, pick: null, kind: 'discover', n });
     }
   }
 

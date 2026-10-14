@@ -5,8 +5,9 @@ import { castCosts, hasX } from './pay';
 import { isLandCard } from './turnRules';
 import type { CardInstance, CardRecord } from './types';
 
-/** Cascade and rebound: what a spell sets off as it is cast, and what one
- * cast from its owner's hand does as it resolves.
+/** Cascade, discover and rebound: what a spell sets off as it is cast, a
+ * card's "discover N", and what a spell cast from its owner's hand does as
+ * it resolves.
  *
  * Cascade: "When you cast this spell, exile cards from the top of your
  * library until you exile a nonland card whose mana value is less than this
@@ -15,6 +16,10 @@ import type { CardInstance, CardRecord } from './types';
  * the library to find that card before anything moves, and the player's
  * answer — cast it or not — carries the whole cascade out in one move
  * (store.cascade).
+ *
+ * Discover N turns cards over the same way, until a nonland card with mana
+ * value N or less, which its player casts without paying for it or puts
+ * into their hand (components/DiscoverSheet.tsx, store.discover).
  *
  * Rebound: "If you cast this spell from your hand, exile it as it resolves.
  * At the beginning of your next upkeep, you may cast this card from exile
@@ -89,6 +94,14 @@ export async function planCascade(
   }
   return { exiled, found: null };
 }
+
+/** Discover N, from the top of this library: as a cascade, down to a nonland
+ * card with mana value N or less. */
+export const planDiscover = (
+  library: CardInstance[],
+  n: number,
+  read: (card: CardInstance) => Promise<CardRecord | null | undefined>,
+): Promise<CascadePlan | null> => planCascade(library, n + 1, read);
 
 /** The front face's rules text, one ability a line, without reminder text. */
 const linesOf = (record: Pick<CardRecord, 'oracleText'>): string[] =>

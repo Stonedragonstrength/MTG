@@ -313,17 +313,17 @@ export function markRebound(g: GameState, seat: number, iid: string, at: { turn:
   });
 }
 
-/** Cascade, carried out (lib/cascade.ts): `exiled` are the cards it exiled
- * from the top of the library, in order, and they must still be the top,
- * in that order — a draw or a shuffle in between calls it off. The card it
- * cast (`cast`) leaves for the battlefield, or for the graveyard (an
- * instant or sorcery); the rest go to the bottom in a random order that
- * depends only on the seed. */
+/** Cascade (and discover), carried out (lib/cascade.ts): `exiled` are the
+ * cards it exiled from the top of the library, in order, and they must
+ * still be the top, in that order — a draw or a shuffle in between calls it
+ * off. The card it found (`cast`) leaves for the battlefield, or the
+ * graveyard (an instant or sorcery cast), or its owner's hand; the rest go
+ * to the bottom in a random order that depends only on the seed. */
 export function cascade(
   g: GameState,
   seat: number,
   exiled: string[],
-  cast: { iid: string; to: 'battlefield' | 'graveyard' } | null,
+  cast: { iid: string; to: 'battlefield' | 'graveyard' | 'hand' } | null,
   seed: number,
 ): GameState {
   return updateSeat(g, seat, (cards) => {
@@ -334,6 +334,7 @@ export function cascade(
     const bottom = shuffled(top.filter((c) => c !== going).map(stripped), seed);
     const next = { ...cards, library: [...cards.library.slice(exiled.length), ...bottom] };
     if (!cast || !going) return next;
+    if (cast.to === 'hand') return { ...next, hand: [...next.hand, stripped(going)] };
     return cast.to === 'battlefield'
       ? { ...next, battlefield: [...next.battlefield, { ...stripped(going), row: 'front' as const, sick: true as const }] }
       : { ...next, graveyard: [...next.graveyard, stripped(going)] };

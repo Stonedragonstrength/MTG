@@ -930,3 +930,70 @@ button.primary {
 
 /* Every copy of it is taken. */
 .find-card--gone { opacity: 0.3; }
+
+/* ---- discover (DiscoverSheet) ----
+   The cards a discover turned over: the one it found big, the others small
+   beside it, on their way to the bottom. */
+.discover-hint { margin: 0 0 10px; }
+
+.discover-cards {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.discover-found {
+  margin: 0;
+  width: min(220px, 58vw);
+  flex: 0 0 auto;
+}
+
+.discover-found img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 63 / 88;
+  object-fit: cover;
+  border-radius: 10px;
+}
+
+.discover-found figcaption {
+  margin-top: 6px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.discover-rest {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.discover-label {
+  margin: 0 0 6px;
+  font-size: 0.8rem;
+  opacity: 0.75;
+}
+
+.discover-misses {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
+  gap: 6px;
+}
+
+.discover-misses .find-card { opacity: 0.6; }
+
+/* "Discover X": how much X is, one tap. */
+.discover-xs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(54px, 1fr));
+  gap: 8px;
+}
+
+.discover-xs .chip {
+  min-height: 48px;
+  font-size: 1.1rem;
+  font-weight: 700;
+}

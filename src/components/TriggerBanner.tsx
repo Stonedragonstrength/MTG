@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
+import DiscoverSheet from './DiscoverSheet';
 import LibrarySearchSheet from './LibrarySearchSheet';
 import { shieldBoard } from './Sheet';
 import SpellTargetSheet from './SpellTargetSheet';
@@ -16,6 +17,7 @@ function TriggerPanel({ shown }: { shown: ShownTrigger[] }) {
   // The act a list is open for: its target, or a library search.
   const [aiming, setAiming] = useState<{ key: string; actKey: string } | null>(null);
   const [searching, setSearching] = useState<{ key: string; actKey: string } | null>(null);
+  const [discovering, setDiscovering] = useState<{ key: string; actKey: string } | null>(null);
 
   // A finger may be on its way when it goes: the board it covered sits out
   // the next moment, as it does behind a closing sheet.
@@ -57,6 +59,7 @@ function TriggerPanel({ shown }: { shown: ShownTrigger[] }) {
     e.stopPropagation(); // the banner's own tap puts it away: a button's must not
     if (!settled()) return;
     if (act.kind === 'prompt' && act.prompt.kind === 'search') setSearching({ key: t.key, actKey: act.key });
+    else if (act.kind === 'prompt' && act.prompt.kind === 'discover') setDiscovering({ key: t.key, actKey: act.key });
     else if (act.kind === 'prompt' && act.prompt.pick) setAiming({ key: t.key, actKey: act.key });
     else useTriggers.getState().carryOut(t.key, act.key);
   };
@@ -69,6 +72,7 @@ function TriggerPanel({ shown }: { shown: ShownTrigger[] }) {
   };
   const aimed = opened(aiming);
   const searched = opened(searching);
+  const discovered = opened(discovering);
 
   return (
     <>
@@ -135,6 +139,18 @@ function TriggerPanel({ shown }: { shown: ShownTrigger[] }) {
             // Carried out, its button is done; closed unsearched, it still waits.
             if (did) useTriggers.getState().markDone(searched.trigger.key, searched.act.key);
             setSearching(null);
+          }}
+        />
+      )}
+      {discovered && discovered.prompt.kind === 'discover' && (
+        <DiscoverSheet
+          playerIdx={discovered.trigger.seat}
+          n={discovered.prompt.n}
+          source={discovered.trigger.source.name}
+          onClose={(did) => {
+            // Answered, its button is done; closed unanswered, it still waits.
+            if (did) useTriggers.getState().markDone(discovered.trigger.key, discovered.act.key);
+            setDiscovering(null);
           }}
         />
       )}

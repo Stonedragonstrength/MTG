@@ -612,3 +612,24 @@ describe('until end of turn', () => {
     expect(gone.players[0].cards!.hand.find((c) => c.iid === 'bear')).not.toHaveProperty('boost');
   });
 });
+
+describe('discover', () => {
+  test('"Discover 4" is a button that opens its sheet; "discover X, where X is…" asks for X', () => {
+    expect(spellPrompts(spell('Up to three target creatures can’t block this turn.\nDiscover 4.', 'Sorcery'))).toEqual([
+      { key: 'discover:4', label: 'Discover 4…', pick: null, kind: 'discover', n: 4 },
+    ]);
+    expect(labels('Return up to one target permanent card from your graveyard to your hand. Discover 4.')).toEqual(['Discover 4…']);
+    expect(spellPrompts(spell("Counter target artifact or creature spell. Discover X, where X is that spell's mana value."))).toEqual([
+      { key: 'discover:X', label: 'Discover X…', pick: null, kind: 'discover', n: null },
+    ]);
+    // Another player's discover is theirs to carry out.
+    expect(labels('Then that player discovers X, where X is its mana value.')).toEqual([]);
+    // The reminder text says "exile cards…", and is no effect of its own.
+    expect(labels('Discover 3. (Exile cards from the top of your library until you exile a nonland card with mana value 3 or less.)')).toEqual(['Discover 3…']);
+  });
+
+  test('a discover is not a table effect: nothing to apply without its sheet', () => {
+    const [prompt] = spellPrompts(spell('Discover 4.', 'Sorcery'));
+    expect(effectOf(prompt, 0)).toBeNull();
+  });
+});

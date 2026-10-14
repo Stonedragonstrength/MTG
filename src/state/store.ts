@@ -148,6 +148,11 @@ export interface AppStore {
    * false). Nothing happens unless they are still the top of the library,
    * in that order. `why`: the spell that cascaded, for the feed. */
   cascade(seat: number, plan: CascadePlan, cast: boolean, why: string): void;
+  /** Discover `n`, carried out in one move (lib/cascade.ts planDiscover): the
+   * card found is cast without paying its mana cost or put into its owner's
+   * hand (`take`); the rest go to the bottom in a random order. `why`: the
+   * card that discovers, for the feed. */
+  discover(seat: number, plan: CascadePlan, take: 'cast' | 'hand', n: number, why: string): void;
   /** A card in exile is cast without paying its mana cost (rebound): to the
    * graveyard if it is an instant or sorcery, else onto the battlefield.
    * `why`: what lets it, for the feed. */
@@ -560,6 +565,55 @@ export function createAppStore() {
     // this device already knew that library by, and a draw carries them all.
     const ownLooks = new Map<string | undefined, (string | undefined)[]>();
     const knownMarks = (stacked: string | undefined) => ownLooks.get(stacked) ?? [stacked];
+
+    /** Cards turned over from the top of a library by a cascade or a
+     * discover (lib/cascade.ts), carried out in one move: the card found is
+     * cast without paying its mana cost (`to` 'cast'), put into its owner's
+     * hand, or sent to the bottom with the rest, which go there in a random
+     * order. Nothing happens unless they are still the top of the library,
+     * in that order. */
+    const turnOver = (seat: number, plan: CascadePlan, to: 'cast' | 'hand' | 'bottom', text: string) => {
+      if (plan.exiled.length === 0 || !get().game?.players[seat]?.cards) return;
+      const exiled = plan.exiled.map((c) => c.iid);
+      const found = plan.found;
+      const going = to === 'cast' ? found : null;
+      const seed = Math.floor(Math.random() * 2 ** 31);
+      // An instant or sorcery it casts is shown to the table as any cast is
+      // (see playCard), for an X of 0: it was not paid for.
+      const shown: Reveal | null = going?.spell
+        ? {
+            id: `r${cardsLib.newIid()}`,
+            seat,
+            from: 'cast',
+            cards: [{ cardId: going.cardId, name: going.name }],
+            t: Date.now(),
+            ...(going.x ? { x: 0 } : {}),
+          }
+        : null;
+      const leaving =
+        found && to !== 'bottom'
+          ? { iid: found.iid, to: to === 'hand' ? ('hand' as const) : found.spell ? ('graveyard' as const) : ('battlefield' as const) }
+          : null;
+      cardMutate(
+        (base) => {
+          let next = cardsLib.cascade(base, seat, exiled, leaving, seed);
+          if (next === base) return base;
+          if (shown) next = cardsLib.setReveal(next, shown);
+          if (going && !going.spell) next = cardsLib.addCardCounters(next, seat, going.iid, going.brings);
+          return next;
+        },
+        text,
+        (base) => {
+          const top = base.players[seat]?.cards?.library.slice(0, exiled.length);
+          return !!top && top.length === exiled.length && top.every((c, i) => c.iid === exiled[i]);
+        },
+        undefined,
+        // The card it casts is a spell cast: what waits for one is set off by it.
+        going
+          ? [{ kind: 'cast', seat, spell: { seat, kind: 'card', id: going.iid, cardId: going.cardId, name: going.name, n: 1 }, from: 'library', ...(going.x ? { x: 0 } : {}) }]
+          : [],
+      );
+    };
 
     return {
       setupDone: false,
@@ -1118,49 +1172,37 @@ export function createAppStore() {
 
       cascade(seat, plan, cast, why) {
         const g = get().game;
-        if (!g?.players[seat]?.cards || plan.exiled.length === 0) return;
-        const exiled = plan.exiled.map((c) => c.iid);
-        const found = plan.found;
-        const going = cast ? found : null;
-        const seed = Math.floor(Math.random() * 2 ** 31);
-        const names = (cards: { name: string }[]) => cards.map((c) => c.name).join(', ');
-        const rest = plan.exiled.filter((c) => c.iid !== going?.iid);
-        const text = !found
-          ? `${seatName(g, seat)}: ${why} cascades and finds nothing to cast — the library is shuffled`
-          : going
-            ? `${seatName(g, seat)}: ${why} cascades into ${found.name}${rest.length > 0 ? ` (${names(rest)} to the bottom)` : ''}`
-            : `${seatName(g, seat)}: ${why} cascades into ${found.name}, not cast (${names(rest)} to the bottom)`;
-        // An instant or sorcery it casts is shown to the table as any cast is
-        // (see playCard), for an X of 0: it was not paid for.
-        const shown: Reveal | null = going?.spell
-          ? {
-              id: `r${cardsLib.newIid()}`,
-              seat,
-              from: 'cast',
-              cards: [{ cardId: going.cardId, name: going.name }],
-              t: Date.now(),
-              ...(going.x ? { x: 0 } : {}),
-            }
-          : null;
-        const onTop = (base: GameState) => {
-          const top = base.players[seat]?.cards?.library.slice(0, exiled.length);
-          return !!top && top.length === exiled.length && top.every((c, i) => c.iid === exiled[i]);
-        };
-        cardMutate(
-          (base) => {
-            let next = cardsLib.cascade(base, seat, exiled, going ? { iid: going.iid, to: going.spell ? 'graveyard' : 'battlefield' } : null, seed);
-            if (next === base) return base;
-            if (shown) next = cardsLib.setReveal(next, shown);
-            if (going && !going.spell) next = cardsLib.addCardCounters(next, seat, going.iid, going.brings);
-            return next;
-          },
-          text,
-          onTop,
-          undefined,
-          // The card it casts is a spell cast: what waits for one is set off by it.
-          going
-            ? [{ kind: 'cast', seat, spell: { seat, kind: 'card', id: going.iid, cardId: going.cardId, name: going.name, n: 1 }, from: 'library', ...(going.x ? { x: 0 } : {}) }]
-            : [],
+        if (!g) return;
+        const { found } = plan;
+        const rest = plan.exiled.filter((c) => !(cast && c.iid === found?.iid));
+        const names = rest.map((c) => c.name).join(', ');
+        turnOver(
+          seat,
+          plan,
+          cast ? 'cast' : 'bottom',
+          !found
+            ? `${seatName(g, seat)}: ${why} cascades and finds nothing to cast — the library is shuffled`
+            : cast
+              ? `${seatName(g, seat)}: ${why} cascades into ${found.name}${rest.length > 0 ? ` (${names} to the bottom)` : ''}`
+              : `${seatName(g, seat)}: ${why} cascades into ${found.name}, not cast (${names} to the bottom)`,
+        );
+      },
+
+      discover(seat, plan, take, n, why) {
+        const g = get().game;
+        if (!g) return;
+        const { found } = plan;
+        const rest = plan.exiled.filter((c) => c.iid !== found?.iid);
+        const bottom = rest.length > 0 ? ` (${rest.map((c) => c.name).join(', ')} to the bottom)` : '';
+        turnOver(
+          seat,
+          plan,
+          found ? take : 'bottom',
+          !found
+            ? `${seatName(g, seat)}: ${why} — discover ${n} finds nothing (the library is shuffled)`
+            : take === 'cast'
+              ? `${seatName(g, seat)}: ${why} — discover ${n}: casts ${found.name}${bottom}`
+              : `${seatName(g, seat)}: ${why} — discover ${n}: ${found.name} into their hand${bottom}`,
         );
       },
 

@@ -500,3 +500,28 @@ test('closing the list unsearched leaves the button to press again', async () =>
   expect(game().players[0].cards!.library).toHaveLength(3);
   expect(screen.getByRole('button', { name: 'Search library…' })).toBeEnabled();
 });
+
+test('a spell that discovers opens its sheet: the card it finds is cast free, and comes up as a cast of its own', async () => {
+  RECORDS['c-discovery'] = rec('c-discovery', 'Daring Discovery', 'Sorcery', 'Up to three target creatures can’t block this turn.\nDiscover 4.');
+  casts('c-discovery');
+  act(() => {
+    const g = game();
+    const library = [card('l1', 'c-forest'), card('l2', 'c-bolt'), card('l3', 'c-forest')];
+    useAppStore.setState({ game: { ...g, players: g.players.map((p, i) => (i === 0 ? { ...p, cards: { ...p.cards!, library } } : p)) } });
+  });
+  await settle();
+  expect(labels()).toEqual(['Discover 4…']);
+  pass(400);
+  fireEvent.click(screen.getByRole('button', { name: 'Discover 4…' }));
+  await settle();
+  expect(screen.getByRole('heading', { name: 'Discover 4 · Daring Discovery' })).toBeInTheDocument();
+  tap(screen.getByRole('button', { name: 'Cast Lightning Bolt' }));
+  const mine = game().players[0].cards!;
+  expect(mine.graveyard.map((c) => c.iid)).toEqual(['l2']);
+  expect(mine.library.map((c) => c.iid)).toEqual(['l3', 'l1']);
+  expect(feed()).toContain('Nathan: Daring Discovery — discover 4: casts Lightning Bolt (Forest to the bottom)');
+  // Lightning Bolt is a cast of its own now, with its own button.
+  await settle();
+  expect(game().reveal).toMatchObject({ from: 'cast', cards: [{ name: 'Lightning Bolt' }] });
+  expect(labels()).toEqual(['Deal 3 damage…']);
+});

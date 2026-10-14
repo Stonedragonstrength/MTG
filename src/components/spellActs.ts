@@ -17,8 +17,8 @@ export async function findTokenCard(want: TokenWant): Promise<CardRecord | undef
 
 /** Does one effect for `seat`, in the name of the card `source` (with its
  * target, where it asked for one). False when there was nothing to do: no
- * token card for it, or a target that does not go with it. A search is not
- * done here — it is a list of its own. */
+ * token card for it, or a target that does not go with it. A search or a
+ * discover is not done here — each is a sheet of its own. */
 export function carryOutPrompt(
   seat: number,
   source: string,
@@ -30,7 +30,7 @@ export function carryOutPrompt(
   from?: { sourceIid?: string; holds?: boolean },
 ): boolean {
   const store = useAppStore.getState();
-  if (prompt.kind === 'search') return false;
+  if (prompt.kind === 'search' || prompt.kind === 'discover') return false;
   if (prompt.kind === 'draw') {
     // A card's draw, not the draw step's: an upkeep trigger that draws must
     // not leave the turn's own draw looking done.
