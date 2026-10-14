@@ -42,6 +42,9 @@ export interface CombatOutcome {
   }[];
   /** −1/−1 counters ADDED to cards that live (damage from infect and wither). */
   shrunk?: { seat: number; unit: CombatUnit; n: number }[];
+  /** Damage dealt to attacked planeswalkers: that much loyalty comes off
+   * (`iid` on `seat`'s battlefield); one left with none goes to the graveyard. */
+  walkers?: { seat: number; iid: string; n: number }[];
 }
 
 /** Captured when the Attack button is pressed: a replay has to start the
@@ -156,13 +159,17 @@ export function startCombat(g: GameState, stamp: CombatStamp): GameState {
  * some copies at one player and some at another; together never more
  * than it holds). The unit must be on the attacker's side of the table
  * and the target another, living seat. Whether it is a creature, tapped
- * or summoning sick is the screen's question: "attack anyway" must work. */
+ * or summoning sick is the screen's question: "attack anyway" must work.
+ * `walker`: a planeswalker on the target's battlefield it attacks instead
+ * of the player — a stack's copies at one player all go the same way, so
+ * pointing some of them at a planeswalker points them all there. */
 export function setAttack(
   g: GameState,
   id: string,
   unit: CombatUnit,
   target: number,
   n: number,
+  walker?: string,
 ): GameState {
   const c = fightAt(g, id, 'attackers');
   if (!c || !isUnit(unit) || !Number.isFinite(n)) return g;
@@ -172,6 +179,7 @@ export function setAttack(
   if (want > 0) {
     if (!Number.isInteger(target) || target === c.active) return g;
     if (g.players[target]?.eliminated !== false) return g;
+    if (walker !== undefined && !g.players[target].cards?.battlefield.some((card) => card.iid === walker)) return g;
     const there = held(g, c.active, unit);
     if (there === 0) return g;
     const elsewhere = sum(attacks.filter((a) => ofUnit(a) && a.target !== target).map(copiesOf));
@@ -179,9 +187,9 @@ export function setAttack(
   }
   const at = attacks.findIndex((a) => ofUnit(a) && (unit.kind === 'card' || a.target === target));
   if (want <= 0) return at === -1 ? g : withAttacks(g, c, attacks.filter((_, i) => i !== at));
-  const entry: CombatAttack = { unit: plain(unit), ...(want > 1 ? { n: want } : {}), target };
+  const entry: CombatAttack = { unit: plain(unit), ...(want > 1 ? { n: want } : {}), target, ...(walker !== undefined ? { walker } : {}) };
   if (at === -1) return withAttacks(g, c, [...attacks, entry]);
-  if (attacks[at].target === target && copiesOf(attacks[at]) === want) return g;
+  if (attacks[at].target === target && attacks[at].walker === walker && copiesOf(attacks[at]) === want) return g;
   return withAttacks(g, c, attacks.map((a, i) => (i === at ? entry : a)));
 }
 
@@ -397,6 +405,15 @@ export function applyCombat(g: GameState, id: string, outcome: CombatOutcome): G
     if (!s || !Number.isInteger(s.seat) || !isUnit(s.unit) || s.unit.kind !== 'card' || !(s.n > 0)) continue;
     next = cardsLib.addCardCounters(next, s.seat, s.unit.id, { m1m1: Math.floor(s.n) });
   }
+  // Damage to a planeswalker takes its loyalty off; with none left it goes.
+  // One whose loyalty is not kept on the table is left to its player.
+  for (const w of listOf(outcome?.walkers)) {
+    if (!w || !Number.isInteger(w.seat) || typeof w.iid !== 'string' || !(w.n > 0)) continue;
+    const loyalty = next.players[w.seat]?.cards?.battlefield.find((card) => card.iid === w.iid)?.counters?.loyalty;
+    if (loyalty === undefined) continue;
+    const left = loyalty - Math.floor(w.n);
+    next = left > 0 ? cardsLib.setCardCounter(next, w.seat, w.iid, 'loyalty', left) : cardsLib.moveCard(next, w.seat, w.iid, 'battlefield', 'graveyard');
+  }
   for (const d of listOf(outcome?.deaths)) {
     if (!d || !Number.isInteger(d.seat) || !isUnit(d.unit)) continue;
     if (d.unit.kind === 'card') {
@@ -444,7 +461,7 @@ export function sameStep(base: GameState, orig: GameState): boolean {
 }
 
 const unitKey = (u: CombatUnit) => `${u.kind}:${u.id}`;
-const attackKey = (a: CombatAttack) => `${unitKey(a.unit)}>${a.target}x${copiesOf(a)}`;
+const attackKey = (a: CombatAttack) => `${unitKey(a.unit)}>${a.target}${a.walker ? `/${a.walker}` : ''}x${copiesOf(a)}`;
 
 /** sameStep, and the same declaration: the same units at the same players
  * in the same numbers (the order they were picked in does not matter). */
@@ -488,16 +505,19 @@ const inWords = (parts: string[]) =>
   parts.length <= 1 ? parts.join('') : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
 
 /** "Nathan attacks Sam with 3 creatures"; with several players attacked,
- * "Nathan attacks Sam (3) and Alex (2)". */
+ * "Nathan attacks Sam (3) and Alex (2)"; a planeswalker is "Sam’s Jace". */
 export function attackLine(g: GameState, c: CombatState): string {
-  const perTarget = new Map<number, number>();
-  for (const a of attacksOf(c)) perTarget.set(a.target, (perTarget.get(a.target) ?? 0) + copiesOf(a));
-  const targets = [...perTarget];
-  const who = seatName(g, c.active);
-  if (targets.length === 1) {
-    return `${who} attacks ${seatName(g, targets[0][0])} with ${plural(targets[0][1], 'creature')}`;
+  const perTarget = new Map<string, { name: string; n: number }>();
+  for (const a of attacksOf(c)) {
+    const key = `${a.target}/${a.walker ?? ''}`;
+    const walker = a.walker ? (g.players[a.target]?.cards?.battlefield.find((card) => card.iid === a.walker)?.name ?? 'a planeswalker') : null;
+    const name = walker ? `${seatName(g, a.target)}’s ${walker}` : seatName(g, a.target);
+    perTarget.set(key, { name, n: (perTarget.get(key)?.n ?? 0) + copiesOf(a) });
   }
-  return `${who} attacks ${inWords(targets.map(([seat, n]) => `${seatName(g, seat)} (${n})`))}`;
+  const targets = [...perTarget.values()];
+  const who = seatName(g, c.active);
+  if (targets.length === 1) return `${who} attacks ${targets[0].name} with ${plural(targets[0].n, 'creature')}`;
+  return `${who} attacks ${inWords(targets.map((t) => `${t.name} (${t.n})`))}`;
 }
 
 /** How many of the attackers coming at that seat something stands in the
@@ -564,6 +584,20 @@ export function outcomeLine(g: GameState, outcome: CombatOutcome): string {
     if (!s || !Number.isInteger(s.seat) || !isUnit(s.unit) || !(s.n > 0)) continue;
     const name = g.players[s.seat]?.cards?.battlefield.find((c) => c.iid === s.unit.id)?.name ?? 'a creature';
     parts.push(`${name} gets ${plural(Math.floor(s.n), '-1/-1 counter')}`);
+  }
+  for (const w of listOf(outcome?.walkers)) {
+    if (!w || !Number.isInteger(w.seat) || !(w.n > 0)) continue;
+    const card = g.players[w.seat]?.cards?.battlefield.find((c) => c.iid === w.iid);
+    if (!card) continue;
+    const loyalty = card.counters?.loyalty;
+    const n = Math.floor(w.n);
+    parts.push(
+      loyalty === undefined
+        ? `${card.name} is dealt ${n}`
+        : loyalty - n > 0
+          ? `${card.name} loses ${n} loyalty`
+          : `${card.name} goes to the graveyard`,
+    );
   }
   return `Combat: ${parts.length > 0 ? parts.join(' · ') : 'no damage'}`;
 }

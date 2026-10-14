@@ -373,6 +373,18 @@ export interface AttackResult extends Fighter {
   blockers: Fighter[];
   /** Damage these attackers dealt to the defending player, infect included. */
   toPlayer: number;
+  /** The planeswalker it attacks instead of the player (its instance id), or null. */
+  walker: string | null;
+  /** Damage these attackers dealt to that planeswalker. */
+  toWalker: number;
+}
+
+/** What one attacked planeswalker was dealt: that much loyalty comes off. */
+export interface WalkerResult {
+  seat: number;
+  iid: string;
+  name: string;
+  damage: number;
 }
 
 /** What one attacked player was dealt, split by where it came from. */
@@ -392,8 +404,11 @@ export interface CombatResult {
   outcome: CombatOutcome;
   /** Every attack in the order declared, with its blockers. */
   attacks: AttackResult[];
-  /** One per attacked seat, in the order they were first attacked. */
+  /** One per attacked seat, in the order they were first attacked — the
+   * player, not their planeswalkers. */
   defenders: DefenderResult[];
+  /** One per attacked planeswalker still on the battlefield, in the order first attacked. */
+  walkers: WalkerResult[];
   /** Life gained from lifelink per seat, attackers' and blockers' alike. */
   gains: { seat: number; life: number }[];
   /** The fighters the app could not read: named, never killed. */
@@ -434,6 +449,8 @@ interface Body {
   dead: boolean;
   // attackers
   target: number;
+  /** The planeswalker it attacks, or null for the player. */
+  walker: string | null;
   blocked: boolean;
   paper: boolean;
   blockers: Body[];
@@ -484,6 +501,7 @@ function bodyOf(fighter: Fighter, read: UnitRead, side: Body['side'], attack: nu
     touched: false,
     dead: false,
     target: -1,
+    walker: null,
     blocked: false,
     paper: false,
     blockers: [],
@@ -495,6 +513,7 @@ const EMPTY = (): CombatResult => ({
   outcome: { players: [], deaths: [] },
   attacks: [],
   defenders: [],
+  walkers: [],
   gains: [],
   unread: [],
   check: [],
@@ -568,6 +587,8 @@ function resolve(game: GameState, combat: CombatState, records: CardRecords): Co
       paper: attack.blocked === true,
       blockers: rows,
       toPlayer: 0,
+      walker: typeof attack.walker === 'string' ? attack.walker : null,
+      toWalker: 0,
     };
     works.push({ attack, index, read, row, declared, n: read ? declared : 0, slots });
   });
@@ -646,6 +667,7 @@ function resolve(game: GameState, combat: CombatState, records: CardRecords): Co
     const attackerBody = (copies: number): Body => {
       const body = bodyOf(w.row, w.read!, 'attacker', w.index, copies);
       body.target = w.attack.target;
+      body.walker = w.row.walker;
       body.paper = w.row.paper;
       attackers.push(body);
       return body;
@@ -686,13 +708,31 @@ function resolve(game: GameState, combat: CombatState, records: CardRecords): Co
     if (!d) defenders.set(seat, (d = { seat, commanders: [], other: 0, poison: 0 }));
     return d;
   };
-  for (const w of works) defender(w.attack.target);
+  for (const w of works) if (w.row.walker === null) defender(w.attack.target);
+  // The planeswalkers attacked, while they are still there to be hit.
+  const walkers = new Map<string, WalkerResult>();
+  for (const w of works) {
+    if (w.row.walker === null) continue;
+    const card = game.players[w.attack.target]?.cards?.battlefield.find((c) => c.iid === w.row.walker);
+    const key = `${w.attack.target}:${w.row.walker}`;
+    if (card && !walkers.has(key)) walkers.set(key, { seat: w.attack.target, iid: card.iid, name: card.name, damage: 0 });
+  }
   const gains = new Map<number, number>();
   const gain = (body: Body, amount: number) => {
     if (body.lifelink && amount > 0) gains.set(body.fighter.seat, (gains.get(body.fighter.seat) ?? 0) + amount);
   };
   const hitPlayer = (body: Body, amount: number) => {
     if (amount <= 0) return;
+    // At a planeswalker: its loyalty takes it — no life, no commander
+    // damage, no poison. One that has left takes nothing, and nobody else does.
+    if (body.walker !== null) {
+      const walker = walkers.get(`${body.target}:${body.walker}`);
+      if (!walker) return;
+      walker.damage += amount;
+      works.find((w) => w.index === body.attack)!.row.toWalker += amount;
+      gain(body, amount);
+      return;
+    }
     const d = defender(body.target);
     works.find((w) => w.index === body.attack)!.row.toPlayer += amount;
     gain(body, amount);
@@ -826,6 +866,9 @@ function resolve(game: GameState, combat: CombatState, records: CardRecords): Co
 
   result.attacks = works.map((w) => w.row);
   result.defenders = [...defenders.values()];
+  result.walkers = [...walkers.values()];
+  const hurt = result.walkers.filter((w) => w.damage > 0);
+  if (hurt.length > 0) result.outcome.walkers = hurt.map((w) => ({ seat: w.seat, iid: w.iid, n: w.damage }));
   result.gains = [...gains].map(([seat, life]) => ({ seat, life }));
   const changed = [...result.defenders.map((d) => d.seat), ...result.gains.map((g) => g.seat)];
   for (const seat of [...new Set(changed)]) {

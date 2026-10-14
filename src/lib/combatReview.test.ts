@@ -7,6 +7,7 @@ import {
   nextDeath,
   nudgeDamage,
   nudgeGain,
+  nudgeWalker,
   reviewCombat,
   reviewId,
   setDeaths,
@@ -563,5 +564,31 @@ describe('what a press on the board changes', () => {
       'Sam −6 · Grizzly Bears dies',
       'Nathan: Grizzly Bears dies',
     ]);
+  });
+});
+
+describe('a planeswalker in the review', () => {
+  const JACE = rec('Jace Beleren', null, null, '+2: Each player draws a card.', 'Legendary Planeswalker — Jace');
+  const atJace = () =>
+    fight(
+      [{ cards: { giant: GIANT } }, { cards: { jace: JACE }, wear: { jace: { counters: { loyalty: 5 } } } }],
+      [{ unit: card('giant'), target: 1, walker: 'jace' }],
+    );
+
+  test('what it takes is shown with its loyalty, put right like any number, and carried by Apply', () => {
+    const f = atJace();
+    const review = reviewCombat(f.g, f.c, f.records);
+    expect(review.walkers).toEqual([{ id: reviewId(1, 'jace'), seat: 1, iid: 'jace', name: 'Jace Beleren', damage: 3, loyalty: 5 }]);
+    expect(review.defenders).toEqual([]);
+    expect(review.outcome).toEqual({ players: [], deaths: [], walkers: [{ seat: 1, iid: 'jace', n: 3 }] });
+    expect(lifeAfter(f.g, review, 1)).toBeNull(); // Sam's life is not in it
+    const more = nudgeWalker(review, NO_EDITS, reviewId(1, 'jace'), 2);
+    const after = reviewCombat(f.g, f.c, f.records, more);
+    expect(after.walkers[0].damage).toBe(5);
+    expect(reviewLines(f.g, after)).toEqual(['Sam’s Jace Beleren −5 loyalty (to the graveyard)']);
+    const applied = applyCombat(f.g, 'c1', after.outcome);
+    expect(applied.players[1].cards!.graveyard.map((c) => c.iid)).toEqual(['jace']);
+    // Never below none.
+    expect(nudgeWalker(review, NO_EDITS, reviewId(1, 'jace'), -9).walker).toEqual({ [reviewId(1, 'jace')]: -3 });
   });
 });

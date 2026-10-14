@@ -1,6 +1,7 @@
 import { copiesOf, liveCombat, sameUnit } from './combat';
-import { hasKeyword, type CombatResult, type Fighter, type UnitRead } from './combatEngine';
+import { hasKeyword, type CardRecords, type CombatResult, type Fighter, type UnitRead } from './combatEngine';
 import type { Review } from './combatReview';
+import { isPlaneswalker } from './entering';
 import type { CombatAttack, CombatState, CombatUnit, GameState } from './types';
 
 /** Combat on the cards, the screen's half of the thinking: what a tap on a
@@ -66,9 +67,30 @@ export function attacksAt(c: CombatState, seat: number): Incoming[] {
   return out;
 }
 
-/** How many attackers are coming at that player: the "⚔ 3" on their header. */
-export function attackersAt(c: CombatState, seat: number): number {
-  return sum(attacksAt(c, seat).map((a) => copiesOf(a.attack)));
+/** How many attackers are coming at that player: the "⚔ 3" on their header
+ * — their planeswalkers' attackers among them. `walker`: only those at that
+ * planeswalker, or (null) only those at the player. */
+export function attackersAt(c: CombatState, seat: number, walker?: string | null): number {
+  return sum(
+    attacksAt(c, seat)
+      .filter((a) => walker === undefined || (a.attack.walker ?? null) === walker)
+      .map((a) => copiesOf(a.attack)),
+  );
+}
+
+/** The planeswalkers a player has on the battlefield, as the cards read:
+ * what an attack may be pointed at besides them. */
+export function walkersOf(g: GameState, seat: number, records: CardRecords): { iid: string; name: string }[] {
+  return (g.players[seat]?.cards?.battlefield ?? [])
+    .filter((card) => isPlaneswalker(records[card.cardId]))
+    .map((card) => ({ iid: card.iid, name: card.name }));
+}
+
+/** The lit planeswalker: the one this device chose, while it is still on
+ * that player's battlefield — otherwise null (the player). */
+export function litWalker(g: GameState, seat: number | null, wanted: string | null | undefined): string | null {
+  if (seat === null || !wanted) return null;
+  return g.players[seat]?.cards?.battlefield.some((card) => card.iid === wanted) ? wanted : null;
 }
 
 /** The lit attacker: the tile this device lit, if it is coming at that
@@ -81,19 +103,32 @@ export function litAttack(c: CombatState, seat: number, wanted: number | null | 
 
 // ---- picking attackers ----
 
-/** What the screen asks the store for: `n` copies of `unit` attack `target`. */
+/** What the screen asks the store for: `n` copies of `unit` attack `target`
+ * — or `walker`, a planeswalker of theirs. */
 export interface AttackPick {
   unit: CombatUnit;
   target: number;
   n: number;
+  walker?: string;
 }
 
-/** Where a unit's copies are pointed: per player, in the order picked. */
-export function attackingCopies(c: CombatState, unit: CombatUnit): { total: number; at: [target: number, n: number][] } {
+const pickOf = (unit: CombatUnit, target: number, n: number, walker: string | null): AttackPick => ({
+  unit,
+  target,
+  n,
+  ...(walker ? { walker } : {}),
+});
+
+/** Where a unit's copies are pointed: per player (and the planeswalker of
+ * theirs, if it is one: null for the player), in the order picked. */
+export function attackingCopies(
+  c: CombatState,
+  unit: CombatUnit,
+): { total: number; at: [target: number, n: number, walker: string | null][] } {
   const at = attacksOf(c)
     .filter(isAttack)
     .filter((a) => sameUnit(a.unit, unit))
-    .map((a): [number, number] => [a.target, copiesOf(a)]);
+    .map((a): [number, number, string | null] => [a.target, copiesOf(a), a.walker ?? null]);
   return { total: sum(at.map(([, n]) => n)), at };
 }
 
@@ -108,20 +143,23 @@ const plainUnit = (u: CombatUnit): CombatUnit => ({ kind: u.kind, id: u.id });
 /** A tap on one of the attacker's units while attackers are picked — null
  * when the tap is not a pick (the unit is no creature and keeps its
  * ordinary tap) or is ignored (it cannot attack: tapped, or summoning
- * sick). A card pointed at the lit opponent is taken back, one pointed
- * elsewhere is re-pointed; a stack gets one more copy at the lit opponent
- * and STOPS at its last free copy — it never wraps round to zero. */
-export function attackTap(c: CombatState, read: UnitRead, target: number): AttackPick | null {
+ * sick). A card pointed at the lit opponent (or the lit planeswalker,
+ * `walker`) is taken back, one pointed elsewhere is re-pointed; a stack
+ * gets one more copy at the lit opponent and STOPS at its last free copy —
+ * it never wraps round to zero. A stack's copies at that opponent pointed
+ * at something else of theirs are first re-pointed, all together. */
+export function attackTap(c: CombatState, read: UnitRead, target: number, walker: string | null = null): AttackPick | null {
   if (c.step !== 'attackers' || !read.creature) return null;
   const unit = plainUnit(read.unit);
   const { total, at } = attackingCopies(c, unit);
   if (unit.kind === 'card') {
-    if (total > 0) return { unit, target, n: at[0][0] === target ? 0 : 1 };
-    return read.canAttack > 0 ? { unit, target, n: 1 } : null;
+    if (total > 0) return pickOf(unit, target, at[0][0] === target && at[0][2] === walker ? 0 : 1, walker);
+    return read.canAttack > 0 ? pickOf(unit, target, 1, walker) : null;
   }
+  const here = at.find(([t]) => t === target);
+  if (here && here[2] !== walker) return pickOf(unit, target, here[1], walker);
   if (freeToSend(c, read) <= 0) return null;
-  const here = at.find(([t]) => t === target)?.[1] ?? 0;
-  return { unit, target, n: here + 1 };
+  return pickOf(unit, target, (here?.[1] ?? 0) + 1, walker);
 }
 
 /** The stack stepper's minus: one copy back from the lit opponent, or —
@@ -130,20 +168,20 @@ export function attackLess(c: CombatState, read: UnitRead, target: number): Atta
   if (c.step !== 'attackers') return null;
   const { at } = attackingCopies(c, read.unit);
   const from = at.find(([t, n]) => t === target && n > 0) ?? at[at.length - 1];
-  return from ? { unit: plainUnit(read.unit), target: from[0], n: from[1] - 1 } : null;
+  return from ? pickOf(plainUnit(read.unit), from[0], from[1] - 1, from[2]) : null;
 }
 
 /** "Attack anyway", behind the hold: sends in what a tap refuses — a
  * tapped or summoning-sick creature, one more copy than is free, a card
  * the app does not read as a creature. Null when it is already there
- * (every copy of a stack, or the card at that very opponent). */
-export function attackAnyway(c: CombatState, read: UnitRead, target: number): AttackPick | null {
+ * (every copy of a stack, or the card at that very opponent or planeswalker). */
+export function attackAnyway(c: CombatState, read: UnitRead, target: number, walker: string | null = null): AttackPick | null {
   if (c.step !== 'attackers') return null;
   const unit = plainUnit(read.unit);
   const { total, at } = attackingCopies(c, unit);
-  const here = at.find(([t]) => t === target)?.[1] ?? 0;
-  if (unit.kind === 'card') return here > 0 ? null : { unit, target, n: 1 };
-  return total >= read.count ? null : { unit, target, n: here + 1 };
+  const here = at.find(([t]) => t === target);
+  if (unit.kind === 'card') return here && here[2] === walker ? null : pickOf(unit, target, 1, walker);
+  return total >= read.count ? null : pickOf(unit, target, (here?.[1] ?? 0) + 1, walker);
 }
 
 /** Everything it takes to stand a unit down: one pick per player it is
@@ -154,9 +192,10 @@ export function attackNone(c: CombatState, unit: CombatUnit): AttackPick[] {
 }
 
 /** "All attack": every creature a tap could add that is not attacking yet
- * goes at the lit opponent — all the free copies of a stack — except
- * creatures with defender. What is already pointed somewhere stays there. */
-export function allAttack(c: CombatState, reads: UnitRead[], target: number): AttackPick[] {
+ * goes at the lit opponent (or planeswalker) — all the free copies of a
+ * stack — except creatures with defender. What is already pointed
+ * somewhere stays there. */
+export function allAttack(c: CombatState, reads: UnitRead[], target: number, walker: string | null = null): AttackPick[] {
   if (c.step !== 'attackers') return [];
   const picks: AttackPick[] = [];
   for (const read of reads) {
@@ -164,7 +203,7 @@ export function allAttack(c: CombatState, reads: UnitRead[], target: number): At
     const free = freeToSend(c, read);
     if (free <= 0) continue;
     const here = attackingCopies(c, read.unit).at.find(([t]) => t === target)?.[1] ?? 0;
-    picks.push({ unit: plainUnit(read.unit), target, n: here + free });
+    picks.push(pickOf(plainUnit(read.unit), target, here + free, walker));
   }
   return picks;
 }
@@ -315,6 +354,13 @@ function deathWords(dead: { name: string; n: number; commander: boolean }[]): st
   return `${inWords(words)} ${total === 1 ? 'dies' : 'die'}`;
 }
 
+/** "Sam’s Jace Beleren −3 loyalty", "… −5 loyalty (to the graveyard)". */
+function walkerLine(g: GameState, seat: number, iid: string, name: string, damage: number): string {
+  const loyalty = g.players[seat]?.cards?.battlefield.find((card) => card.iid === iid)?.counters?.loyalty;
+  const gone = loyalty !== undefined && damage >= loyalty ? ' (to the graveyard)' : '';
+  return `${seatName(g, seat)}’s ${name} −${damage} loyalty${gone}`;
+}
+
 /** The result as the bar tells it: one line per attacked player — what
  * they lose (and how much of it from which commander), what they gain,
  * their poison, their dead — then a line for anyone else the fight touched
@@ -339,9 +385,11 @@ export function resultLines(g: GameState, result: CombatResult): string[] {
     if (deaths) parts.push(deaths);
     lines.push(parts.join(' · '));
   }
+  for (const w of result.walkers) if (w.damage > 0) lines.push(walkerLine(g, w.seat, w.iid, w.name, w.damage));
   const others = new Set<number>();
   for (const x of result.gains) if (!defending.has(x.seat)) others.add(x.seat);
   for (const a of result.attacks) if (!defending.has(a.seat) && a.dies > 0) others.add(a.seat);
+  for (const a of result.attacks) for (const b of a.blockers) if (!defending.has(b.seat) && b.dies > 0) others.add(b.seat);
   for (const seat of others) {
     const gain = gainOf(seat);
     const deaths = deathWords(deadOf(result, seat));
@@ -376,6 +424,7 @@ export function reviewLines(g: GameState, review: Review): string[] {
     if (deaths) parts.push(deaths);
     lines.push(parts.join(' · '));
   }
+  for (const w of review.walkers) if (w.damage > 0) lines.push(walkerLine(g, w.seat, w.iid, w.name, w.damage));
   const others = new Set<number>();
   for (const x of review.gains) if (!defending.has(x.seat)) others.add(x.seat);
   for (const u of review.units) if (!defending.has(u.seat) && u.dies > 0) others.add(u.seat);

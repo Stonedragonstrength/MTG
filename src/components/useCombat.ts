@@ -29,6 +29,7 @@ import {
   freeToStand,
   litAttack,
   litTarget,
+  litWalker,
   unitKey,
   type AttackPick,
   type BlockPick,
@@ -45,9 +46,11 @@ import { useCardRecords } from './useCardRecords';
 interface CombatAim {
   combatId: string | null;
   target: number | null;
+  /** A planeswalker of the lit opponent's, lit instead of them. */
+  walker: string | null;
   attack: number | null;
-  /** Lights an opponent's chip. */
-  aimAt(combatId: string, target: number): void;
+  /** Lights an opponent's chip — or one of their planeswalkers'. */
+  aimAt(combatId: string, target: number, walker?: string | null): void;
   /** Lights an attacker's tile, by its place in the combat's list. */
   light(combatId: string, attack: number): void;
 }
@@ -55,12 +58,14 @@ interface CombatAim {
 export const useCombatAim = create<CombatAim>()((set, get) => ({
   combatId: null,
   target: null,
+  walker: null,
   attack: null,
-  aimAt(combatId, target) {
-    set({ combatId, target, attack: get().combatId === combatId ? get().attack : null });
+  aimAt(combatId, target, walker = null) {
+    set({ combatId, target, walker, attack: get().combatId === combatId ? get().attack : null });
   },
   light(combatId, attack) {
-    set({ combatId, attack, target: get().combatId === combatId ? get().target : null });
+    const same = get().combatId === combatId;
+    set({ combatId, attack, target: same ? get().target : null, walker: same ? get().walker : null });
   },
 }));
 
@@ -232,7 +237,7 @@ export function useSeatCombat(playerIdx: number, on = true): SeatCombat | null {
         : null;
   const mine = aim.combatId === fight.id;
   const send = (pick: AttackPick | null) => {
-    if (pick) setAttacker(pick.unit, pick.target, pick.n);
+    if (pick) setAttacker(pick.unit, pick.target, pick.n, pick.walker);
   };
   const stand = (pick: BlockPick | null) => {
     if (pick) setBlocker(playerIdx, pick.attacker, pick.blocker, pick.n);
@@ -263,14 +268,15 @@ export function useSeatCombat(playerIdx: number, on = true): SeatCombat | null {
       ) ?? null;
     const base = {
       mode,
-      attacking: attacking.at,
+      attacking: attacking.at.map(([t, n]): [number, number] => [t, n]),
       blocking: blocking.at,
       dying: judged?.dies ?? 0,
     };
     if (mode === 'attack') {
       const target = litTarget(game!, fight, mine ? aim.target : null);
+      const walker = litWalker(game!, target, mine ? aim.walker : null);
       const free = freeToSend(fight, r);
-      const force = target === null ? null : attackAnyway(fight, r, target);
+      const force = target === null ? null : attackAnyway(fight, r, target, walker);
       const none = attackNone(fight, unit);
       return {
         ...base,
@@ -278,7 +284,7 @@ export function useSeatCombat(playerIdx: number, on = true): SeatCombat | null {
         picked: attacking.total,
         free,
         dim: r.creature && attacking.total === 0 && free === 0,
-        tap: () => target !== null && send(attackTap(fight, r, target)),
+        tap: () => target !== null && send(attackTap(fight, r, target, walker)),
         less: () => target !== null && send(attackLess(fight, r, target)),
         anyway: force ? () => send(force) : null,
         stop: none.length > 0 ? () => setAttackers(none) : null,

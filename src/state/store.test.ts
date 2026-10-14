@@ -1889,6 +1889,53 @@ describe('cards mode', () => {
     expect(store.getState().game).toBe(open);
   });
 
+  /** The duel, with Jace Beleren (5 loyalty) on B's side. */
+  async function jaceStore() {
+    const store = await fightStore();
+    await getDb().cards.put({ ...deckRecord('c-jace', 'Jace Beleren', 'Legendary Planeswalker — Jace'), loyalty: '3' });
+    const g = store.getState().game!;
+    const b = g.players[1].cards!;
+    store.setState({
+      game: {
+        ...g,
+        players: g.players.map((p, i) =>
+          i === 1 ? { ...p, cards: { ...b, battlefield: [...b.battlefield, { iid: 'jace', cardId: 'c-jace', name: 'Jace Beleren', counters: { loyalty: 5 } }] } } : p,
+        ),
+      },
+    });
+    return store;
+  }
+
+  test('attacking with what is tapped stops to ask when the other side has a planeswalker to attack instead', async () => {
+    const store = await jaceStore();
+    store.getState().tapVirtualCard(0, 'bear', true);
+    await store.getState().attackWithTapped();
+    expect((await liveOf(store))!.step).toBe('attackers');
+    expect(store.getState().game!.feed ?? []).toEqual([]);
+    store.getState().setAttacker(unitCard('bear'), 1, 1, 'jace');
+    await store.getState().confirmAttackers();
+    expect(feedOf(store)).toEqual(['A attacks B’s Jace Beleren with 1 creature']);
+  });
+
+  test('damage at a planeswalker comes off its loyalty, not its player’s life — and is no combat damage to a player', async () => {
+    const store = await jaceStore();
+    store.getState().startCombat();
+    store.getState().setAttacker(unitCard('angel'), 1, 1, 'jace');
+    await store.getState().confirmAttackers();
+    store.getState().finishBlocks(1);
+    const g = store.getState().game!;
+    const { reviewCombat, hitsOf } = await import('../lib/combatReview');
+    const { tableRecords } = await import('./store');
+    const review = reviewCombat(g, (await liveOf(store))!, await tableRecords(g));
+    expect(review.outcome.walkers).toEqual([{ seat: 1, iid: 'jace', n: 4 }]);
+    store.getState().applyCombat(review.outcome, hitsOf(review));
+    const b = store.getState().game!.players[1];
+    expect(b.life).toBe(40);
+    expect(b.cards!.battlefield.find((c) => c.iid === 'jace')?.counters).toEqual({ loyalty: 1 });
+    expect(feedOf(store).at(-1)).toBe('Combat: Jace Beleren loses 4 loyalty');
+    expect(store.getState().happened?.events.some((e) => e.kind === 'damage')).toBe(false);
+  });
+
   test('blocks are silent until the defender is done; then the feed counts the attackers stopped', async () => {
     const store = await blockingFight();
     store.getState().setBlocker(1, unitCard('bear'), unitCard('wall'), 1);

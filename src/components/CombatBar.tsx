@@ -18,6 +18,8 @@ import {
   barSentence,
   litAttack,
   litTarget,
+  litWalker,
+  walkersOf,
   menaceShort,
   resultFlags,
   reviewLines,
@@ -79,14 +81,24 @@ function AttackersBar({ game, fight }: { game: GameState; fight: CombatState }) 
   const aim = useCombatAim();
   const records = useTableRecords();
   const targets = attackTargets(game, fight);
-  const lit = litTarget(game, fight, aim.combatId === fight.id ? aim.target : null);
+  const mine = aim.combatId === fight.id;
+  const lit = litTarget(game, fight, mine ? aim.target : null);
+  const litW = litWalker(game, lit, mine ? aim.walker : null);
   const n = (fight.attacks ?? []).reduce((total, a) => total + copiesOf(a), 0);
   // A card whose record has not arrived is taken on trust as a creature, so
   // that a single tap is never refused. Sending EVERYTHING on trust is
   // another matter — a Sol Ring would be declared and tapped with the rest:
   // "All attack" waits until this seat's cards have been read.
   const read = (game.players[fight.active]?.cards?.battlefield ?? []).every((c) => c.cardId in records);
-  const everyone = lit === null || !read ? [] : allAttack(fight, readUnits(game, fight.active, records), lit);
+  const everyone = lit === null || !read ? [] : allAttack(fight, readUnits(game, fight.active, records), lit, litW);
+  // Every opponent, and each planeswalker of theirs beside them: one chip each.
+  const chips = targets.flatMap((seat) => {
+    const name = game.config.profiles[seat]?.name ?? '?';
+    return [
+      { seat, walker: null as string | null, name, label: name },
+      ...walkersOf(game, seat, records).map((w) => ({ seat, walker: w.iid as string | null, name: w.name, label: `${name}’s ${w.name}` })),
+    ];
+  });
   return (
     <div className="combat-bar combat-bar--attackers" role="group" aria-label="combat">
       <div className="combat-line">
@@ -102,20 +114,21 @@ function AttackersBar({ game, fight }: { game: GameState; fight: CombatState }) 
           </button>
         </span>
       </div>
-      {/* A pod: one chip per living opponent, and a tap on a creature points it at the lit one. */}
-      {targets.length > 1 && (
+      {/* A pod, or a planeswalker to attack: one chip per living opponent and
+          per planeswalker of theirs, and a tap on a creature points it at the lit one. */}
+      {chips.length > 1 && (
         <div className="combat-chips" role="group" aria-label="attack whom">
-          {targets.map((seat) => {
-            const coming = attackersAt(fight, seat);
-            const name = game.config.profiles[seat]?.name ?? '?';
+          {chips.map(({ seat, walker, name, label }) => {
+            const coming = attackersAt(fight, seat, walker);
+            const on = seat === lit && walker === litW;
             return (
               <button
-                key={seat}
-                className={`combat-chip${seat === lit ? ' combat-chip--lit' : ''}`}
+                key={`${seat}/${walker ?? ''}`}
+                className={`combat-chip${walker ? ' combat-chip--walker' : ''}${on ? ' combat-chip--lit' : ''}`}
                 style={{ '--tint': seatTint(seat) } as CSSProperties}
-                aria-pressed={seat === lit}
-                aria-label={`attack ${name}${coming > 0 ? `, ${coming} attacking` : ''}`}
-                onClick={() => aim.aimAt(fight.id, seat)}
+                aria-pressed={on}
+                aria-label={`attack ${label}${coming > 0 ? `, ${coming} attacking` : ''}`}
+                onClick={() => aim.aimAt(fight.id, seat, walker)}
               >
                 <span className="combat-chip-name">{name}</span>
                 <span className="combat-chip-n">⚔ {coming}</span>
@@ -196,8 +209,16 @@ function zoomOf(
 }
 
 /** Who is in an attack's way, for its tile. A stack attack is one tile:
- * "×n · k blocked". */
+ * "×n · k blocked". One at a planeswalker says which first: "→ Jace · …". */
 function inTheWay(game: GameState, tile: Incoming): string {
+  const { attack } = tile;
+  const defender = game.players[attack.target];
+  const walker = attack.walker ? (defender?.cards?.battlefield.find((c) => c.iid === attack.walker)?.name ?? 'a planeswalker') : null;
+  const way = theWay(game, tile);
+  return walker ? `→ ${walker} · ${way}` : way;
+}
+
+function theWay(game: GameState, tile: Incoming): string {
   const { attack } = tile;
   const blockers = attack.blockers ?? [];
   const copies = blockers.reduce((total, b) => total + copiesOf(b), 0);

@@ -1684,6 +1684,13 @@ input[type='checkbox'] {
   color: #141410;
 }
 
+/* A planeswalker of that player's, in their colour: the shape of a loyalty
+   shield, not of a pill. */
+.combat-chip--walker {
+  border-style: dashed;
+  border-radius: 6px 6px 18px 18px;
+}
+
 .combat-chip-name {
   max-width: 9em;
   overflow: hidden;

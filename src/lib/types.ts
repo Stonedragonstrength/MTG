@@ -302,6 +302,10 @@ export interface CombatAttack {
   unit: CombatUnit; // belongs to the attacking seat
   n?: number; // stack copies attacking (omitted = 1; a card is always 1)
   target: number; // the defending seat
+  /** A planeswalker of the defending seat (its instance id) attacked
+   * instead of the player; omitted for an attack at the player. A stack's
+   * copies at one seat all attack the same one. */
+  walker?: string;
   blockers?: CombatBlock[]; // in the order declared; omitted when none
   blocked?: true; // stopped by something that is not on the tablet (a paper card)
   tapped?: number; // how many of these the declaration itself tapped (so a cancel can stand them back up)

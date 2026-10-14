@@ -628,3 +628,29 @@ describe('a bar that throws', () => {
     spy.mockRestore();
   });
 });
+
+describe('a planeswalker to attack', () => {
+  test('even in a duel its chip is there beside its player’s; lit, "All attack" sends everything at it', async () => {
+    RECORDS['c-jace'] = rec('c-jace', 'Jace Beleren', 'Legendary Planeswalker — Jace', null, '+2: Each player draws a card.');
+    const g = table();
+    const sam = g.players[1].cards!;
+    useAppStore.setState({
+      game: { ...g, players: g.players.map((p, i) => (i === 1 ? { ...p, cards: { ...sam, battlefield: [...sam.battlefield, onField('jace', 'c-jace')] } } : p)) },
+    });
+    store().startCombat();
+    await everyCardRead();
+    const { container } = render(<CombatBar playerIdx={0} />);
+    const chips = await waitFor(() => {
+      const found = [...container.querySelectorAll<HTMLElement>('.combat-chip')];
+      expect(found).toHaveLength(2);
+      return found;
+    });
+    expect(chips.map((c) => c.getAttribute('aria-label'))).toEqual(['attack Sam', 'attack Sam’s Jace Beleren']);
+    fireEvent.click(chips[1]);
+    expect(chips[1]).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByRole('button', { name: 'All attack' }));
+    expect((fight()?.attacks ?? []).every((a) => a.walker === 'jace')).toBe(true);
+    expect(chips[1]).toHaveTextContent('⚔ 9');
+    expect(chips[0]).toHaveTextContent('⚔ 0');
+  });
+});

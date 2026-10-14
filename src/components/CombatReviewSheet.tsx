@@ -1,7 +1,7 @@
 import { useEffect, type ReactNode } from 'react';
 import { liveCombat, sameUnit } from '../lib/combat';
 import type { Fighter } from '../lib/combatEngine';
-import { hitsOf, reviewCombat, reviewId, setDeaths, type ReviewEdits, type ReviewUnit } from '../lib/combatReview';
+import { hitsOf, nudgeWalker, reviewCombat, reviewId, setDeaths, type ReviewEdits, type ReviewUnit } from '../lib/combatReview';
 import { useAppStore } from '../state/store';
 import Sheet from './Sheet';
 import { editsFor, unitArt, useCombatEdits, useTableRecords } from './useCombat';
@@ -210,6 +210,32 @@ export default function CombatReviewSheet({ onClose }: Props) {
           )}
         </div>
       ))}
+
+      {review.walkers.length > 0 && (
+        <div className="detail-section review-steppers">
+          <span className="section-label">Planeswalkers attacked</span>
+          {review.walkers.map((w) => (
+            <Stepper
+              key={w.id}
+              label={
+                <>
+                  {name(w.seat)}’s {w.name}
+                  <small className="hint-inline">
+                    {w.loyalty === null
+                      ? ' (its loyalty is not kept here)'
+                      : w.damage >= w.loyalty
+                        ? ` (loyalty ${w.loyalty}: to the graveyard)`
+                        : ` (loyalty ${w.loyalty} → ${w.loyalty - w.damage})`}
+                  </small>
+                </>
+              }
+              what={`damage to ${name(w.seat)}’s ${w.name}`}
+              value={w.damage}
+              onChange={(by) => setEdits((e) => nudgeWalker(review, e, w.id, by))}
+            />
+          ))}
+        </div>
+      )}
 
       {review.gains.length > 0 && (
         <div className="detail-section review-steppers">

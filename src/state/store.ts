@@ -13,6 +13,7 @@ import { isValidGame, migrateGame } from '../lib/migrate';
 import { DEFAULT_SETTINGS, getSettings, saveSettings, type Settings } from '../data/settings';
 import { hostName, hostOf } from '../lib/attach';
 import { opponentsOf, tappedToAttack } from '../lib/attackDraft';
+import { walkersOf } from '../lib/combatView';
 import * as boardLib from '../lib/board';
 import { abilitiesOf, abilitiesWorn, abilityBlocked, loyaltyChange, loyaltyWords } from '../lib/abilities';
 import { boostCard, boostStack, boostWords, type BoostChange } from '../lib/boost';
@@ -195,9 +196,9 @@ export interface AppStore {
   /** Declares the active player's tapped creatures as the attack (lib/attackDraft.ts). */
   attackWithTapped(): Promise<void>;
   /** Attackers step: `n` copies of `unit` attack `target` (a card: 1 or 0; 0 takes it back). */
-  setAttacker(unit: CombatUnit, target: number, n: number): void;
+  setAttacker(unit: CombatUnit, target: number, n: number, walker?: string): void;
   /** Several of those picks made by one press ("All attack"): one move, one Undo. */
-  setAttackers(picks: { unit: CombatUnit; target: number; n: number }[]): void;
+  setAttackers(picks: { unit: CombatUnit; target: number; n: number; walker?: string }[]): void;
   /** Declares the attack: taps the attackers without vigilance, then the first defender is up. */
   confirmAttackers(): Promise<void>;
   /** Blockers step: `n` copies of the defender's `blocker` stand in `attacker`'s way (0 takes it back). */
@@ -1652,10 +1653,11 @@ export function createAppStore() {
       // Attacking the way it is done at a table: the creatures the active
       // player has turned sideways ARE the attack (lib/attackDraft.ts reads
       // them off the board). One press declares them, in one op — one Undo
-      // takes the whole declaration back. With a single opponent there is
-      // nothing left to choose and it goes straight on to their blocks; in
-      // a pod it stops at the attackers step with every one of them picked
-      // and pointed at the first opponent, to be re-pointed there.
+      // takes the whole declaration back. With a single opponent (and no
+      // planeswalker of theirs) there is nothing left to choose and it goes
+      // straight on to their blocks; in a pod — or with a planeswalker to
+      // attack instead — it stops at the attackers step with every one of
+      // them picked and pointed at the first opponent, to be re-pointed there.
       async attackWithTapped() {
         const seen = get().game;
         if (!seen || combatLib.liveCombat(seen)) return;
@@ -1664,13 +1666,16 @@ export function createAppStore() {
           turn: seen.turnNumber,
           active: seen.activePlayerIndex,
         };
-        // Who is a creature, and who only just arrived, is on the cards.
-        const records = await seatRecords(seen, stamp.active);
+        // Who is a creature, and who only just arrived, is on the cards — and
+        // so is whether the other side has a planeswalker to attack instead.
+        const records = await tableRecords(seen);
         const g = get().game;
         if (!g || !isTurn(g, stamp) || combatLib.liveCombat(g)) return;
         const picks = tappedToAttack(g, records);
         const targets = opponentsOf(g);
         if (picks.length === 0 || targets.length === 0) return;
+        // Nothing to choose: one opponent and no planeswalker of theirs.
+        const straight = targets.length === 1 && walkersOf(g, targets[0], records).length === 0;
         const declare = (base: GameState) => {
           let next = combatLib.startCombat(base, stamp);
           if (next === base) return base;
@@ -1682,24 +1687,22 @@ export function createAppStore() {
           // Everything it was aimed at has left meanwhile: no fight at all.
           if (!combatLib.liveCombat(next)?.attacks?.length) return base;
           // They are tapped already: the declaration itself taps nothing.
-          return targets.length === 1
-            ? combatLib.confirmAttackers(next, stamp.id, { cards: [], stacks: {} })
-            : next;
+          return straight ? combatLib.confirmAttackers(next, stamp.id, { cards: [], stacks: {} }) : next;
         };
         const after = combatLib.liveCombat(declare(g));
         cardMutate(
           declare,
-          targets.length === 1 && after ? combatLib.attackLine(g, after) : null,
+          straight && after ? combatLib.attackLine(g, after) : null,
           (base, orig) => isTurn(base, stamp) && combatLib.sameRecord(base, orig),
         );
       },
 
-      setAttacker(unit, target, n) {
+      setAttacker(unit, target, n, walker) {
         const g = get().game;
         const fight = g && combatLib.liveCombat(g);
         if (!fight) return;
         cardMutate(
-          (base) => combatLib.setAttack(base, fight.id, unit, target, n),
+          (base) => combatLib.setAttack(base, fight.id, unit, target, n, walker),
           null,
           combatLib.sameStep,
         );
@@ -1713,7 +1716,7 @@ export function createAppStore() {
         // Each pick is judged by the reducer on the table it lands on.
         cardMutate(
           (base) =>
-            picks.reduce((s, p) => combatLib.setAttack(s, fight.id, p.unit, p.target, p.n), base),
+            picks.reduce((s, p) => combatLib.setAttack(s, fight.id, p.unit, p.target, p.n, p.walker), base),
           null,
           combatLib.sameStep,
         );
@@ -1797,8 +1800,9 @@ export function createAppStore() {
           hits
             ? hits.some((u) => u.kind === a.unit.kind && u.id === a.unit.id)
             : !a.blocked && (a.blockers?.length ?? 0) === 0;
+        // (An attack at a planeswalker dealt its damage to that, not to a player.)
         const through = (fight.attacks ?? []).flatMap((a) =>
-          hit(a) && hurt.has(a.target) ? (unitThing(g, fight.active, a.unit, a.n ?? 1) ?? []) : [],
+          hit(a) && !a.walker && hurt.has(a.target) ? (unitThing(g, fight.active, a.unit, a.n ?? 1) ?? []) : [],
         );
         cardMutate(
           (base) => combatLib.applyCombat(base, fight.id, outcome),

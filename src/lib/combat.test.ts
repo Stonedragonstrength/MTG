@@ -963,3 +963,47 @@ describe('the lines the feed gets', () => {
     expect(outcomeDefeats(g, null as never)).toEqual([]);
   });
 });
+
+describe('attacking a planeswalker', () => {
+  /** The pod, with Jace on Sam's side at 5 loyalty. */
+  const withJace = () => {
+    const g = pod();
+    const sam = g.players[1].cards!;
+    return seat(g, 1, [...sam.battlefield, onField('jace', { name: 'Jace Beleren', counters: { loyalty: 5 } })], g.players[1].board);
+  };
+
+  test('an attack may be pointed at a planeswalker of the defender’s — one that is there', () => {
+    let g = startCombat(withJace(), STAMP);
+    g = setAttack(g, 'c1', card('bear'), 1, 1, 'jace');
+    expect(attacksOf(g)).toEqual([{ unit: card('bear'), target: 1, walker: 'jace' }]);
+    // Somebody else's, or nobody's: nothing happens.
+    expect(setAttack(g, 'c1', card('wolf'), 2, 1, 'jace')).toBe(g);
+    // At the player again: re-pointed.
+    const back = setAttack(g, 'c1', card('bear'), 1, 1);
+    expect(attacksOf(back)).toEqual([{ unit: card('bear'), target: 1 }]);
+    expect(sameAttacks(back, g)).toBe(false);
+  });
+
+  test('a stack’s copies at one player go one way: pointed at the planeswalker, they all are', () => {
+    let g = startCombat(withJace(), STAMP);
+    g = setAttack(g, 'c1', stack('soldiers'), 1, 3);
+    g = setAttack(g, 'c1', stack('soldiers'), 1, 3, 'jace');
+    expect(attacksOf(g)).toEqual([{ unit: stack('soldiers'), n: 3, target: 1, walker: 'jace' }]);
+  });
+
+  test('the feed names it: "Nathan attacks Sam (1) and Sam’s Jace Beleren (3)"', () => {
+    let g = startCombat(withJace(), STAMP);
+    g = setAttack(g, 'c1', card('bear'), 1, 1);
+    g = setAttack(g, 'c1', stack('soldiers'), 1, 3, 'jace');
+    expect(attackLine(g, g.combat!)).toBe('Nathan attacks Sam (1) and Sam’s Jace Beleren (3)');
+    const alone = setAttack(startCombat(withJace(), STAMP), 'c1', card('bear'), 1, 1, 'jace');
+    expect(attackLine(alone, alone.combat!)).toBe('Nathan attacks Sam’s Jace Beleren with 1 creature');
+  });
+
+  test('what it is dealt is said: loyalty lost, or the graveyard', () => {
+    const g = withJace();
+    const outcome = (n: number): CombatOutcome => ({ players: [], deaths: [], walkers: [{ seat: 1, iid: 'jace', n }] });
+    expect(outcomeLine(g, outcome(3))).toBe('Combat: Jace Beleren loses 3 loyalty');
+    expect(outcomeLine(g, outcome(5))).toBe('Combat: Jace Beleren goes to the graveyard');
+  });
+});

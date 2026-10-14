@@ -119,6 +119,7 @@ function validCombat(v: unknown, seats: number): v is CombatState {
             unit(a.unit) &&
             count(a.n) &&
             seat(a.target) &&
+            (a.walker === undefined || typeof a.walker === 'string') &&
             (a.blocked === undefined || a.blocked === true) &&
             (a.tapped === undefined || (Number.isInteger(a.tapped) && a.tapped >= 0)) &&
             (a.blockers === undefined || (Array.isArray(a.blockers) && a.blockers.every(unit))),

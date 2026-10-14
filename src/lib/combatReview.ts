@@ -33,6 +33,9 @@ export interface ReviewEdits {
   dies: Record<string, number>;
   /** A dying commander's second tick, where it was touched. */
   home: Record<string, boolean>;
+  /** Added to the damage an attacked planeswalker takes: reviewId(seat, iid).
+   * Absent on edits kept before planeswalkers could be attacked. */
+  walker?: Record<string, number>;
 }
 
 export const NO_EDITS: ReviewEdits = {
@@ -43,7 +46,21 @@ export const NO_EDITS: ReviewEdits = {
   gain: {},
   dies: {},
   home: {},
+  walker: {},
 };
+
+/** An attacked planeswalker, as the sheet shows it: the damage it takes
+ * comes off its loyalty. */
+export interface ReviewWalker {
+  /** reviewId(seat, iid). */
+  id: string;
+  seat: number;
+  iid: string;
+  name: string;
+  damage: number;
+  /** Its loyalty now; null when the table does not keep it. */
+  loyalty: number | null;
+}
 
 /** The key an edit is kept under: a seat and one of its units, or a
  * defending seat and the commander-damage key hitting it. */
@@ -103,6 +120,8 @@ export interface Review {
   /** The fight as the engine works it out with the "blocked" ticks in. */
   result: CombatResult;
   defenders: ReviewDefender[];
+  /** The planeswalkers attacked, and what they take. */
+  walkers: ReviewWalker[];
   /** Life gained, for every seat with lifelink in the fight. */
   gains: { seat: number; life: number }[];
   attacks: ReviewAttack[];
@@ -142,6 +161,7 @@ const EMPTY: Review = {
     outcome: { players: [], deaths: [] },
     attacks: [],
     defenders: [],
+    walkers: [],
     gains: [],
     unread: [],
     check: [],
@@ -149,6 +169,7 @@ const EMPTY: Review = {
     failed: true,
   },
   defenders: [],
+  walkers: [],
   gains: [],
   attacks: [],
   units: [],
@@ -291,8 +312,15 @@ function review(g: GameState, combat: CombatState, records: CardRecords, edits: 
 
   // −1/−1 counters stay only on what lives.
   const shrunk = (result.outcome.shrunk ?? []).filter((s) => !deaths.some((d) => reviewId(d.seat, d.unit) === reviewId(s.seat, s.unit)));
-  const outcome: CombatOutcome = { players, deaths, ...(shrunk.length > 0 ? { shrunk } : {}) };
-  return { result, defenders, gains, attacks, units, outcome, defeats: outcomeDefeats(g, outcome) };
+  // What each attacked planeswalker takes, put right where the players changed it.
+  const walkers: ReviewWalker[] = result.walkers.map((w) => {
+    const id = reviewId(w.seat, w.iid);
+    const loyalty = g.players[w.seat]?.cards?.battlefield.find((c) => c.iid === w.iid)?.counters?.loyalty;
+    return { id, seat: w.seat, iid: w.iid, name: w.name, damage: atLeastZero(w.damage + whole(edits.walker?.[id])), loyalty: loyalty ?? null };
+  });
+  const hurt = walkers.filter((w) => w.damage > 0).map((w) => ({ seat: w.seat, iid: w.iid, n: w.damage }));
+  const outcome: CombatOutcome = { players, deaths, ...(shrunk.length > 0 ? { shrunk } : {}), ...(hurt.length > 0 ? { walkers: hurt } : {}) };
+  return { result, defenders, walkers, gains, attacks, units, outcome, defeats: outcomeDefeats(g, outcome) };
 }
 
 /** Everything the Review sheet shows for the fight as it is now, with the
@@ -375,6 +403,16 @@ export function nudgeDamage(review: Review, edits: ReviewEdits, seat: number, by
     left -= take;
   }
   return out;
+}
+
+/** More or less damage to an attacked planeswalker (`id`: its reviewId);
+ * never below none. */
+export function nudgeWalker(review: Review, edits: ReviewEdits, id: string, by: number): ReviewEdits {
+  const walker = review.walkers.find((w) => w.id === id);
+  if (!walker) return edits;
+  const step = Math.max(whole(by), -walker.damage);
+  if (step === 0) return edits;
+  return { ...edits, walker: { ...edits.walker, [id]: whole(edits.walker?.[id]) + step } };
 }
 
 /** More or less life gained by a seat with lifelink in the fight; never

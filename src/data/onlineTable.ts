@@ -18,8 +18,11 @@ import { kvDelete, kvGet, kvSet } from './db';
  *    it came back.
  * 6: "until end of turn" boosts (CardInstance.boost, BoardItem.boost —
  *    Giant Growth's +3/+3). An older build keeps the field but does not
- *    count it: its fights would kill the creature the spell saved. */
-export const GAME_SCHEMA = 6;
+ *    count it: its fights would kill the creature the spell saved.
+ * 7: attacks on planeswalkers (CombatAttack.walker). An older build keeps
+ *    the field but reads the attack as one at the player: its damage would
+ *    come off their life instead of the planeswalker's loyalty. */
+export const GAME_SCHEMA = 7;
 
 export type TableStatus =
   | { kind: 'connecting' }

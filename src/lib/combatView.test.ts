@@ -22,10 +22,12 @@ import {
   handLine,
   litAttack,
   litTarget,
+  litWalker,
   menaceShort,
   resultFlags,
   resultLines,
   unitKey,
+  walkersOf,
 } from './combatView';
 import type {
   BoardItem,
@@ -274,7 +276,7 @@ describe('picking attackers', () => {
     expect(freeToSend(c, read(t, 0, soldiers))).toBe(0);
     expect(attackTap(c, read(t, 0, soldiers), 1)).toBeNull(); // the last free copy is in: nothing more
     expect(attackTap(c, read(t, 0, soldiers), 2)).toBeNull();
-    expect(attackingCopies(c, soldiers)).toEqual({ total: 4, at: [[1, 3], [2, 1]] });
+    expect(attackingCopies(c, soldiers)).toEqual({ total: 4, at: [[1, 3, null], [2, 1, null]] });
   });
 
   test('the stepper’s minus takes one back from the lit opponent, or from wherever the last one went', () => {
@@ -630,5 +632,55 @@ describe('who may block what', () => {
     expect(goblin([card('sbear')])).toBe(true);
     expect(goblin([card('sbear'), card('spider')])).toBe(false);
     expect(goblin(undefined)).toBe(false);
+  });
+});
+
+describe('a planeswalker to attack', () => {
+  const JACE = rec('Jace Beleren', null, null, '+2: Each player draws a card.', 'Legendary Planeswalker — Jace');
+  /** Nathan's bear and soldiers against Sam, who has Jace (5 loyalty) and a bear. */
+  const duel = () =>
+    table([
+      { cards: { bear: BEAR }, stacks: [tokens('soldiers', 3)] },
+      { cards: { jace: JACE, sbear: BEAR }, wear: { jace: { counters: { loyalty: 5 } } } },
+    ]);
+
+  test('walkersOf names a player’s planeswalkers; the lit one stays lit only while it is there', () => {
+    const t = duel();
+    expect(walkersOf(t.g, 1, t.records)).toEqual([{ iid: 'jace', name: 'Jace Beleren' }]);
+    expect(walkersOf(t.g, 0, t.records)).toEqual([]);
+    expect(litWalker(t.g, 1, 'jace')).toBe('jace');
+    expect(litWalker(t.g, 1, 'gone')).toBeNull();
+    expect(litWalker(t.g, null, 'jace')).toBeNull();
+  });
+
+  test('a tap points a creature at the lit planeswalker; again takes it back; at the player it is re-pointed', () => {
+    const t = duel();
+    const g = withCombat(t.g, 'attackers');
+    const bear = read(t, 0, card('bear'));
+    expect(attackTap(g.combat!, bear, 1, 'jace')).toEqual({ unit: card('bear'), target: 1, n: 1, walker: 'jace' });
+    const atJace = withCombat(t.g, 'attackers', [{ unit: card('bear'), target: 1, walker: 'jace' }]);
+    expect(attackTap(atJace.combat!, bear, 1, 'jace')).toEqual({ unit: card('bear'), target: 1, n: 0, walker: 'jace' });
+    expect(attackTap(atJace.combat!, bear, 1)).toEqual({ unit: card('bear'), target: 1, n: 1 });
+    expect(attackersAt(atJace.combat!, 1)).toBe(1);
+    expect(attackersAt(atJace.combat!, 1, null)).toBe(0);
+    expect(attackersAt(atJace.combat!, 1, 'jace')).toBe(1);
+  });
+
+  test('a stack: the first tap at the planeswalker turns the copies already at that player, the next adds one', () => {
+    const t = duel();
+    const soldiers = read(t, 0, stack('soldiers'));
+    const two = withCombat(t.g, 'attackers', [{ unit: stack('soldiers'), n: 2, target: 1 }]);
+    expect(attackTap(two.combat!, soldiers, 1, 'jace')).toEqual({ unit: stack('soldiers'), target: 1, n: 2, walker: 'jace' });
+    const turned = withCombat(t.g, 'attackers', [{ unit: stack('soldiers'), n: 2, target: 1, walker: 'jace' }]);
+    expect(attackTap(turned.combat!, soldiers, 1, 'jace')).toEqual({ unit: stack('soldiers'), target: 1, n: 3, walker: 'jace' });
+    expect(allAttack(withCombat(t.g, 'attackers').combat!, [read(t, 0, card('bear'))], 1, 'jace')).toEqual([
+      { unit: card('bear'), target: 1, n: 1, walker: 'jace' },
+    ]);
+  });
+
+  test('the bar says what it is dealt', () => {
+    const t = duel();
+    const g = withCombat(t.g, 'damage', [{ unit: card('bear'), target: 1, walker: 'jace' }]);
+    expect(resultLines(g, resolveCombat(g, g.combat!, t.records))).toEqual(['Sam’s Jace Beleren −2 loyalty']);
   });
 });

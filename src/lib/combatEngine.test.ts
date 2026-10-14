@@ -1272,3 +1272,58 @@ describe('a leveler', () => {
     expect([r.power, r.toughness]).toEqual([2, 2]);
   });
 });
+
+describe('a planeswalker attacked', () => {
+  const JACE = rec('Jace Beleren', null, null, '+2: Each player draws a card.', 'Legendary Planeswalker — Jace');
+  const at = (unit: CombatUnit, more: Partial<CombatAttack> = {}): CombatAttack => ({ unit, target: 1, walker: 'jace', ...more });
+
+  test('unblocked, the damage comes off its loyalty — not the player’s life', () => {
+    const t = table({ cards: { giant: GIANT } }, { cards: { jace: JACE }, wear: { jace: { counters: { loyalty: 5 } } } });
+    const { result } = fight(t, [at(card('giant'))]);
+    expect(result.walkers).toEqual([{ seat: 1, iid: 'jace', name: 'Jace Beleren', damage: 3 }]);
+    expect(result.outcome.walkers).toEqual([{ seat: 1, iid: 'jace', n: 3 }]);
+    expect(result.outcome.players).toEqual([]);
+    expect(result.defenders).toEqual([]);
+    expect(result.attacks[0]).toMatchObject({ walker: 'jace', toWalker: 3, toPlayer: 0 });
+  });
+
+  test('a commander at a planeswalker adds nothing to the gauge; lifelink still gains', () => {
+    const t = table({ cards: { hawk: NIGHTHAWK } }, { cards: { jace: JACE } });
+    t.g = { ...t.g, players: t.g.players.map((p, i) => (i === 0 ? { ...p, cards: { ...p.cards!, cmd: { hawk: 0 } } } : p)) };
+    const { result } = fight(t, [at(card('hawk'))]);
+    expect(result.outcome.walkers).toEqual([{ seat: 1, iid: 'jace', n: 2 }]);
+    expect(result.outcome.players).toEqual([{ seat: 0, life: 2 }]);
+  });
+
+  test('a trampler blocked: the rest goes to the planeswalker it attacks', () => {
+    const t = table({ cards: { wurm: rec('Craw Wurm', '6', '4', 'Trample') } }, { cards: { jace: JACE, bear: BEAR } });
+    const { result } = fight(t, [at(card('wurm'), { blockers: [card('bear')] })]);
+    expect(result.outcome.walkers).toEqual([{ seat: 1, iid: 'jace', n: 4 }]);
+    expect(deathsOf(result)).toEqual(['1:bear']);
+  });
+
+  test('infect takes loyalty off it as any damage does: no poison for its player', () => {
+    const t = table({ cards: { sky: SKITHIRYX } }, { cards: { jace: JACE } });
+    const { result } = fight(t, [at(card('sky'))]);
+    expect(result.outcome.walkers).toEqual([{ seat: 1, iid: 'jace', n: 4 }]);
+    expect(result.outcome.players).toEqual([]);
+  });
+
+  test('gone before the damage: the attacker deals it to nobody', () => {
+    const t = table({ cards: { giant: GIANT } }, { cards: { bear: BEAR } });
+    const { result } = fight(t, [at(card('giant'))]);
+    expect(result.walkers).toEqual([]);
+    expect(result.outcome).toEqual({ players: [], deaths: [] });
+  });
+
+  test('applied: its loyalty goes down, and with none left it goes to the graveyard', () => {
+    const t = table({ cards: { giant: GIANT, wurm: WURM } }, { cards: { jace: JACE }, wear: { jace: { counters: { loyalty: 5 } } } });
+    const three = fight(t, [at(card('giant'))]);
+    const after = applyCombat(three.g, 'c1', three.result.outcome);
+    expect(after.players[1].cards!.battlefield.find((c) => c.iid === 'jace')?.counters).toEqual({ loyalty: 2 });
+    const six = fight(t, [at(card('wurm'))]);
+    const gone = applyCombat(six.g, 'c1', six.result.outcome);
+    expect(gone.players[1].cards!.graveyard.map((c) => c.iid)).toEqual(['jace']);
+    expect(gone.players[1].life).toBe(40);
+  });
+});
