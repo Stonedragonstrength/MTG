@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { abilitiesOf, abilityBlocked, levelChange, levelNow, levelsOf } from './abilities';
+import { abilitiesGiven, abilitiesOf, abilityBlocked, costWords, levelChange, levelNow, levelsOf, loyaltyWords } from './abilities';
 
 const card = (name: string, oracleText: string) => ({ name, oracleText });
 
@@ -82,4 +82,96 @@ test('Level up is a button of its own; the level sections are read with their si
 test('an ability under a level is there only once the creature has reached it', () => {
   expect(abilitiesOf(KARGAN, 0).map((a) => a.label)).toEqual(['Level up']);
   expect(abilitiesOf(KARGAN, 8).map((a) => a.label)).toEqual(['Level up', '+1/+0 until end of turn']);
+});
+
+// ---- Discover, and costs beyond mana and {T} ----
+
+const NURSERY = {
+  name: 'Hidden Nursery',
+  typeLine: 'Land — Cave',
+  oracleText:
+    'This land enters tapped.\n{T}: Add {G}.\n{4}{G}, {T}, Sacrifice this land: Discover 4. Activate only as a sorcery. (Exile cards from the top of your library until you exile a nonland card with mana value 4 or less. Cast it without paying its mana cost or put it into your hand. Put the rest on the bottom in a random order.)',
+};
+const SENSOR = {
+  name: 'Long-Range Sensor',
+  typeLine: 'Artifact',
+  oracleText:
+    'Whenever you attack a player, put a charge counter on this artifact.\n{1}, Remove two charge counters from this artifact: Discover 4. Activate only as a sorcery.',
+};
+const TREASURE = {
+  name: 'Buried Treasure',
+  typeLine: 'Artifact — Treasure',
+  oracleText: '{T}, Sacrifice this artifact: Add one mana of any color.\n{5}, Exile this card from your graveyard: Discover 5. Activate only as a sorcery.',
+};
+const QUINTORIUS = {
+  name: 'Quintorius Kand',
+  typeLine: 'Legendary Planeswalker — Quintorius',
+  oracleText:
+    'Whenever you cast a spell from exile, Quintorius Kand deals 2 damage to each opponent and you gain 2 life.\n+1: Create a 3/2 red and white Spirit creature token.\n−3: Discover 4.\n−6: Exile any number of target cards from your graveyard. Add {R} for each card exiled this way. You may play those cards this turn.',
+};
+
+test('a Hidden cave: Discover 4 for its mana, a tap, and the land itself', () => {
+  const [d] = abilitiesOf(NURSERY);
+  expect(abilitiesOf(NURSERY)).toHaveLength(1); // "{T}: Add {G}" is mana, not a row
+  expect(d).toMatchObject({ label: 'Discover 4', cost: { generic: 4, pips: [['G']] }, tap: true, sacrifice: true, effect: { kind: 'discover', n: 4 } });
+  expect(costWords(d)).toEqual(['sacrifice it']);
+});
+
+test('Long-Range Sensor pays with its charge counters, and says so when it has too few', () => {
+  const [d] = abilitiesOf(SENSOR);
+  expect(d).toMatchObject({ label: 'Discover 4', cost: { generic: 1 }, tap: false, remove: { kind: 'charge', n: 2 } });
+  expect(costWords(d)).toEqual(['remove two charge counters']);
+  expect(abilityBlocked(d, { counters: { charge: 1 } })).toBe('Not enough charge counters.');
+  expect(abilityBlocked(d, { counters: { charge: 2 } })).toBeNull();
+});
+
+test('Buried Treasure is used from the graveyard, and exiles itself to pay', () => {
+  expect(abilitiesOf(TREASURE)).toMatchObject([{ label: 'Discover 5', cost: { generic: 5 }, graveyard: true, effect: { kind: 'discover', n: 5 } }]);
+  expect(costWords(abilitiesOf(TREASURE)[0])).toEqual(['exile it from your graveyard']);
+});
+
+test('a planeswalker’s loyalty ability: −3 is its cost, and only the ones the table can do are rows', () => {
+  const [d] = abilitiesOf(QUINTORIUS);
+  expect(abilitiesOf(QUINTORIUS)).toHaveLength(1);
+  expect(d).toMatchObject({ label: 'Discover 4', loyalty: -3, tap: false, cost: { generic: 0, pips: [] } });
+  expect(loyaltyWords(-3)).toBe('−3');
+  expect(loyaltyWords(1)).toBe('+1');
+  // Loyalty counts only where it is kept as counters.
+  expect(abilityBlocked(d, { counters: { loyalty: 2 } })).toBe('Not enough loyalty.');
+  expect(abilityBlocked(d, { counters: { loyalty: 3 } })).toBeNull();
+  expect(abilityBlocked(d, {})).toBeNull();
+  // A creature's "+1:" is Spark (Alchemy), not loyalty.
+  expect(abilitiesOf({ name: 'Blood Poet', typeLine: 'Creature — Vampire Cleric', oracleText: '+1: Blood Poet gains lifelink until end of turn.' })).toEqual([]);
+});
+
+test('Ellie and Alan: the creature card exiled is X', () => {
+  expect(
+    abilitiesOf({
+      name: 'Ellie and Alan, Paleontologists',
+      typeLine: 'Legendary Creature — Human Scientist',
+      oracleText: '{T}, Exile a creature card from your graveyard: Discover X, where X is the mana value of the exiled card. Activate only as a sorcery.',
+    }),
+  ).toMatchObject([{ label: 'Discover X', tap: true, exiles: 'creature', effect: { kind: 'discover', n: 'exiled' } }]);
+});
+
+test('counters as a cost grow a creature too; "your choice of" is left to the players', () => {
+  expect(abilitiesOf(card('Spike Soldier', 'Remove a +1/+1 counter from Spike Soldier: Spike Soldier gets +2/+2 until end of turn.'))).toMatchObject([
+    { label: '+2/+2 until end of turn', remove: { kind: 'p1p1', n: 1 } },
+  ]);
+  expect(abilitiesOf(card('Lunar Avenger', 'Remove a +1/+1 counter from this creature: This creature gains your choice of flying, first strike, or haste until end of turn.'))).toEqual([]);
+  // Sacrificed or exiled, it is not there to grow.
+  expect(abilitiesOf(card('Odd Thing', 'Sacrifice this creature: This creature gets +2/+2 until end of turn.'))).toEqual([]);
+});
+
+test('what an Equipment or Aura gives in quotes is read as the creature’s own', () => {
+  const whip = {
+    name: "Swashbuckler's Whip",
+    oracleText:
+      'Equipped creature has reach, "{2}, {T}: Tap target artifact or creature," and "{8}, {T}: Discover 10." (Exile cards from the top of your library until you exile a nonland card with mana value 10 or less.)\nEquip {1}',
+  };
+  expect(abilitiesGiven(whip)).toMatchObject([{ key: '0.1:discover', label: 'Discover 10', cost: { generic: 8 }, tap: true }]);
+  expect(abilitiesGiven(card('Midnight Covenant', 'Enchant creature\nEnchanted creature has "{B}: This creature gets +1/+1 until end of turn."'))).toMatchObject([
+    { label: '+1/+1 until end of turn', effect: { kind: 'boost', power: 1, toughness: 1 } },
+  ]);
+  expect(abilitiesGiven(card('Bonesplitter', 'Equipped creature gets +2/+0.\nEquip {1}'))).toEqual([]);
 });

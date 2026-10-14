@@ -129,3 +129,29 @@ test('nothing to find: every card goes back to the bottom, shuffled', async () =
   expect(mine().library.map((c) => c.iid).sort()).toEqual(['l1', 'l2']);
   expect(lastFeed()).toBe('Nathan: Daring Discovery — discover 2 finds nothing (the library is shuffled)');
 });
+
+test('"exile a creature card from your graveyard": the sheet asks which, and its mana value is X', async () => {
+  start([card('l1', 'forest'), card('l2', 'bear')]);
+  const g = useAppStore.getState().game!;
+  const cards = g.players[0].cards!;
+  useAppStore.setState({
+    game: {
+      ...g,
+      players: g.players.map((p, i) => (i === 0 ? { ...p, cards: { ...cards, graveyard: [card('g1', 'giant'), card('g2', 'bolt')] } } : p)),
+    },
+  });
+  const carryOut = vi.fn(async () => {});
+  const onClose = vi.fn();
+  render(<DiscoverSheet playerIdx={0} n={null} pick="creature" source="Ellie and Alan, Paleontologists" carryOut={carryOut} onClose={onClose} />);
+  // Only the creature card is offered — Lightning Bolt is an instant.
+  const picks = await screen.findByRole('list', { name: 'creature cards' });
+  expect(within(picks).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['Hill Giant, mana value 4']);
+  await settle();
+  await userEvent.click(within(picks).getByRole('button', { name: 'Hill Giant, mana value 4' }));
+  expect(screen.getByRole('heading', { name: 'Discover 4 · Ellie and Alan, Paleontologists' })).toBeInTheDocument();
+  await userEvent.click(await screen.findByRole('button', { name: 'Cast Grizzly Bears' }));
+  expect(carryOut).toHaveBeenCalledWith(expect.objectContaining({ found: expect.objectContaining({ iid: 'l2' }) }), 'cast', 4, 'g1');
+  // The ability's own move did nothing here (a stand-in): closed as not done.
+  expect(onClose).toHaveBeenCalledWith(false);
+  expect(mine().library.map((c) => c.iid)).toEqual(['l1', 'l2']);
+});

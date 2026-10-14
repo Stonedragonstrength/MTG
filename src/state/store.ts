@@ -14,10 +14,10 @@ import { DEFAULT_SETTINGS, getSettings, saveSettings, type Settings } from '../d
 import { hostName, hostOf } from '../lib/attach';
 import { opponentsOf, tappedToAttack } from '../lib/attackDraft';
 import * as boardLib from '../lib/board';
-import { abilitiesOf, abilityBlocked } from '../lib/abilities';
+import { abilitiesOf, abilitiesWorn, abilityBlocked, loyaltyWords } from '../lib/abilities';
 import { boostCard, boostStack, boostWords, type BoostChange } from '../lib/boost';
 import { castsWithRebound, isSpellCard, type CascadePlan } from '../lib/cascade';
-import { entryCounters } from '../lib/entering';
+import { countersWords, entryCounters } from '../lib/entering';
 import { equipHost, equipWay } from '../lib/equip';
 import { backView, faceNames, frontId, isBackId, turnsOver } from '../lib/faces';
 import * as gameLib from '../lib/game';
@@ -114,11 +114,21 @@ export interface AppStore {
   /** A permanent goes back to its owner's hand, and the table is told
    * which: it was in plain sight, unlike a card put there from a library. */
   returnToHand(seat: number, iid: string): void;
-  /** One of a creature's own growing abilities (lib/abilities.ts, by its
-   * key): its mana is paid in the same move — `free`: not paid — and its
-   * {T} taps it. Monstrosity makes it monstrous and sets off "when it
-   * becomes monstrous". `x`: what was paid for X. */
-  activateAbility(seat: number, iid: string, key: string, opts?: { x?: number; free?: boolean }): Promise<void>;
+  /** One of a card's abilities (lib/abilities.ts, by its key — one an Aura
+   * or Equipment gives it by the attachment's): its whole cost is paid in
+   * the same move — the mana (`free`: not paid), {T}, a sacrifice, counters,
+   * loyalty, the card exiled from a graveyard — and it happens. Monstrosity
+   * makes it monstrous and sets off "when it becomes monstrous". `x`: what
+   * was paid for X. A Discover ability happens only with `discover`: the
+   * cards its sheet turned over and what its player took (`pick`: the card
+   * "Exile a creature card from your graveyard" exiles) — one move, one Undo.
+   * One activated from the graveyard (Buried Treasure) is found there. */
+  activateAbility(
+    seat: number,
+    iid: string,
+    key: string,
+    opts?: { x?: number; free?: boolean; discover?: { plan: CascadePlan; take: 'cast' | 'hand'; n: number; pick?: string } },
+  ): Promise<void>;
   /** So many +1/+1 counters on a card, and maybe a mark it now wears
    * ('renowned'): one move. */
   growCard(seat: number, iid: string, n: number, mark?: string): void;
@@ -571,8 +581,16 @@ export function createAppStore() {
      * cast without paying its mana cost (`to` 'cast'), put into its owner's
      * hand, or sent to the bottom with the rest, which go there in a random
      * order. Nothing happens unless they are still the top of the library,
-     * in that order. */
-    const turnOver = (seat: number, plan: CascadePlan, to: 'cast' | 'hand' | 'bottom', text: string) => {
+     * in that order. `cost`: what an ability that discovers costs, paid in
+     * the same move (null: it cannot be paid there, and nothing happens);
+     * `there`: whether the card with the ability is where it was. */
+    const turnOver = (
+      seat: number,
+      plan: CascadePlan,
+      to: 'cast' | 'hand' | 'bottom',
+      text: string,
+      cost?: { pay: (base: GameState) => GameState | null; there: (base: GameState) => boolean },
+    ) => {
       if (plan.exiled.length === 0 || !get().game?.players[seat]?.cards) return;
       const exiled = plan.exiled.map((c) => c.iid);
       const found = plan.found;
@@ -596,8 +614,10 @@ export function createAppStore() {
           : null;
       cardMutate(
         (base) => {
-          let next = cardsLib.cascade(base, seat, exiled, leaving, seed);
-          if (next === base) return base;
+          const paid = cost ? cost.pay(base) : base;
+          if (!paid) return base;
+          let next = cardsLib.cascade(paid, seat, exiled, leaving, seed);
+          if (next === paid) return base;
           if (shown) next = cardsLib.setReveal(next, shown);
           if (going && !going.spell) next = cardsLib.addCardCounters(next, seat, going.iid, going.brings);
           return next;
@@ -605,7 +625,8 @@ export function createAppStore() {
         text,
         (base) => {
           const top = base.players[seat]?.cards?.library.slice(0, exiled.length);
-          return !!top && top.length === exiled.length && top.every((c, i) => c.iid === exiled[i]);
+          const still = !!top && top.length === exiled.length && top.every((c, i) => c.iid === exiled[i]);
+          return still && (!cost || cost.there(base));
         },
         undefined,
         // The card it casts is a spell cast: what waits for one is set off by it.
@@ -613,6 +634,18 @@ export function createAppStore() {
           ? [{ kind: 'cast', seat, spell: { seat, kind: 'card', id: going.iid, cardId: going.cardId, name: going.name, n: 1 }, from: 'library', ...(going.x ? { x: 0 } : {}) }]
           : [],
       );
+    };
+
+    /** The feed line of a discover: what it found, and where that went. */
+    const discoverText = (g: GameState, seat: number, plan: CascadePlan, take: 'cast' | 'hand', n: number, why: string) => {
+      const { found } = plan;
+      const rest = plan.exiled.filter((c) => c.iid !== found?.iid);
+      const bottom = rest.length > 0 ? ` (${rest.map((c) => c.name).join(', ')} to the bottom)` : '';
+      return !found
+        ? `${seatName(g, seat)}: ${why} — discover ${n} finds nothing (the library is shuffled)`
+        : take === 'cast'
+          ? `${seatName(g, seat)}: ${why} — discover ${n}: casts ${found.name}${bottom}`
+          : `${seatName(g, seat)}: ${why} — discover ${n}: ${found.name} into their hand${bottom}`;
     };
 
     return {
@@ -1019,18 +1052,89 @@ export function createAppStore() {
 
       async activateAbility(seat, iid, key, opts) {
         const g = get().game;
-        const card = g?.players[seat]?.cards?.battlefield.find((c) => c.iid === iid);
-        if (!g || !card) return;
-        const records = await seatRecords(g, seat);
-        const ability = abilitiesOf(records[card.cardId], card.counters?.level ?? 0).find((a) => a.key === key);
-        if (!ability || abilityBlocked(ability, card)) return;
+        const cards = g?.players[seat]?.cards;
+        const onField = cards?.battlefield.find((c) => c.iid === iid);
+        const card = onField ?? cards?.graveyard.find((c) => c.iid === iid);
+        if (!g || !cards || !card) return;
+        // Every battlefield's: what a creature wears may be another seat's.
+        const records = await tableRecords(g);
+        if (!onField && !(card.cardId in records)) {
+          const m = await import('../data/scryfall');
+          records[card.cardId] =
+            (await m.getCardById(card.cardId).catch(() => undefined)) ?? (await m.findCardByName(card.name).catch(() => undefined));
+        }
+        const host = { seat, kind: 'card' as const, id: iid };
+        const ability = onField
+          ? [
+              ...abilitiesOf(records[card.cardId], card.counters?.level ?? 0).filter((a) => !a.graveyard),
+              ...abilitiesWorn(g, host, records),
+            ].find((a) => a.key === key)
+          : abilitiesOf(records[card.cardId]).find((a) => a.graveyard && a.key === key);
+        if (!ability || (onField && abilityBlocked(ability, card))) return;
         const x = ability.cost.x ? wholeX(opts?.x) : 0;
+        const zone = onField ? 'battlefield' : 'graveyard';
+        const pick = ability.exiles ? cards.graveyard.find((c) => c.iid === opts?.discover?.pick) : undefined;
+        if (ability.exiles && !pick) return;
+        const paidIn = { turn: g.turnNumber, active: g.activePlayerIndex };
+        /** The whole cost, paid on the state the op lands on — the mana last,
+         * from what is left, so a land tapped or sacrificed for its own
+         * ability pays nothing towards it. Null when it cannot be paid there:
+         * the card is gone or tapped, its counters are, the card to exile has
+         * left the graveyard. */
+        const pay = (base: GameState): GameState | null => {
+          const now = base.players[seat]?.cards?.[zone].find((c) => c.iid === iid);
+          if (!now || (zone === 'battlefield' && abilityBlocked(ability, now))) return null;
+          let next = base;
+          if (ability.tap) next = cardsLib.tapSpent(next, seat, iid);
+          if (ability.remove) next = cardsLib.addCardCounters(next, seat, iid, { [ability.remove.kind]: -ability.remove.n });
+          // Loyalty kept as counters goes up or down by the cost; a card with
+          // none left goes to the graveyard. One that keeps none is left alone.
+          const loyalty = now.counters?.loyalty;
+          if (ability.loyalty && loyalty !== undefined)
+            next =
+              loyalty + ability.loyalty > 0
+                ? cardsLib.setCardCounter(next, seat, iid, 'loyalty', loyalty + ability.loyalty)
+                : cardsLib.moveCard(next, seat, iid, 'battlefield', 'graveyard');
+          if (pick) {
+            const moved = cardsLib.moveCard(next, seat, pick.iid, 'graveyard', 'exile');
+            if (moved === next) return null;
+            next = moved;
+          }
+          if (ability.graveyard) next = cardsLib.moveCard(next, seat, iid, 'graveyard', 'exile');
+          if (ability.sacrifice) next = cardsLib.moveCard(next, seat, iid, 'battlefield', 'graveyard');
+          const mana = opts?.free ? null : payFrom(next, seat, [payLib.withX(ability.cost, x)], records, paidIn);
+          return mana ? mana(next) : next;
+        };
+        const there = (base: GameState) => !!base.players[seat]?.cards?.[zone].some((c) => c.iid === iid);
         const effect = ability.effect;
+        const who = seatName(g, seat);
+
+        if (effect.kind === 'discover') {
+          const asked = opts?.discover;
+          if (!asked) return;
+          // What it cost, where the board does not show it plainly.
+          const given = ability.key.includes('/')
+            ? g.players.flatMap((p) => p.cards?.battlefield ?? []).find((c) => c.iid === ability.key.split('/')[0])
+            : undefined;
+          const paid = [
+            given ? `with ${given.name}` : null,
+            ability.sacrifice ? 'sacrificed' : null,
+            ability.graveyard ? 'exiled from the graveyard' : null,
+            ability.remove ? `${countersWords({ [ability.remove.kind]: ability.remove.n })} off` : null,
+            pick ? `exiling ${pick.name}` : null,
+          ].filter((part): part is string => part !== null);
+          const named = ability.loyalty !== undefined ? `${card.name} ${loyaltyWords(ability.loyalty)}` : card.name;
+          const why = paid.length > 0 ? `${named} (${paid.join(', ')})` : named;
+          turnOver(seat, asked.plan, asked.plan.found ? asked.take : 'bottom', discoverText(g, seat, asked.plan, asked.take, asked.n, why), {
+            pay,
+            there,
+          });
+          return;
+        }
+
         const n = effect.kind === 'counters' ? (effect.n === 'X' ? x : effect.n) : 0;
         const level = (card.counters?.level ?? 0) + 1;
         const monstrous = effect.kind === 'counters' && effect.once === 'monstrous';
-        const paidIn = { turn: g.turnNumber, active: g.activePlayerIndex };
-        const who = seatName(g, seat);
         const text =
           effect.kind === 'boost'
             ? `${who}: ${card.name} gets ${boostWords(effect)} until end of turn`
@@ -1043,21 +1147,21 @@ export function createAppStore() {
                 : `${who}: ${card.name} gets ${n} +1/+1 counter${n === 1 ? '' : 's'}`;
         cardMutate(
           (base) => {
-            const now = base.players[seat]?.cards?.battlefield.find((c) => c.iid === iid);
             // Gone, or it would do nothing now (monstrous already, tapped…): nothing is paid either.
-            if (!now || abilityBlocked(ability, now)) return base;
-            const pay = opts?.free ? null : payFrom(base, seat, [payLib.withX(ability.cost, x)], records, paidIn);
-            let next = ability.tap ? cardsLib.tapSpent(base, seat, iid) : base;
+            const paid = pay(base);
+            const now = paid?.players[seat]?.cards?.battlefield.find((c) => c.iid === iid);
+            if (!paid || !now) return base;
+            let next = paid;
             if (effect.kind === 'boost') next = boostCard(next, seat, iid, effect);
             else if (effect.kind === 'level') next = cardsLib.setCardCounter(next, seat, iid, 'level', (now.counters?.level ?? 0) + 1);
             else {
               next = cardsLib.setCardCounter(next, seat, iid, 'p1p1', (now.counters?.p1p1 ?? 0) + n);
               if (monstrous) next = cardsLib.setCardCounter(next, seat, iid, 'monstrous', 1);
             }
-            return pay ? pay(next) : next;
+            return next;
           },
           text,
-          (base) => !!base.players[seat]?.cards?.battlefield.some((c) => c.iid === iid),
+          there,
           undefined,
           monstrous ? [{ kind: 'monstrous', thing: { seat, kind: 'card', id: iid, cardId: card.cardId, name: card.name, n: 1 } }] : [],
         );
@@ -1191,19 +1295,7 @@ export function createAppStore() {
       discover(seat, plan, take, n, why) {
         const g = get().game;
         if (!g) return;
-        const { found } = plan;
-        const rest = plan.exiled.filter((c) => c.iid !== found?.iid);
-        const bottom = rest.length > 0 ? ` (${rest.map((c) => c.name).join(', ')} to the bottom)` : '';
-        turnOver(
-          seat,
-          plan,
-          found ? take : 'bottom',
-          !found
-            ? `${seatName(g, seat)}: ${why} — discover ${n} finds nothing (the library is shuffled)`
-            : take === 'cast'
-              ? `${seatName(g, seat)}: ${why} — discover ${n}: casts ${found.name}${bottom}`
-              : `${seatName(g, seat)}: ${why} — discover ${n}: ${found.name} into their hand${bottom}`,
-        );
+        turnOver(seat, plan, plan.found ? take : 'bottom', discoverText(g, seat, plan, take, n, why));
       },
 
       async castFromExile(seat, iid, why) {

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { createGame } from '../lib/game';
 import type { CardInstance, CardRecord, GameConfig, GameState } from '../lib/types';
@@ -103,4 +103,66 @@ test('a creature with nothing of the kind has no Abilities section', async () =>
   render(<BattlefieldCardSheet playerIdx={0} iid="m0" onClose={() => {}} />);
   await screen.findByRole('heading', { name: 'Mountain' });
   expect(screen.queryByText('Abilities')).not.toBeInTheDocument();
+});
+
+// ---- Discover from a land, an artifact, a planeswalker ----
+
+Object.assign(RECORDS, {
+  'c-forest': rec('c-forest', 'Forest', 'Basic Land — Forest', '({T}: Add {G}.)'),
+  'c-nursery': rec(
+    'c-nursery',
+    'Hidden Nursery',
+    'Land — Cave',
+    'This land enters tapped.\n{T}: Add {G}.\n{4}{G}, {T}, Sacrifice this land: Discover 4. Activate only as a sorcery.',
+  ),
+  'c-quintorius': rec('c-quintorius', 'Quintorius Kand', 'Legendary Planeswalker — Quintorius', '+1: Create a 3/2 red and white Spirit creature token.\n−3: Discover 4.'),
+  'c-bolt': rec('c-bolt', 'Lightning Bolt', 'Instant', 'Lightning Bolt deals 3 damage to any target.'),
+});
+
+/** A sheet takes no tap in its first moment on screen. */
+const settle = () => act(() => new Promise((r) => setTimeout(r, 400)));
+
+test('a Hidden cave’s Discover is on its sheet with all it costs; Use turns the cards over first, and the answer pays', async () => {
+  const g = table(4, [card('f1', 'c-forest', { row: 'lands' }), card('n1', 'c-nursery', { row: 'lands' })]);
+  g.players[0].cards!.library = [card('l1', 'c-bolt')];
+  useAppStore.setState({ game: g });
+  render(<BattlefieldCardSheet playerIdx={0} iid="n1" onClose={() => {}} />);
+  const row = (await screen.findByText('Discover 4')).closest('.ability-row') as HTMLElement;
+  expect(within(row).getByText('sacrifice it')).toBeInTheDocument();
+  expect(within(row).getByRole('img', { name: 'tap it' })).toBeInTheDocument();
+  await waitFor(() => expect(within(row).getByRole('button', { name: 'Use' })).toBeEnabled());
+  fireEvent.click(within(row).getByRole('button', { name: 'Use' }));
+  expect(await screen.findByRole('heading', { name: 'Discover 4 · Hidden Nursery' })).toBeInTheDocument();
+  expect(activateAbility).not.toHaveBeenCalled(); // nothing is paid before the answer
+  await screen.findByRole('button', { name: 'Cast Lightning Bolt' });
+  await settle();
+  fireEvent.click(screen.getByRole('button', { name: 'Cast Lightning Bolt' }));
+  await waitFor(() =>
+    expect(activateAbility).toHaveBeenCalledWith(0, 'n1', '2:discover', {
+      discover: {
+        plan: { exiled: [{ iid: 'l1', cardId: 'c-bolt', name: 'Lightning Bolt' }], found: expect.objectContaining({ iid: 'l1', spell: true }) },
+        take: 'cast',
+        n: 4,
+      },
+    }),
+  );
+});
+
+test('the land does not pay for its own ability: one land fewer and it is short', async () => {
+  const lands = [card('f1', 'c-forest', { row: 'lands' }), card('n1', 'c-nursery', { row: 'lands' })];
+  useAppStore.setState({ game: table(4, lands) });
+  render(<BattlefieldCardSheet playerIdx={0} iid="n1" onClose={() => {}} />);
+  const row = (await screen.findByText('Discover 4')).closest('.ability-row') as HTMLElement;
+  await waitFor(() => expect(within(row).getByRole('button', { name: 'Use' })).toBeEnabled());
+  // Three Mountains and a Forest: {4}{G} would be there only with the Nursery's own {G}.
+  act(() => useAppStore.setState({ game: table(3, lands) }));
+  expect(within(row).getByRole('button', { name: 'Use without paying' })).toBeInTheDocument();
+});
+
+test('a planeswalker’s −3 shows as its cost, and its loyalty counters say when there are too few', async () => {
+  useAppStore.setState({ game: table(0, [card('q1', 'c-quintorius', { counters: { loyalty: 2 } })]) });
+  render(<BattlefieldCardSheet playerIdx={0} iid="q1" onClose={() => {}} />);
+  const row = (await screen.findByText('Discover 4')).closest('.ability-row') as HTMLElement;
+  expect(within(row).getByLabelText('loyalty −3')).toHaveTextContent('−3');
+  expect(within(row).getByRole('button', { name: 'Not enough loyalty.' })).toBeDisabled();
 });

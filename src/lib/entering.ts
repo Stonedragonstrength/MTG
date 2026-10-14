@@ -84,7 +84,7 @@ export function countersWords(counters: Record<string, number>): string {
   const kind = (k: string) => (k === 'p1p1' ? '+1/+1' : k === 'm1m1' ? '-1/-1' : k);
   return Object.entries(counters)
     .filter(([, n]) => n > 0)
-    .map(([k, n]) => `${WORD[n] ?? n} ${kind(k)} counter${n === 1 ? '' : 's'}`)
+    .map(([k, n]) => `${n === 1 && /^[aeiou]/.test(kind(k)) ? 'an' : (WORD[n] ?? n)} ${kind(k)} counter${n === 1 ? '' : 's'}`)
     .join(' and ');
 }
 

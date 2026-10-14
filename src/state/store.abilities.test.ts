@@ -1,7 +1,8 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { getDb } from '../data/db';
-import { abilitiesOf } from '../lib/abilities';
+import { abilitiesOf, abilitiesWorn } from '../lib/abilities';
 import { boostOf } from '../lib/boost';
+import type { CascadePlan } from '../lib/cascade';
 import type { CardInstance, CardRecord, GameConfig, GameState } from '../lib/types';
 import { createAppStore, flushPersistence } from './store';
 
@@ -175,4 +176,142 @@ test('Level up: one more level counter each time it is paid for', async () => {
   await store.getState().activateAbility(0, 's1', key, { free: true });
   expect(it(store, 's1').counters).toEqual({ level: 2 });
   expect(store.getState().game!.feed?.at(-1)?.text).toBe('Nathan: Student of Warfare levels up (level 2)');
+});
+
+// ---- Discover from abilities: the whole cost and what it found, one move ----
+
+const DISCOVERERS = [
+  rec('c-nursery', 'Hidden Nursery', 'Land — Cave', 'This land enters tapped.\n{T}: Add {G}.\n{4}{G}, {T}, Sacrifice this land: Discover 4. Activate only as a sorcery.'),
+  rec('c-sensor', 'Long-Range Sensor', 'Artifact', '{1}, Remove two charge counters from this artifact: Discover 4. Activate only as a sorcery.'),
+  rec('c-treasure', 'Buried Treasure', 'Artifact — Treasure', '{T}, Sacrifice this artifact: Add one mana of any color.\n{5}, Exile this card from your graveyard: Discover 5. Activate only as a sorcery.'),
+  rec('c-quintorius', 'Quintorius Kand', 'Legendary Planeswalker — Quintorius', '+1: Create a 3/2 red and white Spirit creature token.\n−3: Discover 4.'),
+  rec('c-ellie', 'Ellie and Alan, Paleontologists', 'Legendary Creature — Human Scientist', '{T}, Exile a creature card from your graveyard: Discover X, where X is the mana value of the exiled card. Activate only as a sorcery.', ['2', '5']),
+  rec('c-whip', "Swashbuckler's Whip", 'Artifact — Equipment', 'Equipped creature has reach, "{2}, {T}: Tap target artifact or creature," and "{8}, {T}: Discover 10."\nEquip {1}'),
+  rec('c-bear', 'Grizzly Bears', 'Creature — Bear', '', ['2', '2']),
+  rec('c-giant', 'Hill Giant', 'Creature — Giant', '', ['3', '3']),
+  rec('c-bolt', 'Lightning Bolt', 'Instant', 'Lightning Bolt deals 3 damage to any target.'),
+];
+
+const named = (iid: string, cardId: string, more: Partial<CardInstance> = {}): CardInstance => ({
+  iid,
+  cardId,
+  name: [...RECORDS, ...DISCOVERERS].find((r) => r.id === cardId)!.name,
+  ...more,
+});
+
+/** Nathan's table as `table` lays it, with a library (top first) and a graveyard. */
+async function discoverTable(battlefield: CardInstance[], library: CardInstance[], graveyard: CardInstance[] = []) {
+  await getDb().cards.bulkPut(DISCOVERERS);
+  const store = table(battlefield);
+  const g = store.getState().game!;
+  const cards = g.players[0].cards!;
+  store.setState({ game: { ...g, players: [{ ...g.players[0], cards: { ...cards, library, graveyard } }, g.players[1]] } });
+  return store;
+}
+
+/** The cards a discover turned over; the last of them is the one it found (or none was). */
+function plan(exiled: CardInstance[], found: boolean, spell = true): CascadePlan {
+  const cards = exiled.map(({ iid, cardId, name }) => ({ iid, cardId, name }));
+  const last = cards[cards.length - 1];
+  return { exiled: cards, found: found ? { ...last, spell, x: false, brings: {} } : null };
+}
+
+const mine = (store: Store) => store.getState().game!.players[0].cards!;
+const discoverKey = (cardId: string) => abilitiesOf(DISCOVERERS.find((r) => r.id === cardId)).find((a) => a.effect.kind === 'discover')!.key;
+const lastFeed = (store: Store) => store.getState().game!.feed?.at(-1)?.text;
+
+test('Hidden Nursery: the other lands pay, it is tapped and sacrificed, and the card it found is cast — one move, one Undo', async () => {
+  const forest = named('l1', 'c-forest');
+  const bolt = named('l2', 'c-bolt');
+  const giant = named('l3', 'c-giant');
+  const store = await discoverTable([named('n1', 'c-nursery', { row: 'lands' })], [forest, bolt, giant]);
+  const before = store.getState().game;
+  await store.getState().activateAbility(0, 'n1', discoverKey('c-nursery'), { discover: { plan: plan([forest, bolt], true), take: 'cast', n: 4 } });
+  expect(mine(store).graveyard.map((c) => c.iid)).toEqual(['n1', 'l2']);
+  expect(mine(store).library.map((c) => c.iid)).toEqual(['l3', 'l1']);
+  expect(tappedLands(store)).toBe(5); // {4}{G} from the others: the Nursery itself paid nothing
+  expect(store.getState().game!.reveal).toMatchObject({ from: 'cast', cards: [{ name: 'Lightning Bolt' }] });
+  expect(lastFeed(store)).toBe('Nathan: Hidden Nursery (sacrificed) — discover 4: casts Lightning Bolt (Forest to the bottom)');
+  store.getState().undo();
+  expect(store.getState().game).toBe(before);
+});
+
+test('a Discover ability does nothing until its cards have been turned over', async () => {
+  const store = await discoverTable([named('n1', 'c-nursery', { row: 'lands' })], [named('l1', 'c-bolt')]);
+  const before = store.getState().game;
+  await store.getState().activateAbility(0, 'n1', discoverKey('c-nursery'));
+  expect(store.getState().game).toBe(before);
+});
+
+test('Long-Range Sensor: two charge counters come off; with one left, nothing happens', async () => {
+  const store = await discoverTable([named('s1', 'c-sensor', { counters: { charge: 3 } })], [named('l1', 'c-bolt'), named('l2', 'c-bolt')]);
+  const key = discoverKey('c-sensor');
+  await store.getState().activateAbility(0, 's1', key, { discover: { plan: plan([named('l1', 'c-bolt')], true), take: 'hand', n: 4 } });
+  expect(it(store, 's1').counters).toEqual({ charge: 1 });
+  expect(mine(store).hand.map((c) => c.iid)).toEqual(['l1']);
+  expect(tappedLands(store)).toBe(1);
+  expect(lastFeed(store)).toBe('Nathan: Long-Range Sensor (two charge counters off) — discover 4: Lightning Bolt into their hand');
+  const before = store.getState().game;
+  await store.getState().activateAbility(0, 's1', key, { discover: { plan: plan([named('l2', 'c-bolt')], true), take: 'hand', n: 4 } });
+  expect(store.getState().game).toBe(before);
+});
+
+test('Quintorius Kand −3: loyalty kept as counters goes down — to the graveyard at none — and loyalty not kept is left alone', async () => {
+  const library = ['l1', 'l2', 'l3'].map((iid) => named(iid, 'c-bolt'));
+  const store = await discoverTable(
+    [
+      named('q1', 'c-quintorius', { counters: { loyalty: 5 } }),
+      named('q2', 'c-quintorius', { counters: { loyalty: 3 } }),
+      named('q3', 'c-quintorius'),
+    ],
+    library,
+  );
+  const key = discoverKey('c-quintorius');
+  const use = (iid: string, top: CardInstance) =>
+    store.getState().activateAbility(0, iid, key, { discover: { plan: plan([top], true), take: 'hand', n: 4 } });
+  await use('q1', library[0]);
+  expect(it(store, 'q1').counters).toEqual({ loyalty: 2 });
+  expect(lastFeed(store)).toBe('Nathan: Quintorius Kand −3 — discover 4: Lightning Bolt into their hand');
+  await use('q2', library[1]);
+  expect(mine(store).graveyard.map((c) => c.iid)).toEqual(['q2']);
+  await use('q3', library[2]);
+  expect(it(store, 'q3').counters).toBeUndefined();
+  expect(mine(store).hand.map((c) => c.iid)).toEqual(['l1', 'l2', 'l3']);
+  expect(tappedLands(store)).toBe(0);
+});
+
+test('Buried Treasure is used from the graveyard: {5}, and the card goes to exile', async () => {
+  const store = await discoverTable([], [named('l1', 'c-bolt')], [named('t1', 'c-treasure')]);
+  await store.getState().activateAbility(0, 't1', discoverKey('c-treasure'), { discover: { plan: plan([named('l1', 'c-bolt')], true), take: 'cast', n: 5 } });
+  expect(mine(store).exile.map((c) => c.iid)).toEqual(['t1']);
+  expect(mine(store).graveyard.map((c) => c.iid)).toEqual(['l1']);
+  expect(tappedLands(store)).toBe(5);
+  expect(lastFeed(store)).toBe('Nathan: Buried Treasure (exiled from the graveyard) — discover 5: casts Lightning Bolt');
+});
+
+test('Ellie and Alan exile the creature card picked to pay; with none picked, nothing happens', async () => {
+  const store = await discoverTable([named('e1', 'c-ellie')], [named('l1', 'c-bolt')], [named('g1', 'c-giant')]);
+  const key = discoverKey('c-ellie');
+  const asked = { plan: plan([named('l1', 'c-bolt')], true), take: 'hand' as const, n: 4 };
+  const before = store.getState().game;
+  await store.getState().activateAbility(0, 'e1', key, { discover: asked });
+  expect(store.getState().game).toBe(before);
+  await store.getState().activateAbility(0, 'e1', key, { discover: { ...asked, pick: 'g1' } });
+  expect(mine(store).exile.map((c) => c.iid)).toEqual(['g1']);
+  expect(it(store, 'e1').tapped).toBe(true);
+  expect(lastFeed(store)).toBe('Nathan: Ellie and Alan, Paleontologists (exiling Hill Giant) — discover 4: Lightning Bolt into their hand');
+});
+
+test('Swashbuckler’s Whip: the creature wearing it taps, and the lands pay {8}', async () => {
+  const store = await discoverTable(
+    [named('b1', 'c-bear'), named('w1', 'c-whip', { on: { seat: 0, kind: 'card', id: 'b1' } })],
+    [named('l1', 'c-bolt')],
+  );
+  const records = Object.fromEntries(DISCOVERERS.map((r) => [r.id, r]));
+  const [ability] = abilitiesWorn(store.getState().game!, { seat: 0, kind: 'card', id: 'b1' }, records);
+  expect(ability.key).toBe('w1/0.1:discover');
+  await store.getState().activateAbility(0, 'b1', ability.key, { discover: { plan: plan([named('l1', 'c-bolt')], true), take: 'cast', n: 10 } });
+  expect(it(store, 'b1').tapped).toBe(true);
+  expect(tappedLands(store)).toBe(8);
+  expect(lastFeed(store)).toBe("Nathan: Grizzly Bears (with Swashbuckler's Whip) — discover 10: casts Lightning Bolt");
 });

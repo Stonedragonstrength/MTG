@@ -1,11 +1,15 @@
 import { useState } from 'react';
+import { abilitiesOf, type Ability } from '../lib/abilities';
 import { isCommander } from '../lib/cards';
 import { reboundTurn } from '../lib/cascade';
-import { castCosts, hasX } from '../lib/pay';
+import { castCosts, hasX, sourcesFrom } from '../lib/pay';
 import type { CardInstance, CardZone } from '../lib/types';
 import { useAppStore } from '../state/store';
+import AbilityRow, { type AbilityUse } from './AbilityRow';
+import DiscoverSheet from './DiscoverSheet';
 import Sheet from './Sheet';
 import { useCardRecords } from './useCardRecords';
+import { useTableRecords } from './useCombat';
 import XCostSheet from './XCostSheet';
 
 interface Props {
@@ -27,11 +31,21 @@ export default function PileSheet({ playerIdx, zone, short = NONE, onClose }: Pr
   const castCommander = useAppStore((s) => s.castCommander);
   const commanderReturned = useAppStore((s) => s.commanderReturned);
   const castFromExile = useAppStore((s) => s.castFromExile);
+  const activateAbility = useAppStore((s) => s.activateAbility);
   const [xFor, setXFor] = useState<string | null>(null); // the commander being cast for X
+  // A Discover from a card's graveyard ability (Buried Treasure), in this sheet's place.
+  const [discovering, setDiscovering] = useState<{ card: CardInstance; ability: Ability; use: AbilityUse } | null>(null);
   const seat = game?.players[playerIdx]?.cards;
   const cards = seat?.[zone] ?? [];
   const shown = zone === 'graveyard' ? [...cards].reverse() : cards;
   const records = useCardRecords(shown);
+  const tableRecords = useTableRecords();
+  // "{5}, Exile this card from your graveyard: Discover 5": used from here.
+  const graveAbilities = (c: CardInstance) => (zone === 'graveyard' ? abilitiesOf(records[c.cardId]).filter((a) => a.graveyard) : []);
+  const sources =
+    zone === 'graveyard' && seat && game && shown.some((c) => graveAbilities(c).length > 0)
+      ? sourcesFrom(seat.battlefield, tableRecords, game.players[playerIdx].board)
+      : [];
   // CR 903.9: a commander stranded here can go home — and only a
   // commander. Seats dealt before commanders were tracked keep the old
   // rule: an empty command zone takes whatever is sent.
@@ -50,6 +64,19 @@ export default function PileSheet({ playerIdx, zone, short = NONE, onClose }: Pr
   // A commander with {X} in its cost: "Cast" asks how much, in this sheet's
   // place. Closing that question closes the lot, like a cast does.
   if (xFor) return <XCostSheet playerIdx={playerIdx} iid={xFor} from="command" onClose={onClose} />;
+  if (discovering) {
+    const { card, ability, use } = discovering;
+    const n = ability.effect.kind === 'discover' ? ability.effect.n : 0;
+    return (
+      <DiscoverSheet
+        playerIdx={playerIdx}
+        n={n === 'exiled' ? null : n}
+        source={card.name}
+        carryOut={(plan, take, value) => activateAbility(playerIdx, card.iid, ability.key, { ...use, discover: { plan, take, n: value } })}
+        onClose={() => onClose()}
+      />
+    );
+  }
 
   return (
     <Sheet title={TITLES[zone]} onClose={onClose} size="wide">
@@ -61,7 +88,7 @@ export default function PileSheet({ playerIdx, zone, short = NONE, onClose }: Pr
       ) : (
         <ul className="pile-list">
           {shown.map((c) => (
-            <li key={c.iid} className="pile-row">
+            <li key={c.iid} className={graveAbilities(c).length > 0 ? 'pile-row pile-row--abilities' : 'pile-row'}>
               {records[c.cardId]?.imageNormal ? (
                 <img className="pile-art" src={records[c.cardId]!.imageNormal!} alt="" loading="lazy" />
               ) : (
@@ -137,6 +164,16 @@ export default function PileSheet({ playerIdx, zone, short = NONE, onClose }: Pr
                   </>
                 )}
               </span>
+              {graveAbilities(c).map((ability) => (
+                <AbilityRow
+                  key={ability.key}
+                  playerIdx={playerIdx}
+                  card={c}
+                  ability={ability}
+                  sources={sources}
+                  onDiscover={(use) => setDiscovering({ card: c, ability, use })}
+                />
+              ))}
             </li>
           ))}
         </ul>

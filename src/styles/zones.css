@@ -5005,6 +5005,10 @@ input[type='checkbox'] {
 /* "· rebounds next turn": a word on where the card stands, after its name. */
 .pile-note { font-size: 0.72rem; opacity: 0.72; }
 .pile-actions { display: flex; gap: 4px; }
+/* A card used from the graveyard (Buried Treasure): its ability on a line of
+   its own under the card's row. */
+.pile-row--abilities { flex-wrap: wrap; }
+.pile-row--abilities .ability-row { flex: 1 0 100%; padding-left: 50px; }
 .pile-actions button { padding: 4px 8px; font-size: 0.72rem; }
 
 /* ---- library: look at the top N (scry, surveil) ---- */

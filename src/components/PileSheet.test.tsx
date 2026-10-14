@@ -235,3 +235,43 @@ test('a card cast with rebound says so in exile, and may be cast from there all 
   expect(screen.queryByText(/rebound/)).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /^cast$/i })).not.toBeInTheDocument();
 });
+
+test('Buried Treasure in the graveyard: its Discover is a row under it, and Use turns the cards over in this sheet’s place', async () => {
+  RECORDS['c-treasure'] = {
+    ...rec('c-treasure', 'Buried Treasure', 'Artifact — Treasure'),
+    oracleText: '{T}, Sacrifice this artifact: Add one mana of any color.\n{5}, Exile this card from your graveyard: Discover 5. Activate only as a sorcery.',
+  };
+  RECORDS['c-bolt'] = { ...rec('c-bolt', 'Lightning Bolt', 'Instant'), manaCost: '{R}' };
+  const g = createGame(config);
+  g.players[0] = {
+    ...g.players[0],
+    cards: {
+      library: [{ iid: 'l1', cardId: 'c-bolt', name: 'Lightning Bolt' }],
+      hand: [],
+      battlefield: [],
+      graveyard: [{ iid: 't1', cardId: 'c-treasure', name: 'Buried Treasure' }],
+      exile: [],
+      command: [],
+      mulligans: 0,
+      deckName: 'Test',
+    },
+  };
+  const activateAbility = vi.fn(async () => {});
+  useAppStore.setState({ game: g, activateAbility });
+  const user = userEvent.setup();
+  render(<PileSheet playerIdx={0} zone="graveyard" onClose={() => {}} />);
+  const row = (await screen.findByText('Discover 5')).closest('.ability-row') as HTMLElement;
+  expect(within(row).getByText('exile it from your graveyard')).toBeInTheDocument();
+  // No lands to pay {5} with.
+  await user.click(within(row).getByRole('button', { name: 'Use without paying' }));
+  expect(await screen.findByRole('heading', { name: 'Discover 5 · Buried Treasure' })).toBeInTheDocument();
+  await screen.findByRole('button', { name: 'Cast Lightning Bolt' });
+  await new Promise((r) => setTimeout(r, 400)); // the sheet takes no tap in its first moment
+  await user.click(screen.getByRole('button', { name: 'Cast Lightning Bolt' }));
+  await waitFor(() =>
+    expect(activateAbility).toHaveBeenCalledWith(0, 't1', '1:discover', {
+      free: true,
+      discover: { plan: expect.objectContaining({ found: expect.objectContaining({ iid: 'l1' }) }), take: 'cast', n: 5 },
+    }),
+  );
+});
