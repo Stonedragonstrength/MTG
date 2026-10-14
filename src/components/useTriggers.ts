@@ -106,7 +106,7 @@ export const useTriggers = create<TriggerState>()((set, get) => ({
 
 /** What a happening is about: what entered, died or attacked, the spell. */
 const thingsOf = (h: Happening): Thing[] =>
-  h.kind === 'cast' ? [h.spell] : h.kind === 'turn' || h.kind === 'combat' ? [] : h.things;
+  h.kind === 'cast' ? [h.spell] : h.kind === 'turn' || h.kind === 'combat' || h.kind === 'life' ? [] : h.things;
 
 /** The records the triggers are read with: every card on a battlefield,
  * and every card and stack the happenings are about (one that died is in a
@@ -164,10 +164,30 @@ async function raise(events: Happening[], depth: number): Promise<void> {
     for (const act of trigger.acts) if (act.auto) run(trigger.key, act.key, undefined, depth + 1);
 }
 
+/** Life changes wait this long for the next one before they count: three
+ * taps on + are one gain of 3, and a + taken back by a − is no gain at all. */
+const LIFE_SETTLE_MS = 1200;
+const lifeWait = new Map<number, { n: number; depth: number; timer: ReturnType<typeof setTimeout> }>();
+
+function lifeChanged(seat: number, n: number, depth: number): void {
+  const was = lifeWait.get(seat);
+  if (was) clearTimeout(was.timer);
+  const total = (was?.n ?? 0) + n;
+  const deepest = Math.max(was?.depth ?? 0, depth);
+  const timer = setTimeout(() => {
+    lifeWait.delete(seat);
+    if (total > 0) void raise([{ kind: 'life', seat, n: total }], deepest).catch(() => {});
+  }, LIFE_SETTLE_MS);
+  lifeWait.set(seat, { n: total, depth: deepest, timer });
+}
+
 useAppStore.subscribe((state, prev) => {
   if (state.happened && state.happened !== prev.happened) {
+    const events = state.happened.events;
+    for (const e of events) if (e.kind === 'life') lifeChanged(e.seat, e.n, chain);
+    const now = events.filter((e) => e.kind !== 'life');
     // A failed read sets nothing off, nothing worse.
-    void raise(state.happened.events, chain).catch(() => {});
+    if (now.length > 0) void raise(now, chain).catch(() => {});
   }
   if (state.game !== prev.game && useTriggers.getState().shown.length > 0) {
     const g = state.game;
@@ -181,5 +201,7 @@ useAppStore.subscribe((state, prev) => {
 /** Test hook: nothing shown, nothing in flight counted. */
 export function _resetTriggers(): void {
   chain = 0;
+  for (const { timer } of lifeWait.values()) clearTimeout(timer);
+  lifeWait.clear();
   useTriggers.setState({ shown: [] });
 }

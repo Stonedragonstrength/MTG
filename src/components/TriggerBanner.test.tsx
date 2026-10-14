@@ -255,3 +255,67 @@ test('casting a noncreature spell sets off the cards waiting for one; a creature
   await waitFor(() => expect(mine().life).toBe(41));
   expect(shown().at(-1)).toMatchObject({ because: 'Lightning Bolt was cast' });
 });
+
+// ---- combat damage and life gained ----
+
+Object.assign(RECORDS, {
+  pridemate: rec('pridemate', "Ajani's Pridemate", 'Creature — Cat Soldier', 'Whenever you gain life, put a +1/+1 counter on this creature.'),
+  blade: rec('blade', 'Scholar’s Blade', 'Artifact — Equipment', 'Whenever equipped creature deals combat damage to a player, you draw a card.\nEquip {2}'),
+});
+const counter = (iid: string) => mine().cards!.battlefield.find((c) => c.iid === iid)?.counters?.p1p1 ?? 0;
+
+test('three taps on + are one gain of 3: "whenever you gain life" goes off once', async () => {
+  start([card('a1', 'pridemate')]);
+  act(() => {
+    useAppStore.getState().adjustLife(0, 1);
+    useAppStore.getState().adjustLife(0, 1);
+    useAppStore.getState().adjustLife(0, 1);
+  });
+  await waitFor(() => expect(counter('a1')).toBe(1), { timeout: 3000 });
+  await act(() => new Promise((r) => setTimeout(r, 1500)));
+  expect(counter('a1')).toBe(1);
+  expect(shown()).toHaveLength(1);
+  expect(shown()[0]).toMatchObject({ because: 'Nathan gained 3 life' });
+});
+
+test('a + taken back by a − is no gain at all', async () => {
+  start([card('a1', 'pridemate')]);
+  act(() => {
+    useAppStore.getState().adjustLife(0, 1);
+    useAppStore.getState().adjustLife(0, -1);
+  });
+  await act(() => new Promise((r) => setTimeout(r, 1600)));
+  expect(counter('a1')).toBe(0);
+  expect(shown()).toEqual([]);
+});
+
+test('an unblocked creature hitting a player sets off what it wears: the Equipment draws', async () => {
+  start([card('b1', 'bear'), { ...card('e1', 'blade'), on: { seat: 0, kind: 'card', id: 'b1' } }]);
+  const store = () => useAppStore.getState();
+  act(() => store().startCombat());
+  act(() => store().setAttacker({ kind: 'card', id: 'b1' }, 1, 1));
+  await act(() => store().confirmAttackers());
+  act(() => store().finishBlocks(1)); // Sam blocks nothing
+  await quiet();
+  expect(mine().cards!.hand).toEqual([]);
+  act(() => store().applyCombat({ players: [{ seat: 1, life: -2 }], deaths: [] }));
+  await waitFor(() => expect(mine().cards!.hand.map((c) => c.iid)).toEqual(['l1']));
+  expect(shown().at(-1)).toMatchObject({ because: 'Grizzly Bears dealt combat damage to a player' });
+});
+
+test('a blocked creature hits nobody: nothing goes off', async () => {
+  start([card('b1', 'bear'), { ...card('e1', 'blade'), on: { seat: 0, kind: 'card', id: 'b1' } }]);
+  const g = useAppStore.getState().game!;
+  useAppStore.setState({
+    game: { ...g, players: g.players.map((p, i) => (i === 1 ? { ...p, cards: { ...mine().cards!, library: [], hand: [], battlefield: [card('w9', 'bear')] } } : p)) },
+  });
+  const store = () => useAppStore.getState();
+  act(() => store().startCombat());
+  act(() => store().setAttacker({ kind: 'card', id: 'b1' }, 1, 1));
+  await act(() => store().confirmAttackers());
+  act(() => store().setBlocker(1, { kind: 'card', id: 'b1' }, { kind: 'card', id: 'w9' }, 1));
+  act(() => store().finishBlocks(1));
+  act(() => store().applyCombat({ players: [], deaths: [] }));
+  await quiet();
+  expect(mine().cards!.hand).toEqual([]);
+});

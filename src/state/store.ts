@@ -20,7 +20,7 @@ import * as gameLib from '../lib/game';
 import * as payLib from '../lib/pay';
 import * as payWithLib from '../lib/payWith';
 import { planEffect, type SpellEffect } from '../lib/spellEffects';
-import { happeningsBetween, type Happening } from '../lib/triggers';
+import { happeningsBetween, unitThing, type Happening } from '../lib/triggers';
 import { isLandCard } from '../lib/turnRules';
 import { playDefeat, playLifeTick, playTurnChime } from '../lib/sound';
 import type {
@@ -1319,12 +1319,27 @@ export function createAppStore() {
         const g = get().game;
         const fight = g && combatLib.liveCombat(g);
         if (!g || !fight) return;
+        // Who got through, for the cards waiting for combat damage to a
+        // player: an attacker nobody blocked, at a player the result has
+        // losing life, or taking poison or commander damage.
+        const hurt = new Set(
+          (outcome?.players ?? [])
+            .filter((p) => p.life < 0 || (p.poison ?? 0) > 0 || Object.values(p.commander ?? {}).some((n) => n > 0))
+            .map((p) => p.seat),
+        );
+        const through = (fight.attacks ?? []).flatMap((a) =>
+          a.blocked || (a.blockers?.length ?? 0) > 0 || !hurt.has(a.target)
+            ? []
+            : (unitThing(g, fight.active, a.unit, a.n ?? 1) ?? []),
+        );
         cardMutate(
           (base) => combatLib.applyCombat(base, fight.id, outcome),
           combatLib.outcomeLine(g, outcome),
           // The result was worked out from these attacks and these blocks:
           // if either changed since, it is the result of another fight.
           (base, orig) => combatLib.sameAttacks(base, orig) && combatLib.sameBlocks(base, orig),
+          undefined,
+          through.length > 0 ? [{ kind: 'damage', combat: fight.id, things: through }] : [],
         );
       },
 

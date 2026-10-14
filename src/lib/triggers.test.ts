@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import { createGame } from './game';
-import { confirmAttackers, setAttack, startCombat } from './combat';
+import { confirmAttackers, finishBlocks, setAttack, setBlock, startCombat } from './combat';
 import {
   actsOf,
   arrivalsBetween,
@@ -423,4 +423,58 @@ test('a spell cast sets off the cards waiting for that kind of spell, its caster
   ]);
   const creature: Happening = { kind: 'cast', seat: 0, spell: { seat: 0, kind: 'card', id: 'h2', cardId: 'bear', name: 'Grizzly Bears', n: 1 } };
   expect(firedBy(g, creature, MORE)).toEqual([]);
+});
+
+// ---- combat damage, life gained, blocks ----
+
+Object.assign(RECORDS, {
+  sword: rec('sword', 'Sword of Fire and Ice', 'Artifact — Equipment', 'Equipped creature gets +2/+2 and has protection from red and from blue.\nWhenever equipped creature deals combat damage to a player, Sword of Fire and Ice deals 2 damage to any target and you draw a card.\nEquip {2}'),
+  curiosity: rec('curiosity', 'Curiosity', 'Enchantment — Aura', 'Enchant creature\nWhenever enchanted creature deals damage to an opponent, you may draw a card.'),
+  ninja: rec('ninja', 'Ninja of the Deep Hours', 'Creature — Human Ninja', 'Ninjutsu {1}{U}\nWhenever this creature deals combat damage to a player, you may return it to its owner’s hand.'),
+  piracy: rec('piracy', 'Coastal Piracy', 'Enchantment', 'Whenever a creature you control deals combat damage to an opponent, you may draw a card.'),
+  pridemate: rec('pridemate', "Ajani's Pridemate", 'Creature — Cat Soldier', 'Whenever you gain life, put a +1/+1 counter on this creature.'),
+  wall: rec('wall', 'Wall of Junk', 'Creature — Wall', 'Whenever this creature blocks, you gain 2 life.'),
+});
+
+test('combat damage to a player, life gained and blocks are read; "equipped creature" is what the card is on', () => {
+  const [hits] = readTriggers(RECORDS.sword);
+  expect(hits).toMatchObject({ event: 'damage', host: true, self: false, other: null });
+  expect(actsOf(hits).map((a) => [a.label, a.auto])).toEqual([
+    ['Deal 2 damage…', false],
+    ['Draw 1', true],
+  ]);
+  expect(readTriggers(RECORDS.curiosity)[0]).toMatchObject({ event: 'damage', host: true, may: true });
+  expect(readTriggers(RECORDS.ninja)[0]).toMatchObject({ event: 'damage', self: true });
+  expect(readTriggers(RECORDS.piracy)[0]).toMatchObject({ event: 'damage', other: { whose: 'you', kinds: [['creature']] } });
+  expect(readTriggers(RECORDS.pridemate)[0]).toMatchObject({ event: 'gain', other: { whose: 'you' } });
+  expect(actsOf(readTriggers(RECORDS.pridemate)[0])).toMatchObject([{ kind: 'grow', n: 1, auto: true }]);
+  expect(readTriggers(RECORDS.wall)[0]).toMatchObject({ event: 'blocks', self: true });
+});
+
+test('a hit sets off the Equipment on the creature that hit, and the cards watching hits', () => {
+  const g = table([card('b1', 'bear'), card('b2', 'bear'), card('p1', 'piracy'), { ...card('s1', 'sword'), on: { seat: 0, kind: 'card', id: 'b1' } }]);
+  const hit = (iid: string): Happening => ({ kind: 'damage', combat: 'f1', things: [{ seat: 0, kind: 'card', id: iid, cardId: 'bear', name: 'Grizzly Bears', n: 1 }] });
+  expect(firedBy(g, hit('b1'), RECORDS).map((f) => [f.source.iid, f.because])).toEqual([
+    ['p1', 'Grizzly Bears dealt combat damage to a player'],
+    ['s1', 'Grizzly Bears dealt combat damage to a player'],
+  ]);
+  expect(firedBy(g, hit('b2'), RECORDS).map((f) => f.source.iid)).toEqual(['p1']);
+});
+
+test('life gained sets off "whenever you gain life", once for the gain, the gainer’s own cards only', () => {
+  const g = table([card('a1', 'pridemate')], [card('a9', 'pridemate')]);
+  const gained: Happening = { kind: 'life', seat: 0, n: 3 };
+  expect(firedBy(g, gained, RECORDS).map((f) => [f.source.iid, f.times, f.because])).toEqual([['a1', 1, 'Nathan gained 3 life']]);
+  expect(firedBy(g, { kind: 'life', seat: 0, n: -2 }, RECORDS)).toEqual([]);
+});
+
+test('every defender done blocking: the blocks stand, and the blockers are what blocked', () => {
+  const g = table([card('b1', 'bear')], [card('w9', 'wall')]);
+  let fight = startCombat(g, { id: 'f1', turn: g.turnNumber, active: 0 });
+  fight = setAttack(fight, 'f1', { kind: 'card', id: 'b1' }, 1, 1);
+  fight = confirmAttackers(fight, 'f1', { cards: [], stacks: {} });
+  const blocked = finishBlocks(setBlock(fight, 'f1', 1, { kind: 'card', id: 'b1' }, { kind: 'card', id: 'w9' }, 1), 'f1', 1);
+  const [blocks] = happeningsBetween(fight, blocked).filter((e) => e.kind === 'blocks');
+  expect(blocks).toEqual({ kind: 'blocks', combat: 'f1', things: [{ seat: 1, kind: 'card', id: 'w9', cardId: 'wall', name: 'Wall of Junk', n: 1 }] });
+  expect(firedBy(blocked, blocks, RECORDS).map((f) => [f.source.iid, f.because])).toEqual([['w9', 'It blocked']]);
 });

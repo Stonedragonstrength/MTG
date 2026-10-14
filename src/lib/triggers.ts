@@ -48,7 +48,15 @@ export type Happening =
   /** A turn passed: `ended`'s end step was behind it, `began`'s upkeep ahead. */
   | { kind: 'turn'; ended: number; began: number; turn: number }
   /** A fight began on `seat`'s turn. */
-  | { kind: 'combat'; seat: number; combat: string };
+  | { kind: 'combat'; seat: number; combat: string }
+  /** Every defender has blocked: these blocked. */
+  | { kind: 'blocks'; combat: string; things: Thing[] }
+  /** A fight's result was applied: these attackers got through to a
+   * player who took damage (the store says so — the table alone cannot). */
+  | { kind: 'damage'; combat: string; things: Thing[] }
+  /** A seat's life changed by `n` (the trigger engine adds a burst of
+   * taps on + up into one gain before anything is set off). */
+  | { kind: 'life'; seat: number; n: number };
 
 const sameThing = (it: { cardId: string | null; name: string }) => `${it.cardId ?? ''}|${it.name}`;
 
@@ -111,6 +119,17 @@ export function departuresBetween(prev: GameState, next: GameState): Thing[] {
   return out;
 }
 
+/** One creature in a fight, as a thing: a card, or so many copies of a stack. */
+export function unitThing(g: GameState, seat: number, unit: { kind: 'card' | 'stack'; id: string }, n = 1): Thing | null {
+  const player = g.players[seat];
+  if (unit.kind === 'card') {
+    const c = player?.cards?.battlefield.find((x) => x.iid === unit.id);
+    return c ? { seat, kind: 'card', id: c.iid, cardId: c.cardId, name: c.name, n: 1 } : null;
+  }
+  const it = player?.board.find((x) => x.id === unit.id);
+  return it ? { seat, kind: 'stack', id: it.id, cardId: it.cardId, name: it.name, n, typeLine: it.typeLine } : null;
+}
+
 /** Everything that happened between two states of the table, in the order
  * the game has it: a turn passing, a fight beginning, an attack, deaths,
  * arrivals. (A cast is not here: the store says so itself.) */
@@ -123,20 +142,20 @@ export function happeningsBetween(prev: GameState, next: GameState): Happening[]
   if (after && before?.id !== after.id) out.push({ kind: 'combat', seat: after.active, combat: after.id });
   const declared = after && after.step !== 'attackers' && (before?.id !== after.id || before.step === 'attackers');
   if (after && declared && (after.attacks?.length ?? 0) > 0) {
-    const player = next.players[after.active];
-    const things: Thing[] = [];
-    for (const a of after.attacks ?? []) {
-      if (a.unit.kind === 'card') {
-        const c = player?.cards?.battlefield.find((x) => x.iid === a.unit.id);
-        if (c) things.push({ seat: after.active, kind: 'card', id: c.iid, cardId: c.cardId, name: c.name, n: 1 });
-      } else {
-        const it = player?.board.find((x) => x.id === a.unit.id);
-        if (it)
-          things.push({ seat: after.active, kind: 'stack', id: it.id, cardId: it.cardId, name: it.name, n: a.n ?? 1, typeLine: it.typeLine });
-      }
-    }
+    const things = (after.attacks ?? []).flatMap((a) => unitThing(next, after.active, a.unit, a.n ?? 1) ?? []);
     if (things.length > 0) out.push({ kind: 'attacks', seat: after.active, combat: after.id, things });
   }
+  // Every defender has blocked: the blocks stand.
+  if (after && before?.id === after.id && before.step === 'blockers' && after.step === 'damage') {
+    const things = (after.attacks ?? []).flatMap((a) =>
+      (a.blockers ?? []).flatMap((b) => unitThing(next, a.target, b, b.n ?? 1) ?? []),
+    );
+    if (things.length > 0) out.push({ kind: 'blocks', combat: after.id, things });
+  }
+  next.players.forEach((p, seat) => {
+    const was = prev.players[seat]?.life;
+    if (was !== undefined && p.life !== was) out.push({ kind: 'life', seat, n: p.life - was });
+  });
   const dead = departuresBetween(prev, next);
   if (dead.length > 0) out.push({ kind: 'dies', things: dead });
   const arrived = arrivalsBetween(prev, next);
@@ -161,6 +180,13 @@ export function stillHappened(g: GameState, h: Happening): boolean {
       return g.combat?.id === h.combat && g.combat.step !== 'attackers';
     case 'combat':
       return g.combat?.id === h.combat;
+    // Taken back to choosing blockers, or to the result not yet applied: off.
+    case 'blocks':
+      return !(g.combat?.id === h.combat && (g.combat.step === 'attackers' || g.combat.step === 'blockers'));
+    case 'damage':
+      return !(g.combat?.id === h.combat && g.combat.step !== 'done');
+    case 'life':
+      return true;
     case 'cast':
       return !g.players[h.seat]?.cards?.hand.some((c) => c.iid === h.spell.id);
     case 'turn':
@@ -172,7 +198,7 @@ export function stillHappened(g: GameState, h: Happening): boolean {
 
 /** What a trigger waits for. 'upkeep' stands for the start of a turn (its
  * upkeep, draw step, first main phase), 'end' for its end step. */
-export type TriggerEvent = 'enters' | 'dies' | 'attacks' | 'cast' | 'upkeep' | 'end' | 'combat';
+export type TriggerEvent = 'enters' | 'dies' | 'attacks' | 'blocks' | 'damage' | 'cast' | 'gain' | 'upkeep' | 'end' | 'combat';
 
 /** One triggered ability of a card, for one event it waits for. */
 export interface Trigger {
@@ -194,6 +220,9 @@ export interface Trigger {
   may: boolean;
   /** What it does, with the card's own name written "~". */
   effect: string;
+  /** It waits for the creature this Equipment or Aura is on ("Whenever
+   * equipped creature deals combat damage to a player"). */
+  host?: true;
 }
 /** The older name, from when only entering was read. */
 export type EntersTrigger = Trigger;
@@ -206,7 +235,14 @@ const TAIL = '(?: the battlefield)?(?: under your control)?';
 // "When this creature enters", "Whenever another creature you control dies",
 // "Whenever this creature enters or attacks", "Whenever you attack": the
 // subject holds no comma.
-const MOVES = new RegExp(`${LEAD}When(?:ever)? ([^,.]+?) (enters?|dies|die|attacks?)(${TAIL})(?: or ([a-z' ]+?))?(${TAIL}), (.+)$`, 'i');
+const MOVES = new RegExp(`${LEAD}When(?:ever)? ([^,.]+?) (enters?|dies|die|attacks?|blocks?)(${TAIL})(?: or ([a-z' ]+?))?(${TAIL}), (.+)$`, 'i');
+// "Whenever this creature deals combat damage to a player", "Whenever one or
+// more Ninja you control deal combat damage to a player".
+const HITS = new RegExp(
+  `${LEAD}Whenever ([^,.]+?) deals? (?:combat )?damage to (?:a player|an opponent|one or more players|a player or (?:planeswalker|battle)|an opponent or planeswalker), (.+)$`,
+  'i',
+);
+const GAINS = new RegExp(`${LEAD}Whenever (you|an opponent|a player) gains? life, (.+)$`, 'i');
 const CASTS = new RegExp(
   `${LEAD}Whenever (you|an opponent|a player|another player) casts? (?:or cop(?:y|ies) )?(?:an?|another) (?:([a-z][a-z ,-]*?) )?spell, (.+)$`,
   'i',
@@ -224,7 +260,18 @@ const BEYOND = /\b(?:with|that|of|named|from|during|if|while|and|other than|for 
 const CONDITION =
   /\b(?:if|unless|instead|as long as|only|at the beginning of|the next|at (?:the )?end of|choose|chooses|choice)\b/i;
 
-const VERB: Record<string, TriggerEvent> = { enter: 'enters', enters: 'enters', die: 'dies', dies: 'dies', attack: 'attacks', attacks: 'attacks' };
+const VERB: Record<string, TriggerEvent> = {
+  enter: 'enters',
+  enters: 'enters',
+  die: 'dies',
+  dies: 'dies',
+  attack: 'attacks',
+  attacks: 'attacks',
+  block: 'blocks',
+  blocks: 'blocks',
+};
+/** "Equipped creature", "enchanted creature": what the card is on. */
+const ITS_HOST = /^(?:equipped|enchanted) creature$/;
 
 type Other = NonNullable<Trigger['other']>;
 
@@ -273,16 +320,39 @@ export function readTriggers(record: Pick<CardRecord, 'name' | 'oracleText'> | n
     /^this [a-z]+$/.test(subject) ||
     (subject.length >= 3 && !/^(?:an?|another|one|each|this|the|you) /.test(subject) && `${name.toLowerCase()} `.startsWith(`${subject} `));
   const out: Trigger[] = [];
-  const add = (text: string, event: TriggerEvent, self: boolean, other: (Other & { unsure: boolean }) | null, effect: string) =>
+  const add = (
+    text: string,
+    event: TriggerEvent,
+    self: boolean,
+    other: (Other & { unsure: boolean }) | null,
+    effect: string,
+    host = false,
+  ) =>
     out.push({
       text,
       event,
       self,
       other: other ? { whose: other.whose, kinds: other.kinds, another: other.another, once: other.once } : null,
       unsure: (other?.unsure ?? false) || CONDITION.test(effect),
-      may: /\byou may\b/i.test(effect),
+      // "You may", and also "its controller may": somebody decides.
+      may: /\bmay\b/i.test(effect),
       effect,
+      ...(host ? { host: true as const } : {}),
     });
+  /** Who a subject is: the card itself, what it is on, or something else. */
+  const subjectOf = (subject: string, underYou: boolean) => {
+    if (itself(subject)) return { self: true, host: false, other: null };
+    if (ITS_HOST.test(subject)) return { self: false, host: true, other: null };
+    const both = subject.match(ITSELF_OR);
+    if (both && itself(both[1])) {
+      const some = both[2].match(SOMETHING);
+      const other = some ? readOther(some[1], some[2], underYou) : null;
+      return other ? { self: true, host: false, other } : null;
+    }
+    const some = subject.match(SOMETHING);
+    const other = some ? readOther(some[1], some[2], underYou) : null;
+    return other ? { self: false, host: false, other } : null;
+  };
 
   for (const raw of record.oracleText.split('\n//\n')[0].split('\n')) {
     const text = raw.replace(/\s*\([^)]*\)/g, '').trim();
@@ -298,6 +368,19 @@ export function readTriggers(record: Pick<CardRecord, 'name' | 'oracleText'> | n
       continue;
     }
 
+    const gain = line.match(GAINS);
+    if (gain) {
+      add(text, 'gain', false, { whose: whoseOf(gain[1]), kinds: [[]], another: false, once: true, unsure: false }, gain[2]);
+      continue;
+    }
+
+    const hit = line.match(HITS);
+    if (hit) {
+      const who = subjectOf(hit[1].toLowerCase(), false);
+      if (who) add(text, 'damage', who.self, who.other, hit[2], who.host);
+      continue;
+    }
+
     const cast = line.match(CASTS);
     if (cast) {
       const kinds = cast[2] ? kindsOf(cast[2].toLowerCase()) : [[]];
@@ -309,29 +392,24 @@ export function readTriggers(record: Pick<CardRecord, 'name' | 'oracleText'> | n
     if (!m) continue;
     const subject = m[1].toLowerCase();
     const events = [VERB[m[2].toLowerCase()]];
-    const also = m[4]?.toLowerCase().match(/^(enters?|dies|die|attacks?)(?: the battlefield)?$/);
+    const also = m[4]?.toLowerCase().match(/^(enters?|dies|die|attacks?|blocks?)(?: the battlefield)?$/);
     if (also && !events.includes(VERB[also[1]])) events.push(VERB[also[1]]);
     const underYou = /under your control/i.test(`${m[3]}${m[5]}`);
     const effect = m[6];
-    let self = false;
-    let other: ReturnType<typeof readOther> = null;
-    const both = subject.match(ITSELF_OR);
-    if (itself(subject)) self = true;
-    else if (subject === 'you') {
+    if (subject === 'you') {
       // "Whenever you attack": once a fight, whatever attacks.
-      if (!events.includes('attacks')) continue;
-      other = { whose: 'you', kinds: [[]], another: false, once: true, unsure: false };
-    } else if (both && itself(both[1])) {
-      self = true;
-      const some = both[2].match(SOMETHING);
-      other = some ? readOther(some[1], some[2], underYou) : null;
-      if (!other) continue;
-    } else {
-      const some = subject.match(SOMETHING);
-      other = some ? readOther(some[1], some[2], underYou) : null;
-      if (!other) continue; // not something the table knows how to watch for
+      if (events.includes('attacks'))
+        add(text, 'attacks', false, { whose: 'you', kinds: [[]], another: false, once: true, unsure: false }, effect);
+      continue;
     }
-    for (const event of events) add(text, event, self, other, effect);
+    const who = subjectOf(subject, underYou);
+    if (!who) continue; // not something the table knows how to watch for
+    for (const event of events) {
+      // What a card is on can be watched while it fights; once it has died
+      // or before it arrives, the Equipment is on nothing.
+      if (who.host && event !== 'attacks' && event !== 'blocks') continue;
+      add(text, event, who.self, who.other, effect, who.host);
+    }
   }
   return out;
 }
@@ -497,7 +575,13 @@ function fits(other: Other, seat: number, t: Thing, e: Seen): boolean {
   return other.kinds.some((words) => words.every((word) => wordFits(word, e)));
 }
 
-const VERBED: Partial<Record<TriggerEvent, string>> = { enters: 'entered', dies: 'died', attacks: 'attacked' };
+const VERBED: Partial<Record<TriggerEvent, string>> = {
+  enters: 'entered',
+  dies: 'died',
+  attacks: 'attacked',
+  blocks: 'blocked',
+  damage: 'dealt combat damage to a player',
+};
 
 /** The triggers one happening sets off, on every seat's side: each card on
  * a battlefield — and, for deaths, each card that died with them: a dying
@@ -507,9 +591,10 @@ const VERBED: Partial<Record<TriggerEvent, string>> = { enters: 'entered', dies:
 export function firedBy(g: GameState, h: Happening, records: Records): Fired[] {
   const out: Fired[] = [];
   const nameOf = (seat: number) => g.config.profiles[seat]?.name ?? '?';
-  const sources: { seat: number; iid: string; cardId: string; name: string }[] = [];
+  const sources: { seat: number; iid: string; cardId: string; name: string; on?: { seat: number; kind: string; id: string } }[] = [];
   g.players.forEach((player, seat) => {
-    for (const c of player.cards?.battlefield ?? []) sources.push({ seat, iid: c.iid, cardId: c.cardId, name: c.name });
+    for (const c of player.cards?.battlefield ?? [])
+      sources.push({ seat, iid: c.iid, cardId: c.cardId, name: c.name, ...(c.on ? { on: c.on } : {}) });
   });
   if (h.kind === 'dies')
     for (const t of h.things) if (t.kind === 'card' && t.cardId) sources.push({ seat: t.seat, iid: t.id, cardId: t.cardId, name: t.name });
@@ -537,6 +622,14 @@ export function firedBy(g: GameState, h: Happening, records: Records): Fired[] {
         continue;
       }
 
+      if (h.kind === 'life') {
+        if (trigger.event !== 'gain' || !trigger.other || h.n <= 0) continue;
+        const whose = trigger.other.whose;
+        if ((whose === 'you' && h.seat !== source.seat) || (whose === 'opponent' && h.seat === source.seat)) continue;
+        push(1, `${nameOf(h.seat)} gained ${h.n} life`, false);
+        continue;
+      }
+
       if (h.kind === 'cast') {
         if (trigger.event !== 'cast' || !trigger.other || h.spell.id === source.iid) continue;
         const e = seen(h.spell, records);
@@ -552,9 +645,11 @@ export function firedBy(g: GameState, h: Happening, records: Records): Fired[] {
       for (const t of h.things) {
         const itself = t.kind === 'card' && t.seat === source.seat && t.id === source.iid;
         const e = seen(t, records);
-        const ok = itself
-          ? trigger.self || (!!trigger.other && !trigger.other.another && !!e && fits(trigger.other, source.seat, t, e))
-          : !!trigger.other && !!e && fits(trigger.other, source.seat, t, e);
+        const ok = trigger.host
+          ? !!source.on && source.on.seat === t.seat && source.on.kind === t.kind && source.on.id === t.id
+          : itself
+            ? trigger.self || (!!trigger.other && !trigger.other.another && !!e && fits(trigger.other, source.seat, t, e))
+            : !!trigger.other && !!e && fits(trigger.other, source.seat, t, e);
         if (!ok) continue;
         times += t.n;
         own &&= itself;
