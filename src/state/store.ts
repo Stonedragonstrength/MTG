@@ -28,6 +28,7 @@ import type {
   CardInstance,
   CardRecord,
   CardZone,
+  CombatAttack,
   CombatUnit,
   Deck,
   FeedEntry,
@@ -149,7 +150,10 @@ export interface AppStore {
   /** That seat has finished blocking: the next defender is up, or damage. */
   finishBlocks(defender: number): void;
   /** Damage step: writes the outcome the table confirmed and ends the fight. */
-  applyCombat(outcome: CombatOutcome): void;
+  /** `hits`: the attackers whose damage reached a player (combatReview
+   * hitsOf), for the cards waiting for combat damage to a player. Left out,
+   * every attacker nobody blocked is taken to have hit. */
+  applyCombat(outcome: CombatOutcome, hits?: CombatUnit[]): void;
   /** Calls the fight off: no damage, and what the declaration tapped stands back up. */
   cancelCombat(): void;
   /** A correction: how many times that commander has gone home (its tax ÷ 2). */
@@ -1315,7 +1319,7 @@ export function createAppStore() {
         );
       },
 
-      applyCombat(outcome) {
+      applyCombat(outcome, hits) {
         const g = get().game;
         const fight = g && combatLib.liveCombat(g);
         if (!g || !fight) return;
@@ -1327,10 +1331,12 @@ export function createAppStore() {
             .filter((p) => p.life < 0 || (p.poison ?? 0) > 0 || Object.values(p.commander ?? {}).some((n) => n > 0))
             .map((p) => p.seat),
         );
+        const hit = (a: CombatAttack) =>
+          hits
+            ? hits.some((u) => u.kind === a.unit.kind && u.id === a.unit.id)
+            : !a.blocked && (a.blockers?.length ?? 0) === 0;
         const through = (fight.attacks ?? []).flatMap((a) =>
-          a.blocked || (a.blockers?.length ?? 0) > 0 || !hurt.has(a.target)
-            ? []
-            : (unitThing(g, fight.active, a.unit, a.n ?? 1) ?? []),
+          hit(a) && hurt.has(a.target) ? (unitThing(g, fight.active, a.unit, a.n ?? 1) ?? []) : [],
         );
         cardMutate(
           (base) => combatLib.applyCombat(base, fight.id, outcome),

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest';
+import { keywordsGiven } from './attach';
 import { applyCombat, outcomeDefeats } from './combat';
 import {
   cardsRead,
@@ -1153,5 +1154,58 @@ describe('a pod', () => {
       { seat: 0, life: 8 },
     ]);
     expect(deathsOf(result)).toEqual(['0:giant']);
+  });
+});
+
+describe('what a creature wears', () => {
+  const COLLAR = rec('Basilisk Collar', null, null, 'Equipped creature has deathtouch and lifelink.\nEquip {2}', 'Artifact — Equipment');
+  const RANCOR = rec('Rancor', null, null, 'Enchant creature\nEnchanted creature gets +2/+0 and has trample.\nWhen Rancor is put into a graveyard from the battlefield, return Rancor to its owner’s hand.', 'Enchantment — Aura');
+  const WARHAMMER = rec('Loxodon Warhammer', null, null, 'Equipped creature gets +3/+0 and has trample and lifelink.\nEquip {3}', 'Artifact — Equipment');
+  const GREAVES = rec('Lightning Greaves', null, null, 'Equipped creature has haste and shroud.\nEquip {0}', 'Artifact — Equipment');
+  const SOMETIMES = rec('Sometimes Blade', null, null, 'Equipped creature has first strike as long as you control a Knight.\nEquip {1}', 'Artifact — Equipment');
+  const on = (id: string) => ({ on: { seat: 0, kind: 'card' as const, id } });
+
+  test('the keywords an Equipment or Aura gives are read off its text — plainly given only', () => {
+    expect(keywordsGiven(COLLAR)).toEqual(['deathtouch', 'lifelink']);
+    expect(keywordsGiven(RANCOR)).toEqual(['trample']);
+    expect(keywordsGiven(WARHAMMER)).toEqual(['trample', 'lifelink']);
+    expect(keywordsGiven(GREAVES)).toEqual(['haste', 'shroud']);
+    expect(keywordsGiven(SOMETIMES)).toEqual([]);
+    expect(keywordsGiven(rec('Sword of Fire and Ice', null, null, 'Equipped creature gets +2/+2 and has protection from red and from blue.', 'Artifact — Equipment'))).toEqual(['protection']);
+  });
+
+  test('a creature wearing Basilisk Collar kills what blocks it and gains its controller the life', () => {
+    const t = table({ cards: { bear: BEAR, collar: COLLAR }, wear: { collar: on('bear') } }, { cards: { giant: GIANT } });
+    expect(readUnit(t.g, 0, card('bear'), t.records)?.granted).toEqual(['deathtouch', 'lifelink']);
+    const { result } = fight(t, [{ unit: card('bear'), target: 1, blockers: [card('giant')] }]);
+    expect(deathsOf(result)).toEqual(['0:bear', '1:giant']);
+    expect(result.gains).toEqual([{ seat: 0, life: 2 }]);
+  });
+
+  test('Rancor: +2/+0 and trample — what the blocker does not need goes on to the player', () => {
+    const t = table({ cards: { bear: BEAR, rancor: RANCOR }, wear: { rancor: on('bear') } }, { stacks: [tokens('spirit', 1, 1, 1)] });
+    const { result } = fight(t, [{ unit: card('bear'), target: 1, blockers: [stack('spirit')] }]);
+    expect(deathsOf(result)).toEqual(['1:spirit x1']);
+    expect(playerOf(result, 1)?.life).toBe(-3);
+    expect(result.attacks[0].toPlayer).toBe(3);
+  });
+
+  test('Loxodon Warhammer unblocked: 5 to the player, 5 life to its controller', () => {
+    const t = table({ cards: { bear: BEAR, hammer: WARHAMMER }, wear: { hammer: on('bear') } }, { cards: {} });
+    const { result } = fight(t, [{ unit: card('bear'), target: 1 }]);
+    expect(playerOf(result, 1)?.life).toBe(-5);
+    expect(playerOf(result, 0)?.life).toBe(5);
+  });
+
+  test('Lightning Greaves: the creature it is on may attack the turn it arrives; taken off, it may not', () => {
+    const t = table({ cards: { bear: BEAR, greaves: GREAVES }, wear: { bear: { sick: true }, greaves: on('bear') } });
+    expect(freeToAttack(t.g, 0, card('bear'), t.records)).toBe(1);
+    const bare = table({ cards: { bear: BEAR, greaves: GREAVES }, wear: { bear: { sick: true } } });
+    expect(freeToAttack(bare.g, 0, card('bear'), bare.records)).toBe(0);
+  });
+
+  test('a keyword behind a condition is not given', () => {
+    const t = table({ cards: { bear: BEAR, blade: SOMETIMES }, wear: { blade: on('bear') } });
+    expect(readUnit(t.g, 0, card('bear'), t.records)?.granted).toEqual([]);
   });
 });

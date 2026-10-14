@@ -1,5 +1,6 @@
 import { computedPT } from './board';
 import { hostIsThere, type Host } from './cards';
+import { keywordList } from './keywords';
 import type { CardInstance, CardRecord, GameState } from './types';
 
 /** Auras and Equipment: what they can go on, what is on what. The screen's
@@ -53,6 +54,27 @@ export function sizeGiven(record: Read): Size | null {
     if (m && !DEPENDS.test(sentence)) return { power: Number(m[1]), toughness: Number(m[2]) };
   }
   return null;
+}
+
+// "Equipped creature has haste and shroud", "Enchanted creature gets +2/+0
+// and has trample": one sentence, nothing in front of it.
+const HAS = /^\s*(?:equipped|enchanted) (?:creature|permanent) (?:gets [+-]\d+\/[+-]\d+ and )?has ([^:"“”]+)$/i;
+/** A grant that depends on something, or lasts a while: not standing. */
+const ONLY_SOMETIMES = /\b(?:as long as|if|unless|during|while|until|except|for each)\b/i;
+
+/** The keyword abilities an Aura or Equipment gives what it sits on, where
+ * its text says so plainly: Lightning Greaves' haste, Basilisk Collar's
+ * deathtouch and lifelink, Rancor's trample. Lower case, bare names, as
+ * keywords.ts reads them. One behind a condition ("…has first strike as
+ * long as…") is left to the players. */
+export function keywordsGiven(record: Read): string[] {
+  const out: string[] = [];
+  for (const sentence of frontText(record).replace(/\([^)]*\)/g, '').match(/[^.\n]+/g) ?? []) {
+    const m = sentence.match(HAS);
+    if (!m || ONLY_SOMETIMES.test(m[1])) continue;
+    for (const keyword of keywordList(m[1])) if (!out.includes(keyword)) out.push(keyword);
+  }
+  return out;
 }
 
 /** "+2/+0", "-1/-1": a change of size as the table writes it. */
@@ -111,6 +133,15 @@ export function sizeWorn(g: GameState, host: Host, records: Records): Size {
     total.toughness += given.toughness;
   }
   return total;
+}
+
+/** The keywords everything attached to that host gives it, whoever each
+ * belongs to — never stored, like its size: off comes the Equipment, off
+ * go the keywords. */
+export function keywordsWorn(g: GameState, host: Host, records: Records): Set<string> {
+  const out = new Set<string>();
+  for (const { card } of attachedTo(g, host)) for (const keyword of keywordsGiven(records[card.cardId])) out.add(keyword);
+  return out;
 }
 
 /** Is this card drawn tucked under a host (and so not on its own shelf)? */

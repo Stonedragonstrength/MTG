@@ -1,3 +1,4 @@
+import { keywordsWorn } from './attach';
 import { computedPT } from './board';
 import { liveCombat } from './combat';
 import type { CardRecords } from './combatEngine';
@@ -42,12 +43,13 @@ export function tappedToAttack(game: GameState, records: CardRecords): DraftPick
     if (card.row === 'lands' || !card.tapped || (card.spent ?? 0) > 0) continue;
     const record = records[card.cardId];
     if (!record || !/\bCreature\b/.test(record.typeLine.split(' // ')[0])) continue;
-    if (isSummoningSick(card, record, texts)) continue;
+    if (isSummoningSick(card, record, texts, keywordsWorn(game, { seat, kind: 'card', id: card.iid }, records))) continue;
     picks.push({ unit: { kind: 'card', id: card.iid }, n: 1, name: record.name.split(' // ')[0] });
   }
   for (const item of player.board) {
     if (item.zone === 'lands' || computedPT({ ...item, counters: item.counters ?? {} }) === null) continue;
-    const n = Math.min(item.tapped ?? 0, item.count - sickCopies(item, texts));
+    const worn = item.count === 1 ? keywordsWorn(game, { seat, kind: 'stack', id: item.id }, records) : undefined;
+    const n = Math.min(item.tapped ?? 0, item.count - sickCopies(item, texts, worn));
     if (n > 0) picks.push({ unit: { kind: 'stack', id: item.id }, n, name: item.name });
   }
   return picks;

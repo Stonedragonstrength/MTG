@@ -186,3 +186,14 @@ describe('useUpTap', () => {
     expect(useUpTap(g, 0, 'nope')).toBe(g);
   });
 });
+
+test('a creature that arrived this turn wearing Lightning Greaves is turned sideways to attack like any other', () => {
+  const greaves = rec('greaves', 'Lightning Greaves', 'Artifact — Equipment', 'Equipped creature has haste and shroud.\nEquip {0}');
+  const records = { ...RECORDS, greaves };
+  const g = game([
+    card('b1', 'bear', { tapped: true, sick: true }),
+    card('q1', 'greaves', { on: { seat: 0, kind: 'card', id: 'b1' } }),
+    card('b2', 'bear', { tapped: true, sick: true }), // wears nothing: still summoning sick
+  ]);
+  expect(tappedToAttack(g, records).map((p) => p.unit.id)).toEqual(['b1']);
+});

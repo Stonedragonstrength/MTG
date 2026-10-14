@@ -103,6 +103,18 @@ export function toxicOf(oracleText: string): number {
   return keywordAmount(oracleText, 'toxic');
 }
 
+/** The keywords in a list as a grant prints it: "haste and shroud",
+ * "trample, lifelink", "protection from red and from blue" (one keyword).
+ * A piece that is no keyword is left out. */
+export function keywordList(list: string): string[] {
+  const out: string[] = [];
+  for (const piece of list.toLowerCase().split(/[,;]|\band\b/)) {
+    const keyword = readPart(piece.trim());
+    if (keyword && !/^from\b/.test(keyword.name) && !out.includes(keyword.name)) out.push(keyword.name);
+  }
+  return out;
+}
+
 /** What a seat's permanents hand to all of its creatures: "Creatures you
  * control have haste.", "Other creatures you control have trample and
  * haste." ("other" is read as everyone, and a leading condition is taken
@@ -233,13 +245,16 @@ export function permanentTexts(
 /** Is this battlefield card a creature that cannot attack or tap for mana
  * yet? Only when it arrived since its controller's turn began, its record
  * is read, its front face is a creature, and nothing gives it haste. An
- * unread record means no: what the app cannot read never blocks a play. */
+ * unread record means no: what the app cannot read never blocks a play.
+ * `worn`: the keywords its Equipment and Auras give it (lib/attach.ts
+ * keywordsWorn) — Lightning Greaves' haste. */
 export function isSummoningSick(
   card: Pick<CardInstance, 'sick'>,
   record: Pick<CardRecord, 'typeLine' | 'oracleText'> | null | undefined,
   seatTexts: string[],
+  worn?: ReadonlySet<string>,
 ): boolean {
-  if (!card.sick || !record) return false;
+  if (!card.sick || !record || worn?.has('haste')) return false;
   if (!/\bCreature\b/.test(record.typeLine.split(' // ')[0])) return false;
   return !keywordsOf(record.oracleText).has('haste') && !grantedKeywords(seatTexts).has('haste');
 }
@@ -250,9 +265,10 @@ export function isSummoningSick(
 export function sickCopies(
   item: Pick<BoardItem, 'sick' | 'oracleText'>,
   seatTexts: string[],
+  worn?: ReadonlySet<string>,
 ): number {
   const sick = item.sick ?? 0;
-  if (sick <= 0) return 0;
+  if (sick <= 0 || worn?.has('haste')) return 0;
   const hasty = keywordsOf(item.oracleText).has('haste') || grantedKeywords(seatTexts).has('haste');
   return hasty ? 0 : sick;
 }

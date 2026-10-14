@@ -1,7 +1,7 @@
 import { useEffect, type ReactNode } from 'react';
 import { liveCombat, sameUnit } from '../lib/combat';
 import type { Fighter } from '../lib/combatEngine';
-import { reviewCombat, reviewId, setDeaths, type ReviewEdits, type ReviewUnit } from '../lib/combatReview';
+import { hitsOf, reviewCombat, reviewId, setDeaths, type ReviewEdits, type ReviewUnit } from '../lib/combatReview';
 import { useAppStore } from '../state/store';
 import Sheet from './Sheet';
 import { editsFor, unitArt, useCombatEdits, useTableRecords } from './useCombat';
@@ -161,7 +161,7 @@ export default function CombatReviewSheet({ onClose }: Props) {
       onClose={onClose}
       footer={
         <>
-          <button className="primary" onClick={() => applyCombat(review.outcome)}>
+          <button className="primary" onClick={() => applyCombat(review.outcome, hitsOf(review))}>
             Apply
           </button>
           <button className="ghost" onClick={() => onClose()}>

@@ -1,3 +1,4 @@
+import { keywordsGiven } from './attach';
 import { isSummoningSick, permanentTexts, sickCopies, tapsAsThoughHasty } from './keywords';
 import { tapManaFromText, type ManaColor } from './mana';
 import { isLandCard } from './turnRules';
@@ -412,11 +413,18 @@ export function sourcesFrom(
     for (const g of extra) if (!produces.includes(g)) produces.push(g);
   };
 
+  // Haste from what a creature wears: an Equipment of this seat on it.
+  const wears = (iid: string) =>
+    new Set(
+      battlefield
+        .filter((a) => a.on?.kind === 'card' && a.on.id === iid)
+        .flatMap((a) => keywordsGiven(records[a.cardId])),
+    );
   for (const c of battlefield) {
     const record = records[c.cardId];
     if (!record) continue; // unresolved: its text is not readable yet
     // Tapping it by hand stays legal (crew, convoke) — it just floats nothing.
-    if (!tapsAtOnce && isSummoningSick(c, record, texts)) continue;
+    if (!tapsAtOnce && isSummoningSick(c, record, texts, wears(c.iid))) continue;
     const creature = /Creature/.test(record.typeLine);
     const own = tapManaFromText(record.oracleText);
     const produces = [...own.produces];

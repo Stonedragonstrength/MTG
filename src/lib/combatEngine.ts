@@ -1,4 +1,4 @@
-import { sizeWorn, type Size } from './attach';
+import { keywordsWorn, sizeWorn, type Size } from './attach';
 import { computedPT } from './board';
 import { copiesOf, type CombatOutcome } from './combat';
 import { commanderKey } from './commanders';
@@ -140,12 +140,14 @@ function keywordsFor(
   text: string,
   key: string,
   grants: Grants,
+  worn: ReadonlySet<string> = new Set(),
 ): Pick<UnitRead, 'printed' | 'granted' | 'toxic'> {
   const own = keywordsOf(text);
   const handed = grants.to(key);
   return {
     printed: COMBAT_KEYWORDS.filter((k) => own.has(k)),
-    granted: COMBAT_KEYWORDS.filter((k) => handed.has(k) && !own.has(k)),
+    // Handed out by another permanent, or given by an Equipment or Aura it wears.
+    granted: COMBAT_KEYWORDS.filter((k) => (handed.has(k) || worn.has(k)) && !own.has(k)),
     toxic: toxicOf(text) + grants.amount(key, 'toxic'),
   };
 }
@@ -160,6 +162,7 @@ function readCard(game: GameState, read: SeatRead, card: CardInstance, records: 
   const toughness = plainNumber(record?.toughness);
   const unsized = power === null || toughness === null || (power === 0 && toughness === 0);
   const worn = sizeWorn(game, { seat: read.seat, kind: 'card', id: card.iid }, records);
+  const wornKeywords = keywordsWorn(game, { seat: read.seat, kind: 'card', id: card.iid }, records);
   return {
     unit,
     seat: read.seat,
@@ -168,10 +171,10 @@ function readCard(game: GameState, read: SeatRead, card: CardInstance, records: 
     unread: !record || (unsized && plus === 0),
     power: Math.max(0, (power ?? 0) + plus + worn.power),
     toughness: (toughness ?? 0) + plus + worn.toughness,
-    ...keywordsFor(record?.oracleText ?? '', unitKey(unit), read.grants),
+    ...keywordsFor(record?.oracleText ?? '', unitKey(unit), read.grants, wornKeywords),
     commander: commanderKey(game, read.seat, unit),
     count: 1,
-    canAttack: creature && !card.tapped && !isSummoningSick(card, record, read.texts) ? 1 : 0,
+    canAttack: creature && !card.tapped && !isSummoningSick(card, record, read.texts, wornKeywords) ? 1 : 0,
     canBlock: creature && !card.tapped ? 1 : 0,
   };
 }
@@ -188,6 +191,7 @@ function readStack(game: GameState, read: SeatRead, item: BoardItem, records: Ca
   const standing = Math.max(0, count - (item.tapped ?? 0));
   // One Equipment is on one token: a stack of several does not all wear it.
   const worn = count === 1 ? sizeWorn(game, { seat: read.seat, kind: 'stack', id: item.id }, records) : NO_SIZE;
+  const wornKeywords = count === 1 ? keywordsWorn(game, { seat: read.seat, kind: 'stack', id: item.id }, records) : new Set<string>();
   return {
     unit,
     seat: read.seat,
@@ -196,10 +200,10 @@ function readStack(game: GameState, read: SeatRead, item: BoardItem, records: Ca
     unread: unsized && plus === 0,
     power: Math.max(0, (item.basePower ?? 0) + plus + worn.power),
     toughness: (item.baseToughness ?? 0) + plus + worn.toughness,
-    ...keywordsFor(item.oracleText ?? '', unitKey(unit), read.grants),
+    ...keywordsFor(item.oracleText ?? '', unitKey(unit), read.grants, wornKeywords),
     commander: commanderKey(game, read.seat, unit),
     count,
-    canAttack: creature ? Math.max(0, Math.min(standing, count - sickCopies(item, read.texts))) : 0,
+    canAttack: creature ? Math.max(0, Math.min(standing, count - sickCopies(item, read.texts, wornKeywords))) : 0,
     canBlock: creature ? standing : 0,
   };
 }

@@ -22,6 +22,7 @@ import {
   reviewLines,
   type Incoming,
 } from '../lib/combatView';
+import { hitsOf } from '../lib/combatReview';
 import type { CardRecord, CombatState, CombatUnit, GameState } from '../lib/types';
 import { useAppStore } from '../state/store';
 import CardZoomSheet from './CardZoomSheet';
@@ -359,7 +360,7 @@ function DamageBar({ game, fight }: { game: GameState; fight: CombatState }) {
               <button className="combat-review" onClick={() => setReviewing(true)}>
                 Details…
               </button>
-              <button className="primary combat-go" onClick={() => applyCombat(review.outcome)}>
+              <button className="primary combat-go" onClick={() => applyCombat(review.outcome, hitsOf(review))}>
                 Apply
               </button>
             </>

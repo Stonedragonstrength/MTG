@@ -115,6 +115,11 @@ export interface Review {
   defeats: number[];
 }
 
+/** The attackers whose damage reached a player, as the fight works out —
+ * unblocked ones, and a trampler's damage past its blockers. */
+export const hitsOf = (review: Pick<Review, 'result'>): CombatUnit[] =>
+  review.result.attacks.filter((row) => row.present && row.toPlayer > 0).map((row) => row.unit);
+
 const sum = (ns: number[]) => ns.reduce((a, b) => a + b, 0);
 const whole = (n: unknown): number => (typeof n === 'number' && Number.isFinite(n) ? Math.trunc(n) : 0);
 const atLeastZero = (n: number) => Math.max(0, n);

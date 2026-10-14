@@ -319,3 +319,26 @@ test('a blocked creature hits nobody: nothing goes off', async () => {
   await quiet();
   expect(mine().cards!.hand).toEqual([]);
 });
+
+test('a trampler’s damage past its blocker is a hit: Apply passes it on, and what it wears goes off', async () => {
+  start([card('b1', 'bear'), { ...card('e1', 'blade'), on: { seat: 0, kind: 'card', id: 'b1' } }]);
+  const g = useAppStore.getState().game!;
+  useAppStore.setState({
+    game: { ...g, players: g.players.map((p, i) => (i === 1 ? { ...p, cards: { ...mine().cards!, library: [], hand: [], battlefield: [card('w9', 'bear')] } } : p)) },
+  });
+  const store = () => useAppStore.getState();
+  // Each step's card lookups are let finish before the next: started all at
+  // once, vitest can hand a dynamic import the real card module instead of
+  // the mock above, and then nothing is read.
+  act(() => store().startCombat());
+  await quiet();
+  act(() => store().setAttacker({ kind: 'card', id: 'b1' }, 1, 1));
+  await act(() => store().confirmAttackers());
+  await quiet();
+  act(() => store().setBlocker(1, { kind: 'card', id: 'b1' }, { kind: 'card', id: 'w9' }, 1));
+  act(() => store().finishBlocks(1));
+  await quiet();
+  // Blocked, yet 3 went through (the review says which attacker it was).
+  act(() => store().applyCombat({ players: [{ seat: 1, life: -3 }], deaths: [] }, [{ kind: 'card', id: 'b1' }]));
+  await waitFor(() => expect(mine().cards!.hand.map((c) => c.iid)).toEqual(['l1']));
+});
