@@ -237,6 +237,7 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose, picks = 
               ability={ability}
               sources={sources}
               onDiscover={(use) => setDiscovering({ ability, use, source: card.name })}
+              onUsed={onClose}
             />
           ))}
         </div>

@@ -315,3 +315,64 @@ test('Swashbuckler’s Whip: the creature wearing it taps, and the lands pay {8}
   expect(tappedLands(store)).toBe(8);
   expect(lastFeed(store)).toBe("Nathan: Grizzly Bears (with Swashbuckler's Whip) — discover 10: casts Lightning Bolt");
 });
+
+// ---- a planeswalker's loyalty ----
+
+const WALKERS = [
+  { ...rec('c-quint2', 'Quintorius Kand', 'Legendary Planeswalker — Quintorius', '+1: Create a 3/2 red and white Spirit creature token.\n−3: Discover 4.'), loyalty: '4' },
+  { ...rec('c-nalaar', 'Chandra Nalaar', 'Legendary Planeswalker — Chandra', '+1: Chandra Nalaar deals 1 damage to target player or planeswalker.\n−X: Chandra Nalaar deals X damage to target creature.'), loyalty: '6' },
+];
+
+test('a planeswalker cast from the hand enters with its printed loyalty', async () => {
+  await getDb().cards.bulkPut(WALKERS);
+  const store = table([]);
+  const g = store.getState().game!;
+  const cards = g.players[0].cards!;
+  store.setState({ game: { ...g, players: [{ ...g.players[0], cards: { ...cards, hand: [{ iid: 'q1', cardId: 'c-quint2', name: 'Quintorius Kand' }] } }, g.players[1]] } });
+  await store.getState().playCard(0, 'q1');
+  expect(it(store, 'q1').counters).toEqual({ loyalty: 4 });
+});
+
+test('+1: the loyalty goes up, the feed says what it does, and the table hears of it — one move, one Undo', async () => {
+  await getDb().cards.bulkPut(WALKERS);
+  const store = table([{ iid: 'q1', cardId: 'c-quint2', name: 'Quintorius Kand', counters: { loyalty: 4 } }]);
+  const before = store.getState().game;
+  const plus = abilitiesOf(WALKERS[0])[0];
+  await store.getState().activateAbility(0, 'q1', plus.key);
+  expect(it(store, 'q1').counters).toEqual({ loyalty: 5 });
+  const feed = store.getState().game!.feed!.at(-1)!;
+  expect(feed.text).toBe('Nathan: Quintorius Kand +1 — Create a 3/2 red and white Spirit creature token.');
+  expect(store.getState().happened?.events).toEqual([
+    {
+      kind: 'activated',
+      thing: { seat: 0, kind: 'card', id: 'q1', cardId: 'c-quint2', name: 'Quintorius Kand', n: 1 },
+      text: '+1: Create a 3/2 red and white Spirit creature token.',
+      effect: 'Create a 3/2 red and white Spirit creature token.',
+      feed: feed.id,
+    },
+  ]);
+  store.getState().undo();
+  expect(store.getState().game).toBe(before);
+});
+
+test('−X: X loyalty comes off and the X is said as a number; more than it has is refused', async () => {
+  await getDb().cards.bulkPut(WALKERS);
+  const store = table([{ iid: 'c1', cardId: 'c-nalaar', name: 'Chandra Nalaar', counters: { loyalty: 6 } }]);
+  const minusX = abilitiesOf(WALKERS[1])[1];
+  await store.getState().activateAbility(0, 'c1', minusX.key, { x: 3 });
+  expect(it(store, 'c1').counters).toEqual({ loyalty: 3 });
+  expect(store.getState().game!.feed!.at(-1)!.text).toBe('Nathan: Chandra Nalaar −3 — Chandra Nalaar deals 3 damage to target creature.');
+  expect(store.getState().happened?.events[0]).toMatchObject({ kind: 'activated', effect: '~ deals 3 damage to target creature.' });
+  const before = store.getState().game;
+  await store.getState().activateAbility(0, 'c1', minusX.key, { x: 4 });
+  expect(store.getState().game).toBe(before);
+});
+
+test('loyalty its player keeps by hand is left alone: the ability is still said and heard', async () => {
+  await getDb().cards.bulkPut(WALKERS);
+  const store = table([{ iid: 'q1', cardId: 'c-quint2', name: 'Quintorius Kand' }]);
+  await store.getState().activateAbility(0, 'q1', abilitiesOf(WALKERS[0])[0].key);
+  expect(it(store, 'q1').counters).toBeUndefined();
+  expect(store.getState().game!.feed!.at(-1)!.text).toBe('Nathan: Quintorius Kand +1 — Create a 3/2 red and white Spirit creature token.');
+  expect(store.getState().happened?.events[0]).toMatchObject({ kind: 'activated' });
+});

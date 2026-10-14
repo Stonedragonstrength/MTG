@@ -253,6 +253,10 @@ export interface CardRecord {
   isToken: boolean;
   isBasicLand: boolean;
   priceUsd?: number | null; // present on cards imported after prices shipped
+  /** A planeswalker's printed loyalty ("4"; "X" and the like are kept as
+   * printed); null for a card with none. Absent on records stored before
+   * loyalty was kept — data/scryfall.ts reads such a planeswalker again. */
+  loyalty?: string | null;
   /** The other face of a card that turns over (transform, modal, flip, a
    * two-sided token). null: the card was looked at and has none, though its
    * type line holds two halves (split, adventure). Absent on single-faced
@@ -272,6 +276,8 @@ export interface CardFace {
   colors: string[];
   imageNormal: string | null;
   imageArtCrop: string | null;
+  /** As on CardRecord: the face's printed loyalty, null for none. */
+  loyalty?: string | null;
 }
 
 // ---- combat on the cards ----

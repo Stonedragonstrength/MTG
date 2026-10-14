@@ -234,7 +234,7 @@ export const useTriggers = create<TriggerState>()((set, get) => ({
 const thingsOf = (h: Happening): Thing[] =>
   h.kind === 'cast'
     ? [h.spell]
-    : h.kind === 'monstrous' || h.kind === 'lore'
+    : h.kind === 'monstrous' || h.kind === 'lore' || h.kind === 'activated'
       ? [h.thing]
       : h.kind === 'turn' || h.kind === 'combat' || h.kind === 'life'
         ? []

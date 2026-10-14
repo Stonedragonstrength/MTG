@@ -620,6 +620,12 @@ button.primary {
   text-align: center;
 }
 
+/* A planeswalker's ability says what it does in the card's own words. */
+.ability-label--text {
+  font-weight: 400;
+  line-height: 1.35;
+}
+
 /* The rest of the cost, in words: "sacrifice it", "remove two charge counters". */
 .ability-also {
   font-size: 0.8rem;

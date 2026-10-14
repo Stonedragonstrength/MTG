@@ -103,6 +103,51 @@
   display: none;
 }
 
+/* ---- a planeswalker's loyalty ----
+   Bottom right, over the loyalty the card prints, in the shape the card
+   prints it in; it pulses as it changes. */
+.loyalty-badge {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  min-width: 1.8em;
+  height: 1.6em;
+  padding: 0 4px;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.86);
+  border: 1px solid rgba(200, 168, 75, 0.85);
+  border-radius: 3px 3px 50% 50% / 3px 3px 45% 45%;
+  color: #fff;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: badge-pulse 0.25s ease;
+}
+
+.zone--cards.zone--focused .vcard .loyalty-badge,
+.hs-board .vcard .loyalty-badge {
+  right: 4px;
+  bottom: 4px;
+  font-size: 1.05rem;
+}
+
+.zone--cards.zone--focused .board-strip .loyalty-badge {
+  font-size: 0.78rem;
+}
+
+/* A planeswalker that is a creature for now, with counters of that kind: those step aside. */
+.vcard-counter--beside {
+  right: calc(3px + 2.6em);
+}
+
+.focus-mode .zone:not(.zone--focused) .loyalty-badge {
+  display: none;
+}
+
 /* In the card's sheet: which face is up, beside the way to turn it. */
 .face-now {
   margin: 0 0 8px;

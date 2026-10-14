@@ -44,3 +44,13 @@ test('what an arrival still needs, and how the feed says counters', () => {
   expect(countersWords({ p1p1: 2, lore: 1 })).toBe('two +1/+1 counters and a lore counter');
   expect(countersWords({ m1m1: 1 })).toBe('a -1/-1 counter');
 });
+
+test('a planeswalker enters with its printed loyalty; an X, or a face without one, is left to its player', () => {
+  const walker = (loyalty: string | null, typeLine = 'Legendary Planeswalker — Quintorius') => ({ name: 'Quintorius Kand', oracleText: '+1: Draw a card.', typeLine, loyalty });
+  expect(entryCounters(walker('4'))).toEqual({ loyalty: 4 });
+  expect(entryCounters(walker('X'))).toEqual({});
+  expect(entryCounters(walker(null))).toEqual({});
+  // A creature that turns into one: its front has none.
+  expect(entryCounters(walker(null, 'Legendary Creature — Elf Scout // Legendary Planeswalker — Nissa'))).toEqual({});
+  expect(countersWords({ loyalty: 4 })).toBe('four loyalty counters');
+});

@@ -166,3 +166,38 @@ test('a planeswalker’s −3 shows as its cost, and its loyalty counters say wh
   expect(within(row).getByLabelText('loyalty −3')).toHaveTextContent('−3');
   expect(within(row).getByRole('button', { name: 'Not enough loyalty.' })).toBeDisabled();
 });
+
+// ---- a planeswalker's sheet ----
+
+Object.assign(RECORDS, {
+  'c-nalaar': rec(
+    'c-nalaar',
+    'Chandra Nalaar',
+    'Legendary Planeswalker — Chandra',
+    '+1: Chandra Nalaar deals 1 damage to target player or planeswalker.\n−X: Chandra Nalaar deals X damage to target creature.',
+  ),
+});
+
+test('a planeswalker’s loyalty abilities are rows; Use moves its loyalty and puts the sheet away for the banner', async () => {
+  useAppStore.setState({ game: table(0, [card('c1', 'c-nalaar', { counters: { loyalty: 6 } })]) });
+  const onClose = vi.fn();
+  render(<BattlefieldCardSheet playerIdx={0} iid="c1" onClose={onClose} />);
+  const plus = (await screen.findByText('Chandra Nalaar deals 1 damage to target player or planeswalker.')).closest('.ability-row') as HTMLElement;
+  expect(within(plus).getByLabelText('loyalty +1')).toBeInTheDocument();
+  fireEvent.click(within(plus).getByRole('button', { name: 'Use' }));
+  expect(activateAbility).toHaveBeenCalledWith(0, 'c1', '0:loyalty', {});
+  expect(onClose).toHaveBeenCalled();
+});
+
+test('−X asks for X on its row, and says when the loyalty is short of it', async () => {
+  useAppStore.setState({ game: table(0, [card('c1', 'c-nalaar', { counters: { loyalty: 2 } })]) });
+  render(<BattlefieldCardSheet playerIdx={0} iid="c1" onClose={() => {}} />);
+  const row = (await screen.findByText('Chandra Nalaar deals X damage to target creature.')).closest('.ability-row') as HTMLElement;
+  expect(within(row).getByLabelText('loyalty −X')).toBeInTheDocument();
+  expect(within(row).getByText('X=1')).toBeInTheDocument();
+  fireEvent.click(within(row).getByRole('button', { name: 'more X' }));
+  fireEvent.click(within(row).getByRole('button', { name: 'Use' }));
+  expect(activateAbility).toHaveBeenCalledWith(0, 'c1', '1:loyalty', { x: 2 });
+  fireEvent.click(within(row).getByRole('button', { name: 'more X' }));
+  expect(within(row).getByRole('button', { name: 'Not enough loyalty.' })).toBeDisabled();
+});

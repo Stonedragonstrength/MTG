@@ -95,6 +95,7 @@ describe('slimCard keeps the other face', () => {
       colors: ['U'],
       imageNormal: 'https://cards.scryfall.io/normal/aberration.jpg',
       imageArtCrop: 'https://cards.scryfall.io/art_crop/aberration.jpg',
+      loyalty: null,
     });
     // The front is read as it always was.
     expect(card.imageNormal).toBe('https://cards.scryfall.io/normal/delver.jpg');
@@ -226,6 +227,61 @@ describe('getCardById reads a back id as the back face', () => {
   test('an id that is not Scryfall’s is never asked for (and so no test reaches the network)', async () => {
     await getDb().cards.put(oldRecord('c-delver'));
     expect((await getCardById(backId('c-delver')))?.typeLine).toBe('Creature — Human Insect');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('a planeswalker’s loyalty', () => {
+  const fetchMock = vi.fn();
+  const walkerRaw = (id: string) => ({
+    id,
+    name: 'Quintorius Kand',
+    layout: 'normal',
+    type_line: 'Legendary Planeswalker — Quintorius',
+    oracle_text: '+1: Create a 3/2 red and white Spirit creature token.\n−3: Discover 4.',
+    mana_cost: '{3}{R}{W}',
+    loyalty: '4',
+    colors: ['R', 'W'],
+    image_uris: img('quintorius'),
+  });
+
+  beforeEach(async () => {
+    await getDb().cards.clear();
+    fetchMock.mockReset();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  test('is kept as Scryfall prints it — on the back face too — and every other card has none', () => {
+    expect(slimCard(walkerRaw('w'))!.loyalty).toBe('4');
+    const nissa = slimCard({
+      ...delverRaw('n'),
+      card_faces: [delverRaw('n').card_faces[0], { ...delverRaw('n').card_faces[1], type_line: 'Legendary Planeswalker — Nissa', loyalty: '3' }],
+    })!;
+    expect(nissa.loyalty).toBeNull();
+    expect(nissa.back?.loyalty).toBe('3');
+  });
+
+  test('a planeswalker stored before loyalty was kept is read from Scryfall once, and kept', async () => {
+    const id = '55555555-5555-4555-8555-555555555555';
+    const { loyalty: _l, ...old } = slimCard(walkerRaw(id))!;
+    await getDb().cards.put(old);
+    fetchMock.mockResolvedValue(new Response(JSON.stringify(walkerRaw(id)), { status: 200 }));
+    expect((await getCardById(id))?.loyalty).toBe('4');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect((await getDb().cards.get(id))?.loyalty).toBe('4');
+    expect((await getCardById(id))?.loyalty).toBe('4');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('a card that is no planeswalker is never asked for', async () => {
+    const id = '66666666-6666-4666-8666-666666666666';
+    const { loyalty: _l, ...old } = slimCard({ ...walkerRaw(id), type_line: 'Creature — Elephant', loyalty: undefined })!;
+    await getDb().cards.put(old);
+    await getCardById(id);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

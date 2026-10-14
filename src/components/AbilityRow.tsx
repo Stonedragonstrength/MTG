@@ -14,33 +14,38 @@ export interface AbilityUse {
 /** One of a card's abilities: what it costs, what it does, and Use — paid
  * from the lands as it is done ("Use without paying" while the mana is short,
  * as equipping does), with the rest of its cost (a sacrifice, counters,
- * loyalty) said beside the mana. X is asked on the row. A Discover hands the
- * press to `onDiscover`: the cards are turned over first, and the cost is
- * paid with the answer. */
+ * loyalty) said beside the mana. X is asked on the row, for mana or for a
+ * "−X". A Discover hands the press to `onDiscover`: the cards are turned
+ * over first, and the cost is paid with the answer. A planeswalker's other
+ * abilities are done on the trigger banner: `onUsed` puts the sheet away. */
 export default function AbilityRow({
   playerIdx,
   card,
   ability,
   sources,
   onDiscover,
+  onUsed,
 }: {
   playerIdx: number;
   card: CardInstance;
   ability: Ability;
   sources: ManaSource[];
   onDiscover?: (use: AbilityUse) => void;
+  onUsed?: () => void;
 }) {
   const activateAbility = useAppStore((s) => s.activateAbility);
   // A card tapped or sacrificed for its own ability pays nothing towards it.
   const own = ability.tap || ability.sacrifice ? sources.filter((s) => s.key !== card.iid) : sources;
-  const [x, setX] = useState(() => (ability.cost.x ? maxX(ability.cost, own) : 0));
-  const blocked = abilityBlocked(ability, card);
+  const loyaltyX = ability.loyalty === '-X';
+  const [x, setX] = useState(() => (ability.cost.x ? maxX(ability.cost, own) : loyaltyX ? 1 : 0));
+  const blocked = abilityBlocked(ability, card, x);
   const short = !affordable(withX(ability.cost, x), own);
   const xs = ability.cost.x ?? 0;
+  const asksX = xs > 0 || loyaltyX;
   const words = costWords(ability);
   const mana = ability.cost.generic > 0 || ability.cost.pips.length > 0;
   const bare = xs === 0 && !ability.tap && ability.loyalty === undefined && words.length === 0;
-  const use: AbilityUse = { ...(xs > 0 ? { x } : {}), ...(short ? { free: true } : {}) };
+  const use: AbilityUse = { ...(asksX ? { x } : {}), ...(short ? { free: true } : {}) };
   return (
     <div className="ability-row">
       <span className="ability-cost" aria-label="cost">
@@ -56,10 +61,10 @@ export default function AbilityRow({
         {ability.tap && <ManaSymbol symbol="T" label="tap it" />}
         {words.length > 0 && <span className="ability-also">{words.join(', ')}</span>}
       </span>
-      <span className="ability-label">
+      <span className={ability.effect.kind === 'loyalty' ? 'ability-label ability-label--text' : 'ability-label'}>
         {ability.effect.kind === 'level' ? `Level up · now level ${card.counters?.level ?? 0}` : ability.label}
       </span>
-      {xs > 0 && (
+      {asksX && (
         <span className="stepper">
           <button aria-label="less X" onClick={() => setX((n) => Math.max(0, n - 1))}>
             −
@@ -74,11 +79,14 @@ export default function AbilityRow({
         className={short && !blocked ? 'chip ability-use ability-use--free' : 'chip ability-use'}
         disabled={!!blocked}
         title={blocked ?? (short ? 'Not enough mana ready' : undefined)}
-        onClick={() =>
-          ability.effect.kind === 'discover' && onDiscover
-            ? onDiscover(use)
-            : void activateAbility(playerIdx, card.iid, ability.key, use)
-        }
+        onClick={() => {
+          if (ability.effect.kind === 'discover' && onDiscover) {
+            onDiscover(use);
+            return;
+          }
+          void activateAbility(playerIdx, card.iid, ability.key, use);
+          if (ability.effect.kind === 'loyalty') onUsed?.();
+        }}
       >
         {blocked ?? (short ? 'Use without paying' : 'Use')}
       </button>

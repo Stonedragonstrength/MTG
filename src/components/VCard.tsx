@@ -56,6 +56,8 @@ export default function VCard({ card, art, sick, look, names, attached = 0, worn
   // How much bigger (or smaller) than printed: counters and what it wears.
   const change: Size = { power: plus + (worn?.power ?? 0), toughness: plus + (worn?.toughness ?? 0) };
   const tally = tallyOf(card.counters);
+  // A planeswalker's loyalty, where it is kept: over the printed one.
+  const loyalty = card.counters?.loyalty;
   const job = look?.mode === 'attack' ? 'attack' : 'block';
   // The result is waiting and it fought: the tap says whether it dies.
   const judged = picks && look.mode === 'damage';
@@ -94,8 +96,16 @@ export default function VCard({ card, art, sick, look, names, attached = 0, worn
           💤
         </span>
       )}
+      {loyalty !== undefined && (
+        // Keyed: it pulses as the loyalty changes.
+        <span key={loyalty} className="loyalty-badge" role="img" aria-label={`loyalty ${loyalty}`} title={`loyalty ${loyalty}`}>
+          {loyalty}
+        </span>
+      )}
       {(change.power !== 0 || change.toughness !== 0) && (
-        <span className="count-badge vcard-counter">{sizeWords(change)}</span>
+        <span className={loyalty !== undefined ? 'count-badge vcard-counter vcard-counter--beside' : 'count-badge vcard-counter'}>
+          {sizeWords(change)}
+        </span>
       )}
       {attached > 0 && (
         <span className="attached-badge" aria-label={`${attached} attached`}>

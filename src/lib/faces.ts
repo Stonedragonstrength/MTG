@@ -75,6 +75,7 @@ export function backView(record: CardRecord): CardRecord {
         // A flip card has one picture for both faces.
         imageNormal: back.imageNormal ?? record.imageNormal,
         imageArtCrop: back.imageArtCrop ?? record.imageArtCrop,
+        loyalty: back.loyalty,
       }
     : {
         ...front,
@@ -82,6 +83,7 @@ export function backView(record: CardRecord): CardRecord {
         oracleText: record.oracleText.split(TEXT_SPLIT)[1] ?? '',
         power: null,
         toughness: null,
+        loyalty: undefined,
       };
   return { ...view, id: backId(record.id), isBasicLand: view.typeLine.startsWith('Basic Land') };
 }

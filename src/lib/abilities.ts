@@ -31,7 +31,11 @@ export type AbilityEffect =
   /** Level up: one more level counter. */
   | { kind: 'level' }
   /** Discover N; 'exiled': X is the mana value of the card exiled to pay for it. */
-  | { kind: 'discover'; n: number | 'exiled' };
+  | { kind: 'discover'; n: number | 'exiled' }
+  /** Any other loyalty ability of a planeswalker: what it does, as printed
+   * (its own name as "~"). The table moves the loyalty; the trigger banner
+   * does what it can read of the rest, and says the rest. */
+  | { kind: 'loyalty'; text: string };
 
 export interface Ability {
   /** The same for the same ability of the same card: its line, and what it is. */
@@ -46,8 +50,9 @@ export interface Ability {
   sacrifice?: true;
   /** "Remove two charge counters from this artifact" is part of the cost. */
   remove?: { kind: string; n: number };
-  /** A planeswalker's: +1 puts a loyalty counter on it, −3 takes three off. */
-  loyalty?: number;
+  /** A planeswalker's: +1 puts a loyalty counter on it, −3 takes three off;
+   * '-X' takes off as many as its player names. */
+  loyalty?: number | '-X';
   /** "Exile a creature card from your graveyard": its player picks which. */
   exiles?: 'creature';
   /** Activated from the graveyard — "{5}, Exile this card from your
@@ -62,8 +67,8 @@ const MANA = /^(?:\{[^}]+\})+$/;
 const RESTRICTION = /\s*Activate only (?:once each turn|as a sorcery|during your turn)\.?/gi;
 const NUMBER: Record<string, number> = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
 const REMOVE = /^Remove (an?|one|two|three|four|five|six|seven|eight|nine|ten|\d+) ([a-z]+|[+-]1\/[+-]1) counters? from (?:this [a-z]+|~)$/i;
-/** "+1: …", "−3: …", "0: …": a planeswalker's loyalty ability. */
-const LOYALTY = /^([+−-]?)(\d+): (.+)$/;
+/** "+1: …", "−3: …", "0: …", "−X: …": a planeswalker's loyalty ability. */
+const LOYALTY = /^([+−-]?)(\d+|X): (.+)$/;
 
 /** What paying an ability takes, beside its mana. */
 interface Paid {
@@ -71,10 +76,14 @@ interface Paid {
   tap: boolean;
   sacrifice?: true;
   remove?: { kind: string; n: number };
-  loyalty?: number;
+  loyalty?: number | '-X';
   exiles?: 'creature';
   graveyard?: true;
 }
+
+/** How much loyalty it changes by, for that X (`'-X'` takes X off). */
+export const loyaltyChange = (ability: Pick<Ability, 'loyalty'>, x = 0): number =>
+  ability.loyalty === '-X' ? -x : (ability.loyalty ?? 0);
 
 /** "{1}{G}, {T}, Sacrifice this land" → what it takes; null for a cost the
  * table cannot pay in full. */
@@ -95,8 +104,9 @@ function costOf(text: string): Paid | null {
 
 /** One line of rules text, read as an ability (or not): `add` gets each one
  * found, `kind` naming what it is. `loyal`: "+1:" is a loyalty cost here (a
- * planeswalker's line; a creature's "+1:" is Spark, Alchemy's). */
-function readLine(line: string, add: (ability: Omit<Ability, 'key'>, kind: string) => void, loyal: boolean): void {
+ * planeswalker's line; a creature's "+1:" is Spark, Alchemy's). `named`:
+ * what "~" says on the row — the card's name as its text says it. */
+function readLine(line: string, add: (ability: Omit<Ability, 'key'>, kind: string) => void, loyal: boolean, named = '~'): void {
   // "Level up {W}": one more level counter (as a sorcery).
   const levelUp = line.match(/^Level up ((?:\{[^}]+\})+)$/i);
   if (levelUp) {
@@ -113,8 +123,11 @@ function readLine(line: string, add: (ability: Omit<Ability, 'key'>, kind: strin
   const loyalty = loyal ? line.match(LOYALTY) : null;
   const colon = line.indexOf(': ');
   if (!loyalty && colon < 0) return;
+  const minus = !!loyalty?.[1] && loyalty[1] !== '+';
+  // "−X:" is X loyalty off; a "+X:" would be the table's to work out.
+  if (loyalty?.[2] === 'X' && !minus) return;
   const paid: Paid | null = loyalty
-    ? { mana: '', tap: false, loyalty: (loyalty[1] && loyalty[1] !== '+' ? -1 : 1) * Number(loyalty[2]) }
+    ? { mana: '', tap: false, loyalty: loyalty[2] === 'X' ? '-X' : (minus ? -1 : 1) * Number(loyalty[2]) }
     : costOf(line.slice(0, colon));
   if (!paid) return;
   const cost = parseCost(paid.mana);
@@ -129,6 +142,11 @@ function readLine(line: string, add: (ability: Omit<Ability, 'key'>, kind: strin
     add({ label: `Discover ${m[1]}`, cost, tap, ...more, effect: { kind: 'discover', n: Number(m[1]) } }, 'discover');
   } else if (paid.exiles === 'creature' && /^Discover X, where X is the mana value of the exiled card$/i.test(what)) {
     add({ label: 'Discover X', cost, tap, ...more, effect: { kind: 'discover', n: 'exiled' } }, 'discover');
+  } else if (loyalty) {
+    // Whatever else a planeswalker does: its loyalty moves, and the rest is
+    // read where it can be (the trigger banner) and said where it cannot.
+    const text = loyalty[3].trim();
+    add({ label: text.split('~').join(named), cost, tap, ...more, effect: { kind: 'loyalty', text } }, 'loyalty');
   } else if (!stays || paid.exiles) {
     return;
   } else if ((m = what.match(/^Monstrosity (\d+|X)$/i))) {
@@ -225,6 +243,9 @@ export function abilitiesOf(record: Read, level = 0): Ability[] {
   const current = blocks.find((b) => level >= b.min && level <= b.max) ?? null;
   // Loyalty abilities are a planeswalker's (a text without its type line is taken as one).
   const loyal = !record.typeLine || /\bPlaneswalker\b/.test(record.typeLine.split(' // ')[0]);
+  // A legendary card speaks of itself by its first name: "Chandra deals 2 damage".
+  const short = name.includes(',') ? name.split(',')[0].trim() : null;
+  const itself = short ? new RegExp(`\\b${short.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g') : null;
   record.oracleText
     .split('\n//\n')[0]
     .split('\n')
@@ -232,7 +253,8 @@ export function abilitiesOf(record: Read, level = 0): Ability[] {
       // A line under a level the creature has not reached is not on it.
       const inBlock = blocks.find((b) => i >= b.from && i < b.to);
       if (inBlock && inBlock !== current) return;
-      readLine(plain(raw, name), (ability, kind) => out.push({ key: `${i}:${kind}`, ...ability }), loyal);
+      const line = plain(raw, name);
+      readLine(itself ? line.replace(itself, '~') : line, (ability, kind) => out.push({ key: `${i}:${kind}`, ...ability }), loyal, short ?? name);
     });
   return out;
 }
@@ -280,22 +302,23 @@ export function costWords(ability: Ability): string[] {
 }
 
 /** "−3", "+1", "0": a loyalty cost as the card prints it. */
-export const loyaltyWords = (n: number): string => (n > 0 ? `+${n}` : n < 0 ? `−${-n}` : '0');
+export const loyaltyWords = (n: number | '-X'): string => (n === '-X' ? '−X' : n > 0 ? `+${n}` : n < 0 ? `−${-n}` : '0');
 
 /** Why the ability would do nothing on that card right now, or null:
  * Monstrosity on one that is monstrous already, Adapt on one with +1/+1
  * counters, a {T} cost on one that is tapped, counters it has too few of to
- * pay with. Loyalty is counted only on a card that keeps it as counters: one
- * that does not leaves its loyalty to its player. */
+ * pay with (`x`: what −X is). Loyalty is counted only on a card that keeps
+ * it as counters: one that does not leaves its loyalty to its player. */
 export function abilityBlocked(
   ability: Ability,
   card: { tapped?: boolean; counters?: Record<string, number> },
+  x = 0,
 ): string | null {
   if (ability.tap && card.tapped) return 'It is tapped.';
   if (ability.remove && (card.counters?.[ability.remove.kind] ?? 0) < ability.remove.n)
     return `Not enough ${ability.remove.kind === 'p1p1' ? '+1/+1' : ability.remove.kind} counters.`;
-  if ((ability.loyalty ?? 0) < 0 && card.counters?.loyalty !== undefined && card.counters.loyalty < -ability.loyalty!)
-    return 'Not enough loyalty.';
+  const loss = -loyaltyChange(ability, x);
+  if (loss > 0 && card.counters?.loyalty !== undefined && card.counters.loyalty < loss) return 'Not enough loyalty.';
   if (ability.effect.kind === 'counters' && ability.effect.once === 'monstrous' && (card.counters?.monstrous ?? 0) > 0)
     return 'It is monstrous already.';
   if (ability.effect.kind === 'counters' && ability.effect.ifNone && (card.counters?.p1p1 ?? 0) > 0)

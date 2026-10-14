@@ -14,7 +14,7 @@ import { DEFAULT_SETTINGS, getSettings, saveSettings, type Settings } from '../d
 import { hostName, hostOf } from '../lib/attach';
 import { opponentsOf, tappedToAttack } from '../lib/attackDraft';
 import * as boardLib from '../lib/board';
-import { abilitiesOf, abilitiesWorn, abilityBlocked, loyaltyWords } from '../lib/abilities';
+import { abilitiesOf, abilitiesWorn, abilityBlocked, loyaltyChange, loyaltyWords } from '../lib/abilities';
 import { boostCard, boostStack, boostWords, type BoostChange } from '../lib/boost';
 import { castsWithRebound, isSpellCard, type CascadePlan } from '../lib/cascade';
 import { countersWords, entryCounters } from '../lib/entering';
@@ -558,7 +558,9 @@ export function createAppStore() {
       feedText: string | null,
       guard?: SyncOpts['guard'],
       maxAgeMs: number = DAY_MS,
-      also?: Happening[],
+      // What the move did that the table cannot see — told with its feed
+      // line, where it is to be known by that (an Undo takes the line back).
+      also?: Happening[] | ((entry: FeedEntry | null) => Happening[]),
     ) => {
       const entry = feedText ? feedEntry(feedText) : null;
       const fn = (g: GameState) => {
@@ -566,7 +568,7 @@ export function createAppStore() {
         if (after === g) return g;
         return entry ? cardsLib.appendFeed(after, entry) : after;
       };
-      mutateGame(fn, undefined, { guard: guard ?? (() => true), maxAgeMs }, also);
+      mutateGame(fn, undefined, { guard: guard ?? (() => true), maxAgeMs }, typeof also === 'function' ? also(entry) : also);
     };
 
     // A look made on this device is not news to it: when the table calls
@@ -1070,8 +1072,10 @@ export function createAppStore() {
               ...abilitiesWorn(g, host, records),
             ].find((a) => a.key === key)
           : abilitiesOf(records[card.cardId]).find((a) => a.graveyard && a.key === key);
-        if (!ability || (onField && abilityBlocked(ability, card))) return;
-        const x = ability.cost.x ? wholeX(opts?.x) : 0;
+        if (!ability) return;
+        // X: for the mana, or the loyalty "−X" takes off.
+        const x = ability.cost.x || ability.loyalty === '-X' ? wholeX(opts?.x) : 0;
+        if (onField && abilityBlocked(ability, card, x)) return;
         const zone = onField ? 'battlefield' : 'graveyard';
         const pick = ability.exiles ? cards.graveyard.find((c) => c.iid === opts?.discover?.pick) : undefined;
         if (ability.exiles && !pick) return;
@@ -1083,17 +1087,18 @@ export function createAppStore() {
          * left the graveyard. */
         const pay = (base: GameState): GameState | null => {
           const now = base.players[seat]?.cards?.[zone].find((c) => c.iid === iid);
-          if (!now || (zone === 'battlefield' && abilityBlocked(ability, now))) return null;
+          if (!now || (zone === 'battlefield' && abilityBlocked(ability, now, x))) return null;
           let next = base;
           if (ability.tap) next = cardsLib.tapSpent(next, seat, iid);
           if (ability.remove) next = cardsLib.addCardCounters(next, seat, iid, { [ability.remove.kind]: -ability.remove.n });
           // Loyalty kept as counters goes up or down by the cost; a card with
           // none left goes to the graveyard. One that keeps none is left alone.
           const loyalty = now.counters?.loyalty;
-          if (ability.loyalty && loyalty !== undefined)
+          const change = loyaltyChange(ability, x);
+          if (change !== 0 && loyalty !== undefined)
             next =
-              loyalty + ability.loyalty > 0
-                ? cardsLib.setCardCounter(next, seat, iid, 'loyalty', loyalty + ability.loyalty)
+              loyalty + change > 0
+                ? cardsLib.setCardCounter(next, seat, iid, 'loyalty', loyalty + change)
                 : cardsLib.moveCard(next, seat, iid, 'battlefield', 'graveyard');
           if (pick) {
             const moved = cardsLib.moveCard(next, seat, pick.iid, 'graveyard', 'exile');
@@ -1123,12 +1128,42 @@ export function createAppStore() {
             ability.remove ? `${countersWords({ [ability.remove.kind]: ability.remove.n })} off` : null,
             pick ? `exiling ${pick.name}` : null,
           ].filter((part): part is string => part !== null);
-          const named = ability.loyalty !== undefined ? `${card.name} ${loyaltyWords(ability.loyalty)}` : card.name;
+          const named = ability.loyalty !== undefined ? `${card.name} ${loyaltyWords(loyaltyChange(ability, x))}` : card.name;
           const why = paid.length > 0 ? `${named} (${paid.join(', ')})` : named;
           turnOver(seat, asked.plan, asked.plan.found ? asked.take : 'bottom', discoverText(g, seat, asked.plan, asked.take, asked.n, why), {
             pay,
             there,
           });
+          return;
+        }
+
+        // A planeswalker's loyalty ability: the loyalty moves, the feed says
+        // what it does, and the trigger banner does what it can read of that
+        // ("Create a 3/2 … token", "Draw a card", "deals 3 damage to any target").
+        if (effect.kind === 'loyalty') {
+          const cost = loyaltyWords(loyaltyChange(ability, x));
+          // X is what was paid: what it does says it as a number.
+          const said = ability.loyalty === '-X' ? effect.text.replace(/\bX\b/g, String(x)) : effect.text;
+          const shown = said.split('~').join(card.name);
+          cardMutate(
+            (base) => {
+              const paid = pay(base);
+              // Something has to change for a move to be one: what it did is said in the feed.
+              return paid ? { ...paid } : base;
+            },
+            `${who}: ${card.name} ${cost} — ${shown}`,
+            there,
+            undefined,
+            (entry) => [
+              {
+                kind: 'activated',
+                thing: { seat, kind: 'card', id: iid, cardId: card.cardId, name: card.name, n: 1 },
+                text: `${cost}: ${shown}`,
+                effect: said,
+                ...(entry ? { feed: entry.id } : {}),
+              },
+            ],
+          );
           return;
         }
 

@@ -50,6 +50,7 @@ export function slimCard(raw: Raw): CardRecord | null {
           colors: (face1.colors as string[] | undefined) ?? colors,
           imageNormal: str(backImages.normal),
           imageArtCrop: str(backImages.art_crop),
+          loyalty: str(face1.loyalty),
         }
       : face1 || typeLine.includes(' // ')
         ? null
@@ -71,6 +72,7 @@ export function slimCard(raw: Raw): CardRecord | null {
     isToken: layout === 'token' || layout === 'double_faced_token' || typeLine.includes('Token'),
     isBasicLand: typeLine.startsWith('Basic Land'),
     priceUsd: Number.isFinite(parsedPrice) ? parsedPrice : null,
+    loyalty: str(raw.loyalty) ?? str(face0.loyalty),
     ...(back !== undefined ? { back } : {}),
   };
 }
@@ -217,11 +219,24 @@ export async function importBulkData(
  * nothing either way: the caller's fallback by name has to make the back
  * view itself. */
 export async function getCardById(id: string): Promise<CardRecord | undefined> {
-  if (!isBackId(id)) return getDb().cards.get(id);
+  if (!isBackId(id)) {
+    const record = await getDb().cards.get(id);
+    return record && lacksLoyalty(record) ? refreshed(record, (fresh) => !lacksLoyalty(fresh)) : record;
+  }
   const front = await getDb().cards.get(frontId(id));
   if (!front) return undefined;
-  return backView(front.back === undefined && turnsOver(front) ? await withBack(front) : front);
+  const noBack = front.back === undefined && turnsOver(front);
+  return backView(
+    noBack || lacksLoyalty(front) ? await refreshed(front, (fresh) => (!noBack || !!fresh.back) && !lacksLoyalty(fresh)) : front,
+  );
 }
+
+const WALKER = /\bPlaneswalker\b/;
+
+/** A planeswalker (either face) stored before loyalty was kept: it has none to enter with. */
+const lacksLoyalty = (record: CardRecord): boolean =>
+  (WALKER.test(record.typeLine) && record.loyalty === undefined) ||
+  (!!record.back && WALKER.test(record.back.typeLine) && record.back.loyalty === undefined);
 
 /** How long the one read of a card from Scryfall may take. */
 const REFRESH_TIMEOUT_MS = 4000;
@@ -229,12 +244,13 @@ const REFRESH_TIMEOUT_MS = 4000;
 const refreshTried = new Set<string>();
 const SCRYFALL_ID = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 
-/** A two-faced card stored before faces were kept has no back picture and
- * no back power or toughness. The first time it is turned over it is read
- * from Scryfall once more and stored, so they are there for good. Not while
+/** A card stored before something it has was kept — a two-faced card's back
+ * (its picture, its power and toughness), a planeswalker's loyalty — is read
+ * from Scryfall once more the first time it is needed, and stored, so it is
+ * there for good. `good`: the fresh copy has what was missing. Not while
  * offline, not for an id that is not Scryfall's, and never twice in one
  * session; whatever goes wrong, the record that is there is the answer. */
-async function withBack(front: CardRecord): Promise<CardRecord> {
+async function refreshed(front: CardRecord, good: (fresh: CardRecord) => boolean): Promise<CardRecord> {
   if (refreshTried.has(front.id) || !SCRYFALL_ID.test(front.id)) return front;
   if (typeof fetch !== 'function') return front;
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return front;
@@ -248,7 +264,7 @@ async function withBack(front: CardRecord): Promise<CardRecord> {
     });
     if (!resp.ok) return front;
     const fresh = slimCard((await resp.json()) as Raw);
-    if (!fresh || fresh.id !== front.id || !fresh.back) return front;
+    if (!fresh || fresh.id !== front.id || !good(fresh)) return front;
     await getDb().cards.put(fresh);
     return fresh;
   } catch {
@@ -260,7 +276,8 @@ async function withBack(front: CardRecord): Promise<CardRecord> {
 
 export async function findCardByName(name: string): Promise<CardRecord | undefined> {
   const matches = await getDb().cards.where('nameLower').equals(name.toLowerCase()).toArray();
-  return matches.find((c) => c.imageNormal) ?? matches[0];
+  const found = matches.find((c) => c.imageNormal) ?? matches[0];
+  return found && lacksLoyalty(found) ? refreshed(found, (fresh) => !lacksLoyalty(fresh)) : found;
 }
 
 /** Every card of this exact name: a token name ("Soldier") is shared by

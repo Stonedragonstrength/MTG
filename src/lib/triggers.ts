@@ -71,6 +71,11 @@ export type Happening =
   | { kind: 'damage'; combat: string; things: Thing[] }
   /** A creature became monstrous (Monstrosity was activated: the store says so). */
   | { kind: 'monstrous'; thing: Thing }
+  /** A planeswalker's loyalty ability was activated (the store says so):
+   * `text` as the banner says it ("+1: Create a 3/2 … token."), `effect`
+   * what it does with the card's name as "~" and X as paid. `feed`: the
+   * feed line it was told in — taken back by an Undo, and the ability with it. */
+  | { kind: 'activated'; thing: Thing; text: string; effect: string; feed?: string }
   /** Cards that left a battlefield, for anywhere (deaths are among them). */
   | { kind: 'leaves'; things: Thing[] }
   /** A seat's life changed by `n` (the trigger engine adds a burst of
@@ -235,6 +240,8 @@ export function stillHappened(g: GameState, h: Happening): boolean {
       return h.things.some(onField);
     case 'monstrous':
       return (g.players[h.thing.seat]?.cards?.battlefield.find((c) => c.iid === h.thing.id)?.counters?.monstrous ?? 0) > 0;
+    case 'activated':
+      return !h.feed || !!g.feed?.some((e) => e.id === h.feed);
     case 'dies':
     case 'leaves':
       return h.things.some((t) => t.kind === 'stack' || !onField(t));
@@ -284,7 +291,8 @@ export type TriggerEvent =
   | 'end'
   | 'combat'
   | 'monstrous'
-  | 'lore';
+  | 'lore'
+  | 'activated';
 
 /** One triggered ability of a card, for one event it waits for. */
 export interface Trigger {
@@ -777,16 +785,20 @@ export function actsOf(trigger: Trigger, times = 1): TriggerAct[] {
   // A Saga's last chapter may send it away to come back as its other face.
   if (trigger.event === 'lore' && TRANSFORMS.test(trigger.effect))
     return [{ key: 'transform', label: 'Return it transformed', kind: 'transform', auto: plain }];
+  // What a token it makes, or a creature it gives an ability, will say
+  // ("with \"Whenever you gain life, put a +1/+1 counter on this token\"")
+  // is that one's, not this card's: quoted text is not read.
+  const bare = trigger.effect.replace(/"[^"]*"|“[^”]*”/g, '');
   // "When this leaves the battlefield, return the exiled card to the battlefield…"
-  if (trigger.event === 'leaves' && /\breturn the exiled (?:card|cards|permanent|permanents|creature|creatures)\b[^.]*\bto the battlefield\b/i.test(trigger.effect))
+  if (trigger.event === 'leaves' && /\breturn the exiled (?:card|cards|permanent|permanents|creature|creatures)\b[^.]*\bto the battlefield\b/i.test(bare))
     out.push({ key: 'release', label: 'Return what it exiled', kind: 'release', auto: !trigger.may });
-  if (RETURNS.test(trigger.effect) || (own && RETURNS_IT.test(trigger.effect)))
+  if (RETURNS.test(bare) || (own && RETURNS_IT.test(bare)))
     out.push({ key: 'return', label: 'Return it to hand', kind: 'return', auto: plain });
   // Counters whose number is worked out ("for each creature card in your
   // graveyard") are left to the players, sentence by sentence.
   const grows = dead
     ? undefined
-    : trigger.effect
+    : bare
         .split(/(?<=\.)\s+/)
         .filter((sentence) => !WORKED_OUT.test(sentence))
         .map((sentence) => sentence.match(GROWS))
@@ -805,7 +817,7 @@ export function actsOf(trigger: Trigger, times = 1): TriggerAct[] {
   // "Whenever ~ attacks, it gets +2/+0 until end of turn": on the card itself.
   const pumped = dead
     ? undefined
-    : trigger.effect
+    : bare
         .split(/(?<=\.)\s+/)
         .filter((sentence) => !WORKED_OUT.test(sentence))
         .map((sentence, i) => (own && i === 0 ? (sentence.match(PUMPS_IT) ?? sentence.match(PUMPS)) : sentence.match(PUMPS)))
@@ -829,9 +841,7 @@ export function actsOf(trigger: Trigger, times = 1): TriggerAct[] {
     }
   }
   // "You may gain 1 life" is, once its player says yes, "you gain 1 life".
-  // What a token it makes will say ("with \"When this token dies, you gain
-  // 1 life\"") is the token's, not this card's: quoted text is not read.
-  const said = trigger.effect.replace(/"[^"]*"|“[^”]*”/g, '').replace(/\byou may\b/gi, 'you');
+  const said = bare.replace(/\byou may\b/gi, 'you');
   for (const read of spellPrompts({ typeLine: '', oracleText: said })) {
     if (read.kind === 'search' && own && trigger.event === 'enters') continue;
     const prompt = manyTimes(read, times);
@@ -1105,6 +1115,31 @@ const VERBED: Partial<Record<TriggerEvent, string>> = {
 export function firedBy(g: GameState, h: Happening, records: Records): Fired[] {
   const out: Fired[] = [];
   const nameOf = (seat: number) => g.config.profiles[seat]?.name ?? '?';
+
+  // A loyalty ability is read as a trigger of the card that activated it:
+  // what it does is carried out the way a trigger's is. Not as its own,
+  // though — "return it to its owner's hand" in a planeswalker's text is
+  // about the creature it targets, never about the planeswalker.
+  if (h.kind === 'activated') {
+    if (!h.thing.cardId) return out;
+    out.push({
+      seat: h.thing.seat,
+      source: { iid: h.thing.id, cardId: h.thing.cardId, name: h.thing.name },
+      trigger: {
+        text: h.text,
+        event: 'activated',
+        self: false,
+        other: null,
+        unsure: CONDITION.test(h.effect),
+        may: /\bmay\b/i.test(h.effect),
+        effect: h.effect,
+      },
+      times: 1,
+      because: 'Loyalty ability',
+      own: true,
+    });
+    return out;
+  }
 
   // Cascade goes off as the spell is cast, wherever the spell has gone since
   // (an instant is in the graveyard already, a creature on the battlefield).

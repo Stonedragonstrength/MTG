@@ -769,3 +769,53 @@ test('a cast is taken back once the card is where it was cast from again: the ha
   expect(stillHappened(cast, found)).toBe(true);
   expect(stillHappened(back, castOf('l1', 'zap'))).toBe(true); // from hand: the library is not where it was
 });
+
+// ---- a planeswalker's loyalty ability, read as a trigger of its own ----
+
+const activated = (effect: string, text: string, feed?: string): Happening => ({
+  kind: 'activated',
+  thing: { seat: 0, kind: 'card', id: 'q1', cardId: 'quintorius', name: 'Quintorius Kand', n: 1 },
+  text,
+  effect,
+  ...(feed ? { feed } : {}),
+});
+
+test('a loyalty ability activated is carried out as a trigger is: tokens and cards by themselves, targets behind a button', () => {
+  const g = table([]);
+  const [fired] = firedBy(g, activated('Create a 3/2 red and white Spirit creature token.', '+1: Create a 3/2 red and white Spirit creature token.'), RECORDS);
+  expect(fired).toMatchObject({ seat: 0, because: 'Loyalty ability', trigger: { event: 'activated', self: false, may: false, unsure: false } });
+  expect(actsOf(fired.trigger)).toMatchObject([{ kind: 'prompt', prompt: { kind: 'tokens' }, auto: true }]);
+  const [draw] = firedBy(g, activated('Draw a card.', '+1: Draw a card.'), RECORDS);
+  expect(actsOf(draw.trigger)).toMatchObject([{ kind: 'prompt', prompt: { kind: 'draw' }, auto: true }]);
+  const [kill] = firedBy(g, activated('Destroy target creature.', '−3: Destroy target creature.'), RECORDS);
+  expect(actsOf(kill.trigger).every((a) => !a.auto)).toBe(true);
+  // "You may", "if": its player decides.
+  const [may] = firedBy(g, activated('You may draw a card. If you do, discard a card.', '0: You may draw a card. If you do, discard a card.'), RECORDS);
+  expect(may.trigger).toMatchObject({ may: true, unsure: true });
+});
+
+test('"return it to its owner’s hand" in a planeswalker’s text is never the planeswalker, and quoted text is a token’s own', () => {
+  const g = table([]);
+  const [niko] = firedBy(
+    g,
+    activated(
+      "Up to one target creature you control can't be blocked this turn. Whenever that creature deals damage this turn, return it to its owner's hand.",
+      '+1: …',
+    ),
+    RECORDS,
+  );
+  expect(actsOf(niko.trigger).some((a) => a.kind === 'return')).toBe(false);
+  const [ajani] = firedBy(
+    g,
+    activated('Create a 2/2 white Cat Soldier creature token named Ajani\'s Pridemate with "Whenever you gain life, put a +1/+1 counter on this token."', '−4: …'),
+    RECORDS,
+  );
+  expect(actsOf(ajani.trigger).map((a) => a.kind)).toEqual(['prompt']);
+});
+
+test('an Undo takes the loyalty ability back with its feed line', () => {
+  const g = table([]);
+  const h = activated('Draw a card.', '+1: Draw a card.', 'f1');
+  expect(stillHappened({ ...g, feed: [{ id: 'f1', t: 0, text: 'Nathan: Quintorius Kand +1 — Draw a card.' }] }, h)).toBe(true);
+  expect(stillHappened({ ...g, feed: [] }, h)).toBe(false);
+});

@@ -808,3 +808,37 @@ test('"When this creature enters, discover 5": a button on the banner opens the 
   expect(lastFeed()).toBe('Nathan: Trumpeting Carnosaur — discover 5: casts Lightning Bolt (Forest to the bottom)');
   expect(screen.getByRole('button', { name: '✓ Discover 5' })).toBeDisabled();
 });
+
+// ---- a planeswalker's loyalty ability on the banner ----
+
+Object.assign(RECORDS, {
+  jace: rec('jace', 'Jace, Arcane Strategist', 'Legendary Planeswalker — Jace', '+1: Draw a card.\n−7: Creatures you control can\'t be blocked this turn.', { loyalty: '4' }),
+  elspeth: rec('elspeth', 'Elspeth Tirel', 'Legendary Planeswalker — Elspeth', '−2: Create three 1/1 white Soldier creature tokens.', { loyalty: '4' }),
+});
+
+test('a loyalty ability used: the loyalty moves, and the banner does what it says — "+1: Draw a card" draws it', async () => {
+  start([{ ...card('j1', 'jace'), counters: { loyalty: 4 } }]);
+  await act(() => useAppStore.getState().activateAbility(0, 'j1', '0:loyalty'));
+  await waitFor(() => expect(mine().cards!.hand.map((c) => c.iid)).toEqual(['l1']));
+  expect(mine().cards!.battlefield[0].counters).toEqual({ loyalty: 5 });
+  expect(shown()[0]).toMatchObject({ because: 'Loyalty ability', text: '+1: Draw a card.', acts: [{ label: 'Draw 1', done: true }] });
+  render(<TriggerBanner />);
+  expect(within(screen.getByRole('status', { name: 'triggered' })).getByText('Loyalty ability')).toBeInTheDocument();
+});
+
+test('one it cannot do is said all the same; an Undo takes it back off the banner', async () => {
+  start([{ ...card('j1', 'jace'), counters: { loyalty: 9 } }]);
+  await act(() => useAppStore.getState().activateAbility(0, 'j1', '1:loyalty'));
+  await waitFor(() => expect(shown()).toHaveLength(1));
+  expect(shown()[0]).toMatchObject({ text: '−7: Creatures you control can\'t be blocked this turn.', acts: [] });
+  act(() => useAppStore.getState().undo());
+  expect(mine().cards!.battlefield[0].counters).toEqual({ loyalty: 9 });
+  expect(shown()).toEqual([]);
+});
+
+test('"−2: Create three 1/1 white Soldier creature tokens" makes them by itself', async () => {
+  start([{ ...card('e1', 'elspeth'), counters: { loyalty: 4 } }]);
+  await act(() => useAppStore.getState().activateAbility(0, 'e1', '0:loyalty'));
+  await waitFor(() => expect(mine().board.reduce((n, it) => n + it.count, 0)).toBe(3));
+  expect(mine().cards!.battlefield[0].counters).toEqual({ loyalty: 2 });
+});

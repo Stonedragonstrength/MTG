@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { abilitiesGiven, abilitiesOf, abilityBlocked, costWords, levelChange, levelNow, levelsOf, loyaltyWords } from './abilities';
+import { abilitiesGiven, abilitiesOf, abilityBlocked, costWords, levelChange, levelNow, levelsOf, loyaltyChange, loyaltyWords } from './abilities';
 
 const card = (name: string, oracleText: string) => ({ name, oracleText });
 
@@ -130,12 +130,19 @@ test('Buried Treasure is used from the graveyard, and exiles itself to pay', () 
   expect(costWords(abilitiesOf(TREASURE)[0])).toEqual(['exile it from your graveyard']);
 });
 
-test('a planeswalker’s loyalty ability: −3 is its cost, and only the ones the table can do are rows', () => {
-  const [d] = abilitiesOf(QUINTORIUS);
-  expect(abilitiesOf(QUINTORIUS)).toHaveLength(1);
+test('a planeswalker’s loyalty abilities are all rows: −3 Discover 4, and the others say what they do', () => {
+  const [plus, d, minus] = abilitiesOf(QUINTORIUS);
+  expect(abilitiesOf(QUINTORIUS)).toHaveLength(3);
   expect(d).toMatchObject({ label: 'Discover 4', loyalty: -3, tap: false, cost: { generic: 0, pips: [] } });
+  expect(plus).toMatchObject({
+    label: 'Create a 3/2 red and white Spirit creature token.',
+    loyalty: 1,
+    effect: { kind: 'loyalty', text: 'Create a 3/2 red and white Spirit creature token.' },
+  });
+  expect(minus).toMatchObject({ loyalty: -6, effect: { kind: 'loyalty' } });
   expect(loyaltyWords(-3)).toBe('−3');
   expect(loyaltyWords(1)).toBe('+1');
+  expect(loyaltyWords('-X')).toBe('−X');
   // Loyalty counts only where it is kept as counters.
   expect(abilityBlocked(d, { counters: { loyalty: 2 } })).toBe('Not enough loyalty.');
   expect(abilityBlocked(d, { counters: { loyalty: 3 } })).toBeNull();
@@ -174,4 +181,27 @@ test('what an Equipment or Aura gives in quotes is read as the creature’s own'
     { label: '+1/+1 until end of turn', effect: { kind: 'boost', power: 1, toughness: 1 } },
   ]);
   expect(abilitiesGiven(card('Bonesplitter', 'Equipped creature gets +2/+0.\nEquip {1}'))).toEqual([]);
+});
+
+test('−X: X loyalty comes off, as many as its player names', () => {
+  const nalaar = {
+    name: 'Chandra Nalaar',
+    typeLine: 'Legendary Planeswalker — Chandra',
+    oracleText: '+1: Chandra Nalaar deals 1 damage to target player or planeswalker.\n−X: Chandra Nalaar deals X damage to target creature.\n−8: Chandra Nalaar deals 10 damage to target player or planeswalker and each creature that player or that planeswalker’s controller controls.',
+  };
+  const [, x] = abilitiesOf(nalaar);
+  expect(x).toMatchObject({ loyalty: '-X', label: 'Chandra Nalaar deals X damage to target creature.', effect: { kind: 'loyalty', text: '~ deals X damage to target creature.' } });
+  expect(loyaltyChange(x, 3)).toBe(-3);
+  expect(abilityBlocked(x, { counters: { loyalty: 2 } }, 3)).toBe('Not enough loyalty.');
+  expect(abilityBlocked(x, { counters: { loyalty: 2 } }, 2)).toBeNull();
+});
+
+test('a legendary planeswalker speaks of itself by its first name', () => {
+  const [plus] = abilitiesOf({
+    name: 'Chandra, Torch of Defiance',
+    typeLine: 'Legendary Planeswalker — Chandra',
+    oracleText: "+1: Exile the top card of your library. You may cast that card. If you don't, Chandra deals 2 damage to each opponent.",
+  });
+  expect(plus.effect).toEqual({ kind: 'loyalty', text: "Exile the top card of your library. You may cast that card. If you don't, ~ deals 2 damage to each opponent." });
+  expect(plus.label).toBe("Exile the top card of your library. You may cast that card. If you don't, Chandra deals 2 damage to each opponent.");
 });

@@ -5,7 +5,7 @@ import type { CardRecord } from './types';
  * "This creature enters with two +1/+1 counters on it", "This land enters
  * tapped with two charge counters on it", a Saga's first lore counter,
  * Vanishing 3's time counters, Fading 2's fade counters, Modular 2 and
- * Graft 2's +1/+1 counters. The store puts them on in the same move as the
+ * Graft 2's +1/+1 counters, a planeswalker's loyalty. The store puts them on in the same move as the
  * card lands (a played card), or just after (anything else that arrives).
  *
  * Read strictly, off the face that is up: a number the table would have to
@@ -13,7 +13,7 @@ import type { CardRecord } from './types';
  * counters are named as the table keeps them: 'p1p1', 'm1m1', and every
  * other kind by its word ('lore', 'time', 'charge', 'shield'). */
 
-type Read = Pick<CardRecord, 'name' | 'oracleText'> & { typeLine?: string | null };
+type Read = Pick<CardRecord, 'name' | 'oracleText'> & { typeLine?: string | null; loyalty?: string | null };
 
 const NUMBER: Record<string, number> = {
   a: 1,
@@ -74,7 +74,14 @@ export function entryCounters(record: Read | null | undefined): Record<string, n
   // "As this Saga enters … add a lore counter" (Read ahead lets its player
   // start further on: they move it themselves).
   if (isSaga(record)) add('lore', 1);
+  // A planeswalker enters with its printed loyalty ("X" and the like are its player's).
+  if (isPlaneswalker(record) && /^\d+$/.test(record.loyalty ?? '')) add('loyalty', Number(record.loyalty));
   return out;
+}
+
+/** A planeswalker, by the face that is up. */
+export function isPlaneswalker(record: Read | null | undefined): boolean {
+  return !!record?.typeLine && /\bPlaneswalker\b/.test(record.typeLine.split(' // ')[0]);
 }
 
 const WORD = ['no', 'a', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
