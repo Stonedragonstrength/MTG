@@ -58,6 +58,7 @@ export const COMBAT_KEYWORDS = [
   'vigilance',
   'indestructible',
   'infect',
+  'wither',
   'toxic',
   'defender',
 ] as const;
@@ -399,8 +400,9 @@ export interface CombatResult {
   unread: UnitRef[];
   /** Stacks that shrank under the fight and were clamped. */
   check: UnitRef[];
-  /** An infect creature dealt damage to a creature: the app treats that
-   * as ordinary damage (it cannot store −1/−1 counters). */
+  /** An infect or wither creature dealt damage to a copy in a stack that
+   * lives: the app treats that as ordinary damage (it keeps −1/−1
+   * counters on cards, not on one copy of a stack). */
   infectOnCreatures: boolean;
   /** The fight could not be worked out at all; the outcome is empty. */
   failed?: true;
@@ -422,9 +424,12 @@ interface Body {
   trample: boolean;
   lifelink: boolean;
   infect: boolean;
+  wither: boolean;
   indestructible: boolean;
   toxic: number;
   marked: number;
+  /** Of it, what came as −1/−1 counters (from infect and wither). */
+  withered: number;
   touched: boolean; // dealt damage by a deathtouch source
   dead: boolean;
   // attackers
@@ -471,9 +476,11 @@ function bodyOf(fighter: Fighter, read: UnitRead, side: Body['side'], attack: nu
     trample: hasKeyword(read, 'trample'),
     lifelink: hasKeyword(read, 'lifelink'),
     infect: hasKeyword(read, 'infect'),
+    wither: hasKeyword(read, 'wither'),
     indestructible: hasKeyword(read, 'indestructible'),
     toxic: read.toxic,
     marked: 0,
+    withered: 0,
     touched: false,
     dead: false,
     target: -1,
@@ -742,7 +749,11 @@ function resolve(game: GameState, combat: CombatState, records: CardRecords): Co
     for (const { from, to, amount } of hits) {
       to.marked += amount;
       if (from.deathtouch) to.touched = true;
-      if (from.infect) result.infectOnCreatures = true;
+      // As −1/−1 counters: it is smaller from the next damage step on.
+      if (from.infect || from.wither) {
+        to.withered += amount;
+        to.power = Math.max(0, to.power - amount);
+      }
       gain(from, amount);
     }
     for (const { from, amount } of toPlayers) hitPlayer(from, amount);
@@ -750,8 +761,9 @@ function resolve(game: GameState, combat: CombatState, records: CardRecords): Co
     // either lethal damage or any from deathtouch — unless indestructible,
     // unless unread.
     for (const body of [...attackers, ...blockers]) {
-      if (body.dead || body.marked < 1 || body.toughness < 1 || body.unread || body.indestructible) continue;
-      if (body.marked >= body.toughness || body.touched) body.dead = true;
+      if (body.dead || body.marked < 1 || body.toughness < 1 || body.unread) continue;
+      // Indestructible: only −1/−1 counters that take its toughness to 0 kill it.
+      if (body.indestructible ? body.withered >= body.toughness : body.marked >= body.toughness || body.touched) body.dead = true;
     }
   }
 
@@ -780,6 +792,16 @@ function resolve(game: GameState, combat: CombatState, records: CardRecords): Co
     if (tapped <= 0) continue;
     const death = deaths.get(`${w.row.seat}:${unitKey(w.row.unit)}`)!;
     death.tapped = (death.tapped ?? 0) + tapped;
+  }
+  // −1/−1 counters (infect, wither) stay on a card that lives through it;
+  // on one copy of a stack they cannot be kept, and count as damage.
+  for (const body of [...attackers, ...blockers]) {
+    if (body.dead || body.withered < 1) continue;
+    if (body.fighter.unit.kind !== 'card') {
+      result.infectOnCreatures = true;
+      continue;
+    }
+    result.outcome.shrunk = [...(result.outcome.shrunk ?? []), { seat: body.fighter.seat, unit: body.fighter.unit, n: body.withered }];
   }
   // Attackers first, each followed by what stood in its way.
   const order: Fighter[] = works.flatMap((w) => [w.row, ...w.row.blockers]);

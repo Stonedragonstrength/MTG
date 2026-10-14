@@ -15,7 +15,8 @@ import { hostName, hostOf } from '../lib/attach';
 import { opponentsOf, tappedToAttack } from '../lib/attackDraft';
 import * as boardLib from '../lib/board';
 import { abilitiesOf, abilityBlocked } from '../lib/abilities';
-import { boostCard, boostWords } from '../lib/boost';
+import { boostCard, boostStack, boostWords, type BoostChange } from '../lib/boost';
+import { entryCounters } from '../lib/entering';
 import { equipHost, equipWay } from '../lib/equip';
 import { backView, faceNames, frontId, isBackId, turnsOver } from '../lib/faces';
 import * as gameLib from '../lib/game';
@@ -127,6 +128,19 @@ export interface AppStore {
    * comes back to the battlefield, each card to its owner's side. `why`:
    * the holder's name, for the feed. */
   releaseHeld(seat: number, iid: string, why: string): void;
+  /** So many more counters of each kind on a card (a negative number takes
+   * them off), in one move; `text` is the feed line. A Saga's lore counter
+   * sets off its chapter. */
+  addCounters(seat: number, iid: string, add: Record<string, number>, text: string): void;
+  /** "Exile this Saga, then return it to the battlefield transformed". */
+  returnTransformed(seat: number, iid: string): Promise<void>;
+  /** "Until end of turn" from a card's own trigger (Prowess, Exalted,
+   * Bushido, "whenever it attacks, it gets +2/+0"): these creatures — cards
+   * or stacks — get it, in one move. `why`: what did it, for the feed. */
+  boostUntilEndOfTurn(hosts: cardsLib.Host[], add: BoostChange, why: string): void;
+  /** A permanent's upkeep paid in mana (cumulative upkeep): the lands pay
+   * `cost` ("{1}{1}") in one move, as for a spell. */
+  payUpkeep(seat: number, iid: string, cost: string): Promise<void>;
   millCards(seat: number, n: number): void;
   exileCards(seat: number, n: number): void;
   lookNotice(seat: number, n: number): void;
@@ -783,6 +797,8 @@ export function createAppStore() {
         // to the graveyard: it simply never leaves.
         const boughtBack = isSpell && extras.some((e, i) => e.kind === 'buyback' && times[i] > 0);
         const counters = !isSpell && x > 0 && payLib.entersWithX(record?.oracleText ?? '');
+        // "Enters with two +1/+1 counters", a Saga's first lore counter: on as it lands.
+        const brings = isSpell ? {} : entryCounters(record);
         const records = await seatRecords(g, seat);
         const castIn = { turn: g.turnNumber, active: g.activePlayerIndex };
         // An instant or sorcery is gone to the graveyard the moment it is
@@ -823,6 +839,7 @@ export function createAppStore() {
             // "Enters with X +1/+1 counters on it": X belongs to the cast,
             // so the counters arrive even where the mana no longer does.
             if (counters) moved = cardsLib.setCardCounter(moved, seat, iid, 'p1p1', x);
+            if (!boughtBack) moved = cardsLib.addCardCounters(moved, seat, iid, brings);
             return pay(moved);
           },
           `${seatName(g, seat)} ${verb} ${card.name}${asksX ? ` (X=${x})` : ''}${payLib.extrasWords(extras, times)}`,
@@ -1019,6 +1036,68 @@ export function createAppStore() {
         );
       },
 
+      addCounters(seat, iid, add, text) {
+        const g = get().game;
+        if (!g?.players[seat]?.cards?.battlefield.some((c) => c.iid === iid)) return;
+        cardMutate(
+          (base) => cardsLib.addCardCounters(base, seat, iid, add),
+          text,
+          (base) => !!base.players[seat]?.cards?.battlefield.some((c) => c.iid === iid),
+        );
+      },
+
+      async returnTransformed(seat, iid) {
+        const g = get().game;
+        const card = g?.players[seat]?.cards?.battlefield.find((c) => c.iid === iid);
+        if (!g || !card || isBackId(card.cardId)) return;
+        const record = await import('../data/scryfall').then((m) => m.getCardById(frontId(card.cardId)).catch(() => undefined));
+        const { front, back } = faceNames(record, card.name);
+        cardMutate(
+          (base) => cardsLib.returnTransformed(base, seat, iid),
+          `${front} is exiled and returns transformed${back ? ` into ${back}` : ''}`,
+          (base) => {
+            const now = base.players[seat]?.cards?.battlefield.find((c) => c.iid === iid);
+            return !!now && !isBackId(now.cardId);
+          },
+        );
+      },
+
+      boostUntilEndOfTurn(hosts, add, why) {
+        const g = get().game;
+        if (!g || hosts.length === 0) return;
+        const there = (base: GameState) => hosts.filter((h) => cardsLib.hostIsThere(base, h));
+        const names = there(g).map((h) => hostName(g, h));
+        if (names.length === 0) return;
+        const who = names.length === 1 ? `${names[0]} gets` : `${names.join(', ')} get`;
+        cardMutate(
+          (base) =>
+            there(base).reduce(
+              (next, h) => (h.kind === 'card' ? boostCard(next, h.seat, h.id, add) : boostStack(next, h.seat, h.id, add)),
+              base,
+            ),
+          `${who} ${boostWords(add)} until end of turn (${why})`,
+          (base) => there(base).length > 0,
+        );
+      },
+
+      async payUpkeep(seat, iid, cost) {
+        const g = get().game;
+        const card = g?.players[seat]?.cards?.battlefield.find((c) => c.iid === iid);
+        if (!g || !card) return;
+        const records = await seatRecords(g, seat);
+        const paidIn = { turn: g.turnNumber, active: g.activePlayerIndex };
+        cardMutate(
+          (base) => {
+            if (!base.players[seat]?.cards?.battlefield.some((c) => c.iid === iid)) return base;
+            const pay = payFrom(base, seat, [payLib.parseCost(cost)], records, paidIn);
+            // Something has to change for a move to be one: the upkeep paid is said in the feed.
+            return { ...pay(base) };
+          },
+          `${seatName(g, seat)} pays ${cost} for ${card.name}’s upkeep`,
+          (base) => !!base.players[seat]?.cards?.battlefield.some((c) => c.iid === iid),
+        );
+      },
+
       millCards(seat, n) {
         const g = get().game;
         const lib = g?.players[seat]?.cards?.library;
@@ -1179,6 +1258,7 @@ export function createAppStore() {
           const x = asksX ? wholeX(opts?.x) : 0;
           const priced = payLib.priceX(costs, x);
           const counters = x > 0 && payLib.entersWithX(record?.oracleText ?? '');
+          const brings = entryCounters(record);
           const records = await seatRecords(g, seat);
           const castIn = { turn: g.turnNumber, active: g.activePlayerIndex };
           cardMutate(
@@ -1189,6 +1269,7 @@ export function createAppStore() {
               });
               if (moved === base) return base;
               if (counters) moved = cardsLib.setCardCounter(moved, seat, cmd.iid, 'p1p1', x);
+              moved = cardsLib.addCardCounters(moved, seat, cmd.iid, brings);
               return pay(moved);
             },
             `${seatName(g, seat)} casts ${cmd.name}${tax > 0 ? ` (tax +${tax})` : ''}${asksX ? ` (X=${x})` : ''}`,

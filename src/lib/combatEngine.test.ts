@@ -725,13 +725,48 @@ describe('poison', () => {
     expect(after.players[1].counters.poison).toBe(4);
   });
 
-  test('infect damage to creatures is treated as ordinary damage, and flagged so the screen can say so', () => {
-    const { result } = fight(table({ cards: { skithiryx: SKITHIRYX } }, { cards: { rhino: RHINO } }), [
+  test('infect damage to a creature that lives stays on it as -1/-1 counters', () => {
+    const { g, result } = fight(table({ cards: { skithiryx: SKITHIRYX } }, { cards: { rhino: RHINO } }), [
       { unit: card('skithiryx'), target: 1, blockers: [card('rhino')] },
     ]);
-    expect(result.infectOnCreatures).toBe(true);
-    expect(deathsOf(result)).toEqual(['0:skithiryx']); // 4 on a 5/5: it lives, at full size
+    expect(result.infectOnCreatures).toBe(false);
+    expect(deathsOf(result)).toEqual(['0:skithiryx']); // 4 on a 5/5: it lives, as a 1/1
     expect(result.outcome.players).toEqual([]);
+    expect(result.outcome.shrunk).toEqual([{ seat: 1, unit: card('rhino'), n: 4 }]);
+    const after = applyCombat(g, 'c1', result.outcome);
+    expect(after.players[1].cards!.battlefield.find((c) => c.iid === 'rhino')?.counters).toEqual({ m1m1: 4 });
+  });
+
+  test('wither: its damage to creatures is -1/-1 counters, to players ordinary damage', () => {
+    const WITHER = rec('Boggart Ram-Gang', '3', '3', 'Haste\nWither (This deals damage to creatures in the form of -1/-1 counters.)');
+    const t = table({ cards: { ram: WITHER } }, { cards: { rhino: RHINO } });
+    const blocked = fight(t, [{ unit: card('ram'), target: 1, blockers: [card('rhino')] }]);
+    expect(blocked.result.outcome.shrunk).toEqual([{ seat: 1, unit: card('rhino'), n: 3 }]);
+    expect(deathsOf(blocked.result)).toEqual(['0:ram']);
+    const through = fight(t, [{ unit: card('ram'), target: 1 }]);
+    expect(through.result.outcome.players).toEqual([{ seat: 1, life: -3 }]);
+    expect(through.result.outcome.shrunk).toBeUndefined();
+  });
+
+  test('-1/-1 counters kill what is indestructible once its toughness is gone, and shrink a first striker’s victim', () => {
+    // Blightsteel's 11 infect on Darksteel: indestructible, but an 11/11 with eleven -1/-1 counters is gone.
+    const both = fight(table({ cards: { blight: BLIGHTSTEEL } }, { cards: { dark: DARKSTEEL } }), [
+      { unit: card('blight'), target: 1, blockers: [card('dark')] },
+    ]);
+    expect(deathsOf(both.result)).toEqual(['1:dark']);
+    // A 2/2 first-strike wither blocker makes a 3/3 a 1/1 before it strikes back: the blocker lives.
+    const STINGER = rec('Wither Stinger stand-in', '2', '2', 'First strike, wither');
+    const t = table({ cards: { giant: GIANT } }, { cards: { stinger: STINGER } });
+    const shrunk = fight(t, [{ unit: card('giant'), target: 1, blockers: [card('stinger')] }]);
+    expect(deathsOf(shrunk.result)).toEqual([]);
+    expect(shrunk.result.outcome.shrunk).toEqual([{ seat: 0, unit: card('giant'), n: 2 }]);
+  });
+
+  test('infect on one copy of a stack that lives counts as damage, and is flagged so the screen can say so', () => {
+    const t = table({ cards: { skithiryx: SKITHIRYX } }, { stacks: [tokens('wurms', 2, 6, 6)] });
+    const { result } = fight(t, [{ unit: card('skithiryx'), target: 1, blockers: [stack('wurms')] }]);
+    expect(result.infectOnCreatures).toBe(true);
+    expect(result.outcome.shrunk).toBeUndefined();
   });
 
   test('toxic: N poison on top of the normal damage, only when it dealt damage to the player', () => {

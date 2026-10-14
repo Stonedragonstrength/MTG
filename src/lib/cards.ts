@@ -529,6 +529,28 @@ export function setCardCounter(
   });
 }
 
+/** So many more counters of each kind on one battlefield card (a negative
+ * number takes that many off); the same game when it is not there. */
+export function addCardCounters(g: GameState, seat: number, iid: string, add: Record<string, number>): GameState {
+  let next = g;
+  for (const [name, n] of Object.entries(add)) {
+    const now = next.players[seat]?.cards?.battlefield.find((c) => c.iid === iid);
+    if (!now || !Number.isFinite(n) || n === 0) continue;
+    next = setCardCounter(next, seat, iid, name, (now.counters?.[name] ?? 0) + n);
+  }
+  return next;
+}
+
+/** "Exile this Saga, then return it to the battlefield transformed": the
+ * card comes back as a new thing on its back face — nothing it had stays
+ * (counters, what was on it), and it has only just arrived. */
+export function returnTransformed(g: GameState, seat: number, iid: string): GameState {
+  const gone = moveCard(g, seat, iid, 'battlefield', 'exile');
+  if (gone === g) return g;
+  const back = moveCard(gone, seat, iid, 'exile', 'battlefield');
+  return back === gone ? g : flipCard(back, seat, iid, true);
+}
+
 export function shuffleLibrary(g: GameState, seat: number, seed: number): GameState {
   return updateSeat(g, seat, (cards) => ({ ...cards, library: shuffled(cards.library, seed) }));
 }

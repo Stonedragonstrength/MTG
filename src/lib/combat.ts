@@ -40,6 +40,8 @@ export interface CombatOutcome {
     /** A commander going home (adds its tax) instead of to the graveyard. */
     toCommand?: true;
   }[];
+  /** −1/−1 counters ADDED to cards that live (damage from infect and wither). */
+  shrunk?: { seat: number; unit: CombatUnit; n: number }[];
 }
 
 /** Captured when the Attack button is pressed: a replay has to start the
@@ -391,6 +393,10 @@ export function applyCombat(g: GameState, id: string, outcome: CombatOutcome): G
     if (!p || !Number.isInteger(p.seat)) continue;
     next = gameLib.settlePlayer(next, p.seat, { life: p.life, commander: p.commander, poison: p.poison });
   }
+  for (const s of listOf(outcome?.shrunk)) {
+    if (!s || !Number.isInteger(s.seat) || !isUnit(s.unit) || s.unit.kind !== 'card' || !(s.n > 0)) continue;
+    next = cardsLib.addCardCounters(next, s.seat, s.unit.id, { m1m1: Math.floor(s.n) });
+  }
   for (const d of listOf(outcome?.deaths)) {
     if (!d || !Number.isInteger(d.seat) || !isUnit(d.unit)) continue;
     if (d.unit.kind === 'card') {
@@ -553,6 +559,11 @@ export function outcomeLine(g: GameState, outcome: CombatOutcome): string {
     const uncounted = total - sum(named.map((d) => d.n));
     if (uncounted > 0) words.push(plural(uncounted, 'creature'));
     parts.push(`${inWords(words)} ${total === 1 ? 'dies' : 'die'}`);
+  }
+  for (const s of listOf(outcome?.shrunk)) {
+    if (!s || !Number.isInteger(s.seat) || !isUnit(s.unit) || !(s.n > 0)) continue;
+    const name = g.players[s.seat]?.cards?.battlefield.find((c) => c.iid === s.unit.id)?.name ?? 'a creature';
+    parts.push(`${name} gets ${plural(Math.floor(s.n), '-1/-1 counter')}`);
   }
   return `Combat: ${parts.length > 0 ? parts.join(' · ') : 'no damage'}`;
 }

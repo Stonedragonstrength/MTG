@@ -1,6 +1,9 @@
+import { boostWords } from './boost';
+import type { Host } from './cards';
 import { liveCombat } from './combat';
 import { readUnit } from './combatEngine';
-import { keywordsOf } from './keywords';
+import { isSaga } from './entering';
+import { keywordAmount, keywordList, keywordsOf } from './keywords';
 import { spellPrompts, type SpellPrompt } from './spellEffects';
 import type { BoardItem, CardRecord, GameState } from './types';
 
@@ -55,6 +58,10 @@ export type Happening =
   | { kind: 'combat'; seat: number; combat: string }
   /** Every defender has blocked: these blocked. */
   | { kind: 'blocks'; combat: string; things: Thing[] }
+  /** …and these attackers became blocked (a paper blocker counts). */
+  | { kind: 'blocked'; combat: string; things: Thing[] }
+  /** Lore counters were added to a card (a Saga): from so many to so many. */
+  | { kind: 'lore'; thing: Thing; from: number; to: number }
   /** A fight's result was applied: these attackers got through to a
    * player who took damage (the store says so — the table alone cannot). */
   | { kind: 'damage'; combat: string; things: Thing[] }
@@ -183,6 +190,10 @@ export function happeningsBetween(prev: GameState, next: GameState): Happening[]
       (a.blockers ?? []).flatMap((b) => unitThing(next, a.target, b, b.n ?? 1) ?? []),
     );
     if (things.length > 0) out.push({ kind: 'blocks', combat: after.id, things });
+    const blocked = (after.attacks ?? []).flatMap((a) =>
+      a.blocked || (a.blockers?.length ?? 0) > 0 ? (unitThing(next, after.active, a.unit, a.n ?? 1) ?? []) : [],
+    );
+    if (blocked.length > 0) out.push({ kind: 'blocked', combat: after.id, things: blocked });
   }
   next.players.forEach((p, seat) => {
     const was = prev.players[seat]?.life;
@@ -194,6 +205,16 @@ export function happeningsBetween(prev: GameState, next: GameState): Happening[]
   if (left.length > 0) out.push({ kind: 'leaves', things: left });
   const arrived = arrivalsBetween(prev, next);
   if (arrived.length > 0) out.push({ kind: 'enters', things: arrived });
+  // Lore counters put on a card — a Saga as it enters, as its player's turn
+  // begins, or by hand: its chapters.
+  next.players.forEach((player, seat) => {
+    const had = new Map((prev.players[seat]?.cards?.battlefield ?? []).map((c) => [c.iid, c.counters?.lore ?? 0]));
+    for (const c of player.cards?.battlefield ?? []) {
+      const from = had.get(c.iid) ?? 0;
+      const to = c.counters?.lore ?? 0;
+      if (to > from) out.push({ kind: 'lore', thing: { seat, kind: 'card', id: c.iid, cardId: c.cardId, name: c.name, n: 1 }, from, to });
+    }
+  });
   return out;
 }
 
@@ -219,7 +240,16 @@ export function stillHappened(g: GameState, h: Happening): boolean {
       return g.combat?.id === h.combat;
     // Taken back to choosing blockers, or to the result not yet applied: off.
     case 'blocks':
+    case 'blocked':
       return !(g.combat?.id === h.combat && (g.combat.step === 'attackers' || g.combat.step === 'blockers'));
+    case 'lore': {
+      const cards = g.players[h.thing.seat]?.cards;
+      const c = cards?.battlefield.find((x) => x.iid === h.thing.id);
+      // Taken back: as many as before. Sacrificed after its last chapter, or
+      // gone to come back transformed: still so.
+      if (c) return (c.counters?.lore ?? 0) !== h.from;
+      return !!cards && [...cards.graveyard, ...cards.exile].some((x) => x.iid === h.thing.id);
+    }
     case 'damage':
       return !(g.combat?.id === h.combat && g.combat.step !== 'done');
     case 'life':
@@ -234,20 +264,23 @@ export function stillHappened(g: GameState, h: Happening): boolean {
 // ---- what a card waits for ----
 
 /** What a trigger waits for. 'upkeep' stands for the start of a turn (its
- * upkeep, draw step, first main phase), 'end' for its end step. */
+ * upkeep, draw step, first main phase), 'end' for its end step; 'blocked'
+ * for "becomes blocked", 'lore' for a Saga's chapter. */
 export type TriggerEvent =
   | 'enters'
   | 'dies'
   | 'leaves'
   | 'attacks'
   | 'blocks'
+  | 'blocked'
   | 'damage'
   | 'cast'
   | 'gain'
   | 'upkeep'
   | 'end'
   | 'combat'
-  | 'monstrous';
+  | 'monstrous'
+  | 'lore';
 
 /** One triggered ability of a card, for one event it waits for. */
 export interface Trigger {
@@ -272,6 +305,8 @@ export interface Trigger {
   /** It waits for the creature this Equipment or Aura is on ("Whenever
    * equipped creature deals combat damage to a player"). */
   host?: true;
+  /** A Saga's chapter ability: the chapters it is ("I, II —" is 1 and 2). */
+  chapters?: number[];
 }
 /** The older name, from when only entering was read. */
 export type EntersTrigger = Trigger;
@@ -284,7 +319,17 @@ const TAIL = '(?: the battlefield)?(?: under your control)?';
 // "When this creature enters", "Whenever another creature you control dies",
 // "Whenever this creature enters or attacks", "Whenever you attack": the
 // subject holds no comma.
-const MOVES = new RegExp(`${LEAD}When(?:ever)? ([^,.]+?) (enters?|dies|die|attacks?|blocks?|leaves the battlefield)(${TAIL})(?: or ([a-z' ]+?))?(${TAIL}), (.+)$`, 'i');
+const MOVES = new RegExp(
+  `${LEAD}When(?:ever)? ([^,.]+?) (enters?|dies|die|attacks?|blocks?|becomes? blocked|leaves the battlefield)(${TAIL})(?: or ([a-z' ]+?))?(${TAIL}), (.+)$`,
+  'i',
+);
+/** A Saga's chapter: "I —", "II, III —". */
+const CHAPTER = /^((?:I|II|III|IV|V|VI|VII)(?:, (?:I|II|III|IV|V|VI|VII))*) — (.+)$/;
+const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
+/** 2 → "II". */
+export const roman = (n: number): string => ROMAN[n - 1] ?? `${n}`;
+/** "Cumulative upkeep {1}", "Cumulative upkeep—Pay 1 life.": what it costs, each age counter. */
+const CUMULATIVE = /^Cumulative upkeep(?: ((?:\{[^}]+\})+)|—(.+?)\.?)$/i;
 // "Whenever this creature deals combat damage to a player", "Whenever one or
 // more Ninja you control deal combat damage to a player".
 const HITS = new RegExp(
@@ -320,6 +365,8 @@ const VERB: Record<string, TriggerEvent> = {
   block: 'blocks',
   blocks: 'blocks',
   'leaves the battlefield': 'leaves',
+  'become blocked': 'blocked',
+  'becomes blocked': 'blocked',
 };
 /** "Equipped creature", "enchanted creature": what the card is on. */
 const ITS_HOST = /^(?:equipped|enchanted) creature$/;
@@ -360,7 +407,9 @@ const whoseOf = (word: string): Other['whose'] =>
 /** The triggered abilities on a card's FRONT face (the face that is up: a
  * card on its back is read as its back) that the table can watch for, in
  * the order printed — one entry per event ("enters or dies" is two). */
-export function readTriggers(record: Pick<CardRecord, 'name' | 'oracleText'> | null | undefined): Trigger[] {
+export function readTriggers(
+  record: (Pick<CardRecord, 'name' | 'oracleText'> & { typeLine?: string | null }) | null | undefined,
+): Trigger[] {
   if (!record) return [];
   const name = record.name.split(' // ')[0];
   // A legendary card speaks of itself by its first name: "When Kenrith enters".
@@ -378,13 +427,15 @@ export function readTriggers(record: Pick<CardRecord, 'name' | 'oracleText'> | n
     other: (Other & { unsure: boolean }) | null,
     effect: string,
     host = false,
+    /** Part of what it waits for is beyond the table ("…becomes blocked by a white creature"). */
+    beyond = false,
   ) =>
     out.push({
       text,
       event,
       self,
       other: other ? { whose: other.whose, kinds: other.kinds, another: other.another, once: other.once } : null,
-      unsure: (other?.unsure ?? false) || CONDITION.test(effect),
+      unsure: beyond || (other?.unsure ?? false) || CONDITION.test(effect),
       // "You may", and also "its controller may": somebody decides.
       may: /\bmay\b/i.test(effect),
       effect,
@@ -406,20 +457,72 @@ export function readTriggers(record: Pick<CardRecord, 'name' | 'oracleText'> | n
   };
 
   // Keywords that are triggers of their own (their reminder text is not
-  // read): Undying, Persist, Evolve, Training.
+  // read): Undying, Persist, Evolve, Training, Prowess, Exalted, Bushido…
   const keywords = keywordsOf(record.oracleText);
+  const amount = (name: string) => keywordAmount(record.oracleText, name);
   const keyword = (text: string, event: TriggerEvent, effect: string, other: Trigger['other'] = null) =>
     out.push({ text, event, self: other === null, other, unsure: false, may: false, effect });
+  /** At the beginning of its controller's upkeep. */
+  const yourTurn: Trigger['other'] = { whose: 'you', kinds: [[]], another: false, once: true };
   if (keywords.has('undying')) keyword('Undying', 'dies', 'undying');
   if (keywords.has('persist')) keyword('Persist', 'dies', 'persist');
   if (keywords.has('evolve'))
     keyword('Evolve', 'enters', 'evolve', { whose: 'you', kinds: [['creature']], another: true, once: false });
   if (keywords.has('training')) keyword('Training', 'attacks', 'training');
+  if (keywords.has('prowess'))
+    keyword('Prowess', 'cast', 'prowess', { whose: 'you', kinds: [['noncreature']], another: false, once: false });
+  if (keywords.has('exalted'))
+    keyword('Exalted', 'attacks', 'exalted', { whose: 'you', kinds: [['creature']], another: false, once: true });
+  const bushido = amount('bushido');
+  if (bushido > 0) {
+    keyword(`Bushido ${bushido}`, 'blocks', `bushido ${bushido}`);
+    keyword(`Bushido ${bushido}`, 'blocked', `bushido ${bushido}`);
+  }
+  if (keywords.has('battle cry')) keyword('Battle cry', 'attacks', 'battle cry');
+  if (keywords.has('melee')) keyword('Melee', 'attacks', 'melee');
+  if (keywords.has('dethrone')) keyword('Dethrone', 'attacks', 'dethrone');
+  const afflict = amount('afflict');
+  if (afflict > 0) keyword(`Afflict ${afflict}`, 'blocked', `afflict ${afflict}`);
+  const annihilator = amount('annihilator');
+  if (annihilator > 0)
+    keyword(
+      `Annihilator ${annihilator}: the defending player sacrifices ${annihilator === 1 ? 'a permanent' : `${annihilator} permanents`}.`,
+      'attacks',
+      `annihilator ${annihilator}`,
+    );
+  if (keywords.has('vanishing')) keyword('Vanishing', 'upkeep', 'vanishing', yourTurn);
+  if (keywords.has('fading')) keyword('Fading', 'upkeep', 'fading', yourTurn);
+  // A Saga gets a lore counter as its player's turn begins (its chapters
+  // then go off as lore counters arrive: 'lore', below).
+  const saga = isSaga(record);
+  if (saga) keyword('Lore counter', 'upkeep', 'lore', yourTurn);
 
   for (const raw of record.oracleText.split('\n//\n')[0].split('\n')) {
     const text = raw.replace(/\s*\([^)]*\)/g, '').trim();
     let line = text.split(name).join('~');
     if (short) line = line.replace(new RegExp(`\\b${escaped(short)}\\b`, 'g'), '~');
+
+    const chapter = saga ? text.match(CHAPTER) : null;
+    if (chapter) {
+      const effect = line.match(CHAPTER)?.[2] ?? chapter[2];
+      out.push({
+        text,
+        event: 'lore',
+        self: true,
+        other: null,
+        unsure: CONDITION.test(effect),
+        may: /\bmay\b/i.test(effect),
+        effect,
+        chapters: chapter[1].split(/,\s*/).map((r) => ROMAN.indexOf(r) + 1),
+      });
+      continue;
+    }
+
+    const upkeep = text.match(CUMULATIVE);
+    if (upkeep) {
+      keyword(text, 'upkeep', `cumulative upkeep ${upkeep[1] ?? upkeep[2]}`, yourTurn);
+      continue;
+    }
 
     const step = line.match(STEPS);
     if (step) {
@@ -468,8 +571,10 @@ export function readTriggers(record: Pick<CardRecord, 'name' | 'oracleText'> | n
     if (!m) continue;
     const subject = m[1].toLowerCase();
     const events = [VERB[m[2].toLowerCase()]];
-    const also = m[4]?.toLowerCase().match(/^(enters?|dies|die|attacks?|blocks?|leaves the battlefield)(?: the battlefield)?$/);
+    const also = m[4]?.toLowerCase().match(/^(enters?|dies|die|attacks?|blocks?|becomes? blocked|leaves the battlefield)(?: the battlefield)?$/);
     if (also && !events.includes(VERB[also[1]])) events.push(VERB[also[1]]);
+    // "Blocks or becomes blocked by a white creature": the rest is a condition on both.
+    const beyond = !!m[4] && !also;
     const underYou = /under your control/i.test(`${m[3]}${m[5]}`);
     const effect = m[6];
     if (subject === 'you') {
@@ -483,8 +588,8 @@ export function readTriggers(record: Pick<CardRecord, 'name' | 'oracleText'> | n
     for (const event of events) {
       // What a card is on can be watched while it fights; once it has died
       // or before it arrives, the Equipment is on nothing.
-      if (who.host && event !== 'attacks' && event !== 'blocks') continue;
-      add(text, event, who.self, who.other, effect, who.host);
+      if (who.host && event !== 'attacks' && event !== 'blocks' && event !== 'blocked') continue;
+      add(text, event, who.self, who.other, effect, who.host, beyond);
     }
   }
   return out;
@@ -512,15 +617,48 @@ export type TriggerAct = { key: string; label: string; auto: boolean } & (
   | { kind: 'comeback'; counter: 'p1p1' | 'm1m1' }
   /** Evolve, Training: so many +1/+1 counters on it (worked out by the engine). */
   | { kind: 'evolve' | 'training'; n: number }
+  /** So much until end of turn: on the card itself, on the creature that
+   * attacked alone (Exalted), or on the other attackers (Battle cry).
+   * `hosts`: which creatures that is on the table, once it is known. */
+  | { kind: 'boost'; power: number; toughness: number; keywords: string[]; on: BoostOn; hosts?: Host[] }
+  /** Counters on the card itself, or off it (a negative number): a Saga's
+   * lore counter, Vanishing's time counter, cumulative upkeep's age counter. */
+  | { kind: 'counters'; add: Record<string, number> }
+  /** A player loses so much life: the defending player (Afflict), or the
+   * card's own (an upkeep paid in life). `seat`: who, once it is known. */
+  | { kind: 'lose'; n: number; who: 'defender' | 'you'; seat?: number }
+  /** An upkeep paid in mana, this much ("{1}{1}"): the lands pay it. */
+  | { kind: 'upkeep'; cost: string }
+  /** The card is sacrificed (a Saga after its last chapter, Vanishing). */
+  | { kind: 'sacrifice' }
+  /** "Exile this Saga, then return it to the battlefield transformed". */
+  | { kind: 'transform' }
   /** An effect a spell could have too (lib/spellEffects.ts). */
   | { kind: 'prompt'; prompt: SpellPrompt }
 );
+
+/** Whose size a boost changes. */
+export type BoostOn = 'self' | 'lone attacker' | 'other attackers';
 
 const NUMBER: Record<string, number> = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5 };
 const RETURNS = /\breturn (?:~|this [a-z]+) to its owner['’]s hand\b/i;
 const RETURNS_IT = /\breturn it to its owner['’]s hand\b/i;
 const GROWS = /\bput (an?|one|two|three|four|five|\d+) \+1\/\+1 counters? on (?:~|this [a-z]+)(?![a-z])/i;
 const WORKED_OUT = /\bfor each\b|\bequal to\b|\bwhere X is\b/i;
+// "~ gets +1/+1 until end of turn", "…this creature gets +2/+0 and gains
+// trample until end of turn", "~ gains flying until end of turn". "It" is
+// the card only in a trigger about the card alone ("Whenever ~ attacks, it gets…").
+const pumpOf = (subject: string) =>
+  new RegExp(
+    `(?:^|[,.;] |\\band |\\bthen )(?:${subject}) (?:gets ([+-]\\d+)\\/([+-]\\d+)(?: and gains ([a-z ,]+?))?|gains ([a-z ,]+?)) until end of turn\\b`,
+    'i',
+  );
+const PUMPS = pumpOf('~|this creature');
+/** "It gets…" where the effect begins with it: past a target or another
+ * creature, "it" may be that one ("gain control of target creature… It gains haste"). */
+const PUMPS_IT = /^it (?:gets ([+-]\d+)\/([+-]\d+)(?: and gains ([a-z ,]+?))?|gains ([a-z ,]+?)) until end of turn\b/i;
+/** "Exile this Saga, then return it to the battlefield transformed". */
+const TRANSFORMS = /\bexile (?:~|this saga), then return it to the battlefield transformed\b/i;
 /** A draw the card's own player makes: one that starts its clause ("draw a
  * card", "then draw two cards", "you draw a card") — not "target opponents
  * each draw a card". */
@@ -572,6 +710,56 @@ export function actsOf(trigger: Trigger, times = 1): TriggerAct[] {
     const n = Number(renown[1]);
     return [{ key: 'renown', label: `Renown: ${n === 1 ? 'a +1/+1 counter' : `${n} +1/+1 counters`}`, kind: 'renown', n, auto: true }];
   }
+  const boost = (key: string, label: string, power: number, toughness: number, on: BoostOn = 'self'): TriggerAct[] => [
+    { key, label, kind: 'boost', power, toughness, keywords: [], on, auto: true },
+  ];
+  if (trigger.effect === 'prowess') return boost('prowess', 'Prowess: +1/+1 until end of turn', 1, 1);
+  if (trigger.effect === 'exalted') return boost('exalted', 'Exalted: +1/+1 until end of turn', 1, 1, 'lone attacker');
+  if (trigger.effect === 'battle cry') return boost('battle cry', 'Battle cry: the others +1/+0', 1, 0, 'other attackers');
+  // Melee: +1/+1 for each opponent attacked (the engine counts them).
+  if (trigger.effect === 'melee') return boost('melee', 'Melee: +1/+1 until end of turn', 1, 1);
+  const bushido = trigger.effect.match(/^bushido (\d+)$/);
+  if (bushido) {
+    const n = Number(bushido[1]);
+    return boost('bushido', `Bushido: +${n}/+${n} until end of turn`, n, n);
+  }
+  // Dethrone: only at the player with the most life (the engine looks).
+  if (trigger.effect === 'dethrone') return [{ key: 'dethrone', label: 'Dethrone: a +1/+1 counter', kind: 'grow', n: 1, auto: true }];
+  const afflict = trigger.effect.match(/^afflict (\d+)$/);
+  if (afflict) {
+    const n = Number(afflict[1]);
+    return [{ key: 'afflict', label: `Afflict: loses ${n} life`, kind: 'lose', n, who: 'defender', auto: true }];
+  }
+  if (/^annihilator \d+$/.test(trigger.effect)) return [];
+  if (trigger.effect === 'lore') return [{ key: 'lore', label: 'A lore counter', kind: 'counters', add: { lore: 1 }, auto: true }];
+  // Vanishing, Fading: a counter off; the engine says when it is sacrificed instead.
+  if (trigger.effect === 'vanishing' || trigger.effect === 'fading') {
+    const kind = trigger.effect === 'vanishing' ? 'time' : 'fade';
+    return [
+      { key: 'tick', label: `Remove a ${kind} counter`, kind: 'counters', add: { [kind]: -1 }, auto: true },
+      { key: 'sacrifice', label: 'Sacrifice it', kind: 'sacrifice', auto: true },
+    ];
+  }
+  // Cumulative upkeep: an age counter, then pay for each one — or sacrifice
+  // it. Mana is paid from the lands, life off the life total; any other
+  // cost is its player's to pay.
+  const cumulative = trigger.effect.match(/^cumulative upkeep (.+)$/);
+  if (cumulative) {
+    const cost = cumulative[1];
+    const life = cost.match(/^Pay (\d+) life$/i);
+    return [
+      { key: 'age', label: 'An age counter', kind: 'counters', add: { age: 1 }, auto: true },
+      ...(/^(?:\{[^}]+\})+$/.test(cost)
+        ? [{ key: 'pay', label: `Pay ${cost}`, kind: 'upkeep' as const, cost, auto: false }]
+        : life
+          ? [{ key: 'pay', label: `Pay ${life[1]} life`, kind: 'lose' as const, n: Number(life[1]), who: 'you' as const, auto: false }]
+          : []),
+      { key: 'sacrifice', label: 'Sacrifice it', kind: 'sacrifice', auto: false },
+    ];
+  }
+  // A Saga's last chapter may send it away to come back as its other face.
+  if (trigger.event === 'lore' && TRANSFORMS.test(trigger.effect))
+    return [{ key: 'transform', label: 'Return it transformed', kind: 'transform', auto: plain }];
   // "When this leaves the battlefield, return the exiled card to the battlefield…"
   if (trigger.event === 'leaves' && /\breturn the exiled (?:card|cards|permanent|permanents|creature|creatures)\b[^.]*\bto the battlefield\b/i.test(trigger.effect))
     out.push({ key: 'release', label: 'Return what it exiled', kind: 'release', auto: !trigger.may });
@@ -597,6 +785,32 @@ export function actsOf(trigger: Trigger, times = 1): TriggerAct[] {
         auto: plain,
       });
   }
+  // "Whenever ~ attacks, it gets +2/+0 until end of turn": on the card itself.
+  const pumped = dead
+    ? undefined
+    : trigger.effect
+        .split(/(?<=\.)\s+/)
+        .filter((sentence) => !WORKED_OUT.test(sentence))
+        .map((sentence, i) => (own && i === 0 ? (sentence.match(PUMPS_IT) ?? sentence.match(PUMPS)) : sentence.match(PUMPS)))
+        .find((m) => m !== null);
+  if (pumped) {
+    const power = pumped[1] ? Number(pumped[1]) : 0;
+    const toughness = pumped[2] ? Number(pumped[2]) : 0;
+    const keywords = keywordList(pumped[3] ?? pumped[4] ?? '');
+    if (power !== 0 || toughness !== 0 || keywords.length > 0) {
+      const words = boostWords({ power: power * times, toughness: toughness * times, keywords });
+      out.push({
+        key: 'boost',
+        label: `${words.charAt(0).toUpperCase()}${words.slice(1)} until end of turn`,
+        kind: 'boost',
+        power: power * times,
+        toughness: toughness * times,
+        keywords,
+        on: 'self',
+        auto: plain,
+      });
+    }
+  }
   // "You may gain 1 life" is, once its player says yes, "you gain 1 life".
   // What a token it makes will say ("with \"When this token dies, you gain
   // 1 life\"") is the token's, not this card's: quoted text is not read.
@@ -615,6 +829,109 @@ export function actsOf(trigger: Trigger, times = 1): TriggerAct[] {
         BY_ITSELF.has(prompt.kind) &&
         (prompt.kind !== 'draw' || (prompt.who === 'you' && OWN_DRAW.test(trigger.effect))),
     });
+  }
+  return out;
+}
+
+/** The keyword triggers (Prowess, Exalted, Undying…): when one comes to
+ * nothing this time, there is nothing to say either. (Annihilator is said
+ * all the same: the defending player has something to do.) */
+export const isKeywordEffect = (effect: string): boolean =>
+  /^(?:renown \d+|undying|persist|evolve|training|prowess|exalted|bushido \d+|battle cry|melee|dethrone|afflict \d+|vanishing|fading)$/.test(
+    effect,
+  );
+
+/** A Saga's last chapter: once it has gone off, the Saga is sacrificed. */
+export function lastChapter(record: Parameters<typeof readTriggers>[0]): number {
+  return Math.max(0, ...readTriggers(record).flatMap((t) => t.chapters ?? []));
+}
+
+// ---- what it comes to on the table ----
+
+/** A trigger's acts as they come out on the table as it stands: whose
+ * size a boost changes (the card, the creature that attacked alone, the
+ * other attackers), how many opponents Melee counts, whether Dethrone's
+ * player has the most life, whom Afflict makes lose life, whether Vanishing
+ * and Fading take a counter off or sacrifice the card, what cumulative
+ * upkeep costs this time — and a Saga's sacrifice after its last chapter.
+ * What comes to nothing is left out; every other act passes as it is. */
+export function actsHere(g: GameState, fired: Fired, h: Happening, acts: TriggerAct[], records: Records): TriggerAct[] {
+  const effect = fired.trigger.effect;
+  const card = g.players[fired.seat]?.cards?.battlefield.find((c) => c.iid === fired.source.iid);
+  const has = (kind: string) => card?.counters?.[kind] ?? 0;
+  const combat = 'combat' in h && g.combat?.id === h.combat ? g.combat : null;
+  const mine = combat?.attacks?.find((a) => a.unit.kind === 'card' && a.unit.id === fired.source.iid);
+  const out: TriggerAct[] = [];
+  for (const act of acts) {
+    if (act.kind === 'boost') {
+      let hosts: Host[] = [];
+      let label = act.label;
+      if (act.on === 'self') hosts = card ? [{ seat: fired.seat, kind: 'card', id: card.iid }] : [];
+      else if (h.kind === 'attacks') {
+        const others = h.things.filter((t) => !(t.kind === 'card' && t.id === fired.source.iid && t.seat === fired.seat));
+        if (act.on === 'other attackers') hosts = others.map((t) => ({ seat: t.seat, kind: t.kind, id: t.id }));
+        // Exalted: one creature attacked, and only one.
+        else if (h.things.reduce((n, t) => n + t.n, 0) === 1) {
+          const t = h.things[0];
+          hosts = [{ seat: t.seat, kind: t.kind, id: t.id }];
+          label = `Exalted: ${t.name} +1/+1 until end of turn`;
+        }
+      }
+      if (hosts.length === 0) continue;
+      if (effect === 'melee') {
+        // +1/+1 for each opponent attacked by its player this combat.
+        const n = new Set((combat?.attacks ?? []).map((a) => a.target)).size;
+        if (n === 0) continue;
+        out.push({ ...act, power: n, toughness: n, hosts, label: `Melee: +${n}/+${n} until end of turn` });
+        continue;
+      }
+      out.push({ ...act, hosts, label });
+      continue;
+    }
+    if (act.kind === 'grow' && effect === 'dethrone') {
+      // At the player with the most life, or tied for it.
+      const at = mine ? g.players[mine.target] : undefined;
+      const most = Math.max(...g.players.filter((p) => !p.eliminated).map((p) => p.life));
+      if (at && at.life >= most) out.push(act);
+      continue;
+    }
+    if (act.kind === 'lose') {
+      const seat = act.who === 'you' ? fired.seat : mine?.target;
+      if (seat === undefined || !g.players[seat]) continue;
+      const who = g.config.profiles[seat]?.name ?? '?';
+      const n = act.who === 'you' ? act.n * (has('age') + 1) : act.n;
+      out.push({ ...act, n, seat, label: act.who === 'you' ? `Pay ${n} life` : `Afflict: ${who} loses ${n} life` });
+      continue;
+    }
+    if (act.kind === 'upkeep') {
+      // So much for each age counter, the one just put on included.
+      const times = has('age') + 1;
+      const cost = act.cost.repeat(times);
+      out.push({ ...act, cost, label: `Pay ${cost}` });
+      continue;
+    }
+    if (act.kind === 'counters' && (effect === 'vanishing' || effect === 'fading')) {
+      const kind = effect === 'vanishing' ? 'time' : 'fade';
+      if (has(kind) < 1) continue;
+      out.push({ ...act, label: `Remove a ${kind} counter (${has(kind) - 1} left)` });
+      continue;
+    }
+    if (act.kind === 'sacrifice' && (effect === 'vanishing' || effect === 'fading')) {
+      // Vanishing: as the last time counter comes off. Fading: when there is none to take off.
+      if (!card) continue;
+      if (effect === 'vanishing' ? has('time') === 1 : has('fade') === 0)
+        out.push({ ...act, label: effect === 'vanishing' ? 'Sacrifice it (no time counters left)' : 'Sacrifice it (no fade counter to remove)' });
+      continue;
+    }
+    out.push(act);
+  }
+  // A Saga is sacrificed once its last chapter has gone off — unless that
+  // chapter sends it away to come back transformed.
+  const chapters = fired.trigger.chapters;
+  if (h.kind === 'lore' && chapters && card && !out.some((a) => a.kind === 'transform')) {
+    const last = lastChapter(records[fired.source.cardId]);
+    if (last > 0 && chapters.includes(last) && h.from < last && last <= h.to)
+      out.push({ key: 'sacrifice', label: 'Sacrifice it (its last chapter)', kind: 'sacrifice', auto: true });
   }
   return out;
 }
@@ -718,6 +1035,7 @@ const VERBED: Partial<Record<TriggerEvent, string>> = {
   dies: 'died',
   attacks: 'attacked',
   blocks: 'blocked',
+  blocked: 'became blocked',
   damage: 'dealt combat damage to a player',
   leaves: 'left the battlefield',
 };
@@ -772,6 +1090,15 @@ export function firedBy(g: GameState, h: Happening, records: Records): Fired[] {
       if (h.kind === 'monstrous') {
         if (trigger.event !== 'monstrous' || h.thing.id !== source.iid || h.thing.seat !== source.seat) continue;
         push(1, 'It became monstrous', true);
+        continue;
+      }
+
+      // A chapter goes off as the lore counters reach its number.
+      if (h.kind === 'lore') {
+        if (trigger.event !== 'lore' || h.thing.id !== source.iid || h.thing.seat !== source.seat) continue;
+        const reached = (trigger.chapters ?? []).filter((n) => n > h.from && n <= h.to);
+        if (reached.length === 0) continue;
+        push(reached.length, `Chapter ${reached.map(roman).join(', ')}`, true);
         continue;
       }
 

@@ -289,7 +289,9 @@ function review(g: GameState, combat: CombatState, records: CardRecords, edits: 
     });
   }
 
-  const outcome: CombatOutcome = { players, deaths };
+  // −1/−1 counters stay only on what lives.
+  const shrunk = (result.outcome.shrunk ?? []).filter((s) => !deaths.some((d) => reviewId(d.seat, d.unit) === reviewId(s.seat, s.unit)));
+  const outcome: CombatOutcome = { players, deaths, ...(shrunk.length > 0 ? { shrunk } : {}) };
   return { result, defenders, gains, attacks, units, outcome, defeats: outcomeDefeats(g, outcome) };
 }
 

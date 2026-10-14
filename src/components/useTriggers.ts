@@ -1,11 +1,14 @@
 import { create } from 'zustand';
 import type { SpellTarget } from '../lib/spellEffects';
 import { heldBy } from '../lib/cards';
+import { countersWords, entryCounters, missingCounters } from '../lib/entering';
 import {
+  actsHere,
   actsOf,
   evolveCount,
   firedBy,
   holdsExiled,
+  isKeywordEffect,
   stillHappened,
   trainingFires,
   type Happening,
@@ -47,6 +50,8 @@ export interface ShownTrigger {
   who: string;
   /** The ability, as printed. */
   text: string;
+  /** What it does, as lib/triggers.ts reads it ('prowess' for the keyword). */
+  effect: string;
   /** What set it off: "Shivan Dragon entered", "It died", "Sam’s turn began". */
   because: string;
   acts: ShownAct[];
@@ -108,6 +113,25 @@ function run(key: string, actKey: string, target: SpellTarget | undefined, depth
     } else if (act.kind === 'release') {
       did = heldBy(store.game, { seat: trigger.seat, iid: trigger.source.iid }).length > 0;
       if (did) store.releaseHeld(trigger.seat, trigger.source.iid, trigger.source.name);
+    } else if (act.kind === 'boost') {
+      did = (act.hosts ?? []).length > 0;
+      const why = isKeywordEffect(trigger.effect) ? trigger.text.toLowerCase() : trigger.source.name;
+      if (did) store.boostUntilEndOfTurn(act.hosts ?? [], { power: act.power, toughness: act.toughness, keywords: act.keywords }, why);
+    } else if (act.kind === 'counters') {
+      did = !!card;
+      if (card) store.addCounters(trigger.seat, card.iid, act.add, `${trigger.source.name}: ${act.label.charAt(0).toLowerCase()}${act.label.slice(1)}`);
+    } else if (act.kind === 'lose') {
+      did = act.seat !== undefined;
+      if (act.seat !== undefined) void store.castEffect(trigger.seat, trigger.source.name, { kind: 'life', n: act.n, gain: false, on: act.seat });
+    } else if (act.kind === 'upkeep') {
+      did = !!card;
+      if (card) void store.payUpkeep(trigger.seat, card.iid, act.cost);
+    } else if (act.kind === 'sacrifice') {
+      did = !!card;
+      if (card) store.sacrificeCard(trigger.seat, card.iid);
+    } else if (act.kind === 'transform') {
+      did = !!card;
+      if (card) void store.returnTransformed(trigger.seat, card.iid);
     } else if (act.kind === 'prompt')
       did = carryOutPrompt(trigger.seat, trigger.source.name, act.prompt, act.token, target, {
         sourceIid: trigger.source.iid,
@@ -140,7 +164,7 @@ export const useTriggers = create<TriggerState>()((set, get) => ({
 const thingsOf = (h: Happening): Thing[] =>
   h.kind === 'cast'
     ? [h.spell]
-    : h.kind === 'monstrous'
+    : h.kind === 'monstrous' || h.kind === 'lore'
       ? [h.thing]
       : h.kind === 'turn' || h.kind === 'combat' || h.kind === 'life'
         ? []
@@ -159,20 +183,60 @@ async function recordsFor(g: GameState, events: Happening[]): Promise<Record<str
   return records;
 }
 
+/** A move a trigger makes by itself, `depth` deep in a chain of them. */
+function asTrigger(depth: number, move: () => void): void {
+  chain = depth;
+  try {
+    move();
+  } finally {
+    chain = 0;
+  }
+}
+
+/** Cards that arrived without the counters they enter with ("enters with two
+ * +1/+1 counters", a Saga's first lore counter): those go on now, each card
+ * in one move. Only kinds it has none of — what it came with stands. */
+function settleArrivals(things: Thing[], records: Record<string, CardRecord | undefined>, depth: number): void {
+  for (const t of things) {
+    if (t.kind !== 'card' || !t.cardId) continue;
+    const store = useAppStore.getState();
+    const card = store.game?.players[t.seat]?.cards?.battlefield.find((c) => c.iid === t.id);
+    if (!card) continue;
+    const add = missingCounters(entryCounters(records[t.cardId]), card.counters);
+    if (Object.keys(add).length === 0) continue;
+    asTrigger(depth + 1, () => store.addCounters(t.seat, t.id, add, `${t.name} enters with ${countersWords(add)}`));
+  }
+}
+
 /** Sets off whatever was waiting for what a move did. `depth`: how deep in
  * a chain of triggers that move was. */
 async function raise(events: Happening[], depth: number): Promise<void> {
   const seen = useAppStore.getState().game;
   if (!seen) return;
   const records = await recordsFor(seen, events);
+  // What arrived without what it enters with (put there by hand, back from
+  // a graveyard): it gets it now. A played card already has it.
+  for (const h of events) if (h.kind === 'enters') settleArrivals(h.things, records, depth);
   // The table as it stands now: a card that left meanwhile waits for nothing.
   const g = useAppStore.getState().game;
   if (!g) return;
   const fresh: ShownTrigger[] = [];
   for (const fired of events.flatMap((h) => firedBy(g, h, records).map((f) => ({ ...f, happening: h })))) {
+    // A Saga's lore counter as its player's turn begins says nothing
+    // itself: the chapter it reaches does.
+    if (fired.trigger.effect === 'lore') {
+      const { seat, source } = fired;
+      asTrigger(depth + 1, () => useAppStore.getState().addCounters(seat, source.iid, { lore: 1 }, `${source.name} gets a lore counter`));
+      continue;
+    }
     const acts: ShownAct[] = [];
     const holder = { seat: fired.seat, iid: fired.source.iid };
-    for (const act of actsOf(fired.trigger, fired.times)) {
+    const planned = actsOf(fired.trigger, fired.times);
+    const placed = actsHere(g, fired, fired.happening, planned, records);
+    // All it would do comes to nothing here (its +2/+2 on itself, and it has
+    // died): nothing to say either.
+    if (planned.length > 0 && placed.length === 0) continue;
+    for (const act of placed) {
       const h = fired.happening;
       // Undying / Persist: only if it had no such counter as it died, and it is in its graveyard.
       if (act.kind === 'comeback') {
@@ -218,12 +282,13 @@ async function raise(events: Happening[], depth: number): Promise<void> {
     if (fired.own && fired.happening.kind === 'enters' && acts.length === 0) continue;
     // A keyword that did not go off this time (renowned already, had its
     // counter, nothing bigger came in…): nothing to say.
-    if (/^(?:renown \d+|undying|persist|evolve|training)$/.test(fired.trigger.effect) && acts.length === 0) continue;
+    if (isKeywordEffect(fired.trigger.effect) && acts.length === 0) continue;
     fresh.push({
       key: `t${++serial}`,
       seat: fired.seat,
       source: { iid: fired.source.iid, name: fired.source.name, art: records[fired.source.cardId]?.imageNormal ?? null },
       text: fired.trigger.text,
+      effect: fired.trigger.effect,
       who: g.config.profiles[fired.seat]?.name ?? '?',
       because: fired.because,
       acts,
@@ -244,6 +309,7 @@ async function raise(events: Happening[], depth: number): Promise<void> {
         seat: t.seat,
         source: { iid: t.id, name: t.name, art: (t.cardId && records[t.cardId]?.imageNormal) || null },
         text: `It held ${names} in exile until it left the battlefield.`,
+        effect: 'release',
         who: g.config.profiles[t.seat]?.name ?? '?',
         because: 'It left the battlefield',
         acts: [{ key: 'release', label: `Return ${names}`, kind: 'release', auto: true, done: false }],

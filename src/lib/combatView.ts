@@ -400,7 +400,7 @@ export function resultFlags(result: CombatResult): string[] {
   }
   for (const u of result.check) flags.push(`check the ${u.name || 'token'} stack`);
   if (result.infectOnCreatures) {
-    flags.push('infect was blocked: its damage to creatures counts as ordinary damage');
+    flags.push('infect or wither hit a token in a stack: that damage counts as ordinary damage');
   }
   return flags;
 }

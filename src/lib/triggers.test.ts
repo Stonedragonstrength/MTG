@@ -2,14 +2,17 @@ import { expect, test } from 'vitest';
 import { createGame } from './game';
 import { confirmAttackers, finishBlocks, setAttack, setBlock, startCombat } from './combat';
 import {
+  actsHere,
   actsOf,
   arrivalsBetween,
   entersTriggers,
   firedBy,
   happeningsBetween,
+  lastChapter,
   readTriggers,
   stillHappened,
   type Arrival,
+  type Fired,
   type Happening,
 } from './triggers';
 import type { BoardItem, CardInstance, CardRecord, GameConfig, GameState } from './types';
@@ -479,4 +482,186 @@ test('every defender done blocking: the blocks stand, and the blockers are what 
   const [blocks] = happeningsBetween(fight, blocked).filter((e) => e.kind === 'blocks');
   expect(blocks).toEqual({ kind: 'blocks', combat: 'f1', things: [{ seat: 1, kind: 'card', id: 'w9', cardId: 'wall', name: 'Wall of Junk', n: 1 }] });
   expect(firedBy(blocked, blocks, RECORDS).map((f) => [f.source.iid, f.because])).toEqual([['w9', 'It blocked']]);
+});
+
+// ---- Sagas, and the keywords that are triggers ----
+
+Object.assign(RECORDS, {
+  benalia: rec('benalia', 'History of Benalia', 'Legendary Enchantment — Saga', '(As this Saga enters and after your draw step, add a lore counter. Sacrifice after III.)\nI, II — Create a 2/2 white Knight creature token with vigilance.\nIII — Knights you control get +2/+1 until end of turn.'),
+  fable: rec('fable', 'Fable of the Mirror-Breaker', 'Enchantment — Saga // Enchantment Creature — Goblin Shaman', '(As this Saga enters and after your draw step, add a lore counter.)\nI — Create a 2/1 red Goblin Shaman creature token with "Whenever this token attacks, create a Treasure token."\nII — You may discard up to two cards. If you do, draw that many cards.\nIII — Exile this Saga, then return it to the battlefield transformed under your control.\n//\nYou may pay {1}...'),
+  swiftspear: rec('swiftspear', 'Monastery Swiftspear', 'Creature — Human Monk', 'Haste\nProwess (Whenever you cast a noncreature spell, this creature gets +1/+1 until end of turn.)', { power: '1', toughness: '2' }),
+  exalted: rec('exalted', 'Akrasan Squire', 'Creature — Human Soldier', 'Exalted (Whenever a creature you control attacks alone, that creature gets +1/+1 until end of turn.)'),
+  samurai: rec('samurai', 'Samurai of the Pale Curtain', 'Creature — Fox Samurai', 'Bushido 1 (Whenever this creature blocks or becomes blocked, it gets +1/+1 until end of turn.)'),
+  piker: rec('piker', 'Goblin Piker', 'Creature — Goblin', 'Whenever this creature attacks, it gets +2/+0 until end of turn.'),
+  ghoul: rec('ghoul', 'Grim Ghoul', 'Creature — Zombie', 'Whenever another creature dies, it gets +1/+1 until end of turn.'),
+  wolf: rec('wolf', 'Bloodcrazed Wolf', 'Creature — Wolf', 'Whenever this creature becomes blocked, it gets +1/+1 until end of turn.'),
+  afflict: rec('afflict', 'Khenra Eternal', 'Creature — Zombie Jackal Warrior', 'Afflict 1 (Whenever this creature becomes blocked, defending player loses 1 life.)'),
+  dethrone: rec('dethrone', 'Marchesa’s Infiltrator', 'Creature — Human Rogue', 'Dethrone (Whenever this creature attacks the player with the most life or tied for most life, put a +1/+1 counter on it.)'),
+  melee: rec('melee', 'Custodi Soulcaller', 'Creature — Human Cleric', 'Melee (Whenever this creature attacks, it gets +1/+1 until end of turn for each opponent you attacked this combat.)'),
+  crier: rec('crier', 'Signal Pest', 'Artifact Creature — Pest', 'Battle cry (Whenever this creature attacks, each other attacking creature gets +1/+0 until end of turn.)'),
+  marauders: rec('marauders', 'Keldon Marauders', 'Creature — Human Warrior', 'Vanishing 2 (This creature enters with two time counters on it. At the beginning of your upkeep, remove a time counter from it. When the last is removed, sacrifice it.)'),
+  blastoderm: rec('blastoderm', 'Blastoderm', 'Creature — Beast', 'Shroud\nFading 3 (This creature enters with three fade counters on it. At the beginning of your upkeep, remove a fade counter from it. If you can’t, sacrifice it.)'),
+  remora: rec('remora', 'Mystic Remora', 'Enchantment', 'Cumulative upkeep {1} (At the beginning of your upkeep, put an age counter on this permanent, then sacrifice it unless you pay its upkeep cost for each age counter on it.)\nWhenever an opponent casts a noncreature spell, you may draw a card unless that player pays {4}.'),
+  glacier: rec('glacier', 'Glacial Chasm', 'Land', 'Cumulative upkeep—Pay 2 life.\nWhen this land enters, sacrifice a land.'),
+  shock: rec('shock', 'Shock', 'Instant', 'Shock deals 2 damage to any target.'),
+  eldrazi: rec('eldrazi', 'Ulamog’s Crusher', 'Creature — Eldrazi', 'Annihilator 2 (Whenever this creature attacks, defending player sacrifices two permanents.)\nThis creature attacks each combat if able.'),
+});
+const withCounters = (c: CardInstance, counters: Record<string, number>): CardInstance => ({ ...c, counters });
+/** What one fired trigger comes to on that table. */
+const here = (g: GameState, f: Fired, h: Happening) => actsHere(g, f, h, actsOf(f.trigger, f.times), RECORDS);
+
+test('a Saga: a lore counter as its player’s turn begins, and each chapter as the counters reach it', () => {
+  const read = readTriggers(RECORDS.benalia);
+  expect(read.map((t) => [t.event, t.chapters ?? null, t.effect])).toEqual([
+    ['upkeep', null, 'lore'],
+    ['lore', [1, 2], 'Create a 2/2 white Knight creature token with vigilance.'],
+    ['lore', [3], 'Knights you control get +2/+1 until end of turn.'],
+  ]);
+  expect(lastChapter(RECORDS.benalia)).toBe(3);
+  // Played with its lore counter on: chapter I.
+  const before = table([]);
+  const played = table([withCounters(card('s1', 'benalia'), { lore: 1 })]);
+  const lore = happeningsBetween(before, played).find((e) => e.kind === 'lore')!;
+  expect(lore).toMatchObject({ kind: 'lore', from: 0, to: 1 });
+  expect(firedBy(played, lore, RECORDS).map((f) => [f.because, f.times, f.trigger.chapters])).toEqual([['Chapter I', 1, [1, 2]]]);
+  // II and III on later turns; past the last, nothing.
+  const two = table([withCounters(card('s1', 'benalia'), { lore: 2 })]);
+  const second = happeningsBetween(played, two).find((e) => e.kind === 'lore')!;
+  expect(firedBy(two, second, RECORDS).map((f) => f.because)).toEqual(['Chapter II']);
+  const three = table([withCounters(card('s1', 'benalia'), { lore: 3 })]);
+  const third = happeningsBetween(two, three).find((e) => e.kind === 'lore')!;
+  const [last] = firedBy(three, third, RECORDS);
+  expect(last.because).toBe('Chapter III');
+  // After its last chapter it is sacrificed, by itself.
+  expect(here(three, last, third).map((a) => [a.kind, a.auto])).toEqual([['sacrifice', true]]);
+  expect(here(two, firedBy(two, second, RECORDS)[0], second).some((a) => a.kind === 'sacrifice')).toBe(false);
+  // An Undo of the counter takes the chapter back; the Saga sacrificed keeps it.
+  expect(stillHappened(two, third)).toBe(false);
+  expect(stillHappened(three, third)).toBe(true);
+  const gone = table([]);
+  gone.players[0].cards!.graveyard = [card('s1', 'benalia')];
+  expect(stillHappened(gone, third)).toBe(true);
+  expect(stillHappened(before, lore)).toBe(false); // back in hand: never played
+});
+
+test('Fable’s last chapter sends it away to come back transformed: no sacrifice', () => {
+  const two = table([withCounters(card('f1', 'fable'), { lore: 2 })]);
+  const three = table([withCounters(card('f1', 'fable'), { lore: 3 })]);
+  const h = happeningsBetween(two, three).find((e) => e.kind === 'lore')!;
+  const [fired] = firedBy(three, h, RECORDS);
+  expect(here(three, fired, h).map((a) => [a.kind, a.label, a.auto])).toEqual([['transform', 'Return it transformed', true]]);
+});
+
+test('Prowess: a noncreature spell cast gives it +1/+1 until end of turn; a creature spell does not', () => {
+  const g = table([card('m1', 'swiftspear')]);
+  const cast = (cardId: string): Happening => ({ kind: 'cast', seat: 0, spell: { seat: 0, kind: 'card', id: 'h1', cardId, name: RECORDS[cardId].name, n: 1 } });
+  expect(firedBy(g, cast('bear'), RECORDS)).toEqual([]);
+  const [fired] = firedBy(g, cast('shock'), RECORDS);
+  expect(here(g, fired, cast('shock'))).toMatchObject([
+    { kind: 'boost', power: 1, toughness: 1, auto: true, hosts: [{ seat: 0, kind: 'card', id: 'm1' }] },
+  ]);
+});
+
+test('Exalted pumps the creature that attacked alone; two attackers, nothing', () => {
+  const g = table([card('x1', 'exalted'), card('b1', 'bear'), card('b2', 'bear')]);
+  const attack = (...iids: string[]): Happening => ({
+    kind: 'attacks',
+    seat: 0,
+    combat: 'f1',
+    things: iids.map((id) => ({ seat: 0, kind: 'card' as const, id, cardId: 'bear', name: 'Grizzly Bears', n: 1 })),
+  });
+  const alone = attack('b1');
+  const [fired] = firedBy(g, alone, RECORDS);
+  expect(here(g, fired, alone)).toMatchObject([{ kind: 'boost', label: 'Exalted: Grizzly Bears +1/+1 until end of turn', hosts: [{ id: 'b1' }] }]);
+  const pair = attack('b1', 'b2');
+  expect(firedBy(g, pair, RECORDS).flatMap((f) => here(g, f, pair))).toEqual([]);
+});
+
+test('"blocks or becomes blocked": Bushido both ways, and a printed "it gets +2/+0" on its own trigger', () => {
+  expect(readTriggers(RECORDS.samurai).map((t) => [t.event, t.effect])).toEqual([
+    ['blocks', 'bushido 1'],
+    ['blocked', 'bushido 1'],
+  ]);
+  expect(readTriggers(RECORDS.wolf).map((t) => [t.event, t.self])).toEqual([['blocked', true]]);
+  expect(actsOf(readTriggers(RECORDS.wolf)[0])).toMatchObject([{ kind: 'boost', power: 1, toughness: 1, on: 'self', auto: true }]);
+  expect(actsOf(readTriggers(RECORDS.piker)[0])).toMatchObject([{ kind: 'boost', label: '+2/+0 until end of turn', power: 2, toughness: 0, auto: true }]);
+  // "it" is the card only when the trigger is about the card alone.
+  expect(actsOf(readTriggers(RECORDS.ghoul)[0]).filter((a) => a.kind === 'boost')).toEqual([]);
+});
+
+test('the attackers that got blocked are what became blocked: Bushido, Afflict', () => {
+  const g = table([card('s1', 'samurai'), card('a1', 'afflict'), card('b1', 'bear')], [card('w9', 'bear'), card('w8', 'bear')]);
+  let fight = startCombat(g, { id: 'f1', turn: g.turnNumber, active: 0 });
+  for (const id of ['s1', 'a1', 'b1']) fight = setAttack(fight, 'f1', { kind: 'card', id }, 1, 1);
+  fight = confirmAttackers(fight, 'f1', { cards: [], stacks: {} });
+  let blocking = setBlock(fight, 'f1', 1, { kind: 'card', id: 's1' }, { kind: 'card', id: 'w9' }, 1);
+  blocking = setBlock(blocking, 'f1', 1, { kind: 'card', id: 'a1' }, { kind: 'card', id: 'w8' }, 1);
+  const done = finishBlocks(blocking, 'f1', 1);
+  const blocked = happeningsBetween(blocking, done).find((e) => e.kind === 'blocked')!;
+  expect(blocked.kind === 'blocked' && blocked.things.map((t) => t.id)).toEqual(['s1', 'a1']);
+  const fired = firedBy(done, blocked, RECORDS);
+  expect(fired.map((f) => [f.source.iid, f.because])).toEqual([
+    ['s1', 'It became blocked'],
+    ['a1', 'It became blocked'],
+  ]);
+  expect(here(done, fired[0], blocked)).toMatchObject([{ kind: 'boost', power: 1, toughness: 1, hosts: [{ id: 's1' }] }]);
+  expect(here(done, fired[1], blocked)).toMatchObject([{ kind: 'lose', n: 1, seat: 1, label: 'Afflict: Sam loses 1 life', auto: true }]);
+  expect(stillHappened(done, blocked)).toBe(true);
+  expect(stillHappened(blocking, blocked)).toBe(false);
+});
+
+test('Dethrone at the player with the most life; Melee counts the opponents; Battle cry the others', () => {
+  const g = table([card('d1', 'dethrone'), card('m1', 'melee'), card('c1', 'crier'), card('b1', 'bear')]);
+  let fight = startCombat(g, { id: 'f1', turn: g.turnNumber, active: 0 });
+  for (const id of ['d1', 'm1', 'c1', 'b1']) fight = setAttack(fight, 'f1', { kind: 'card', id }, 1, 1);
+  const declared = confirmAttackers(fight, 'f1', { cards: [], stacks: {} });
+  const attacks = happeningsBetween(fight, declared).find((e) => e.kind === 'attacks')!;
+  const acts = (iid: string) => here(declared, firedBy(declared, attacks, RECORDS).find((f) => f.source.iid === iid)!, attacks);
+  // 40 each: tied for the most.
+  expect(acts('d1')).toMatchObject([{ kind: 'grow', n: 1 }]);
+  const behind = { ...declared, players: declared.players.map((p, i) => (i === 1 ? { ...p, life: 30 } : p)) };
+  expect(here(behind, firedBy(behind, attacks, RECORDS).find((f) => f.source.iid === 'd1')!, attacks)).toEqual([]);
+  expect(acts('m1')).toMatchObject([{ kind: 'boost', power: 1, toughness: 1, label: 'Melee: +1/+1 until end of turn' }]);
+  expect(acts('c1')).toMatchObject([{ kind: 'boost', power: 1, toughness: 0 }]);
+  const [battleCry] = acts('c1');
+  expect(battleCry.kind === 'boost' && battleCry.hosts?.map((h) => h.id)).toEqual(['d1', 'm1', 'b1']);
+});
+
+test('Vanishing takes a time counter off each upkeep and sacrifices it with the last; Fading once there is none', () => {
+  const turn: Happening = { kind: 'turn', ended: 1, began: 0, turn: 3 };
+  const fired = (g: GameState) => firedBy(g, turn, RECORDS)[0];
+  const two = table([withCounters(card('k1', 'marauders'), { time: 2 })]);
+  expect(here(two, fired(two), turn).map((a) => [a.kind, a.label])).toEqual([['counters', 'Remove a time counter (1 left)']]);
+  const one = table([withCounters(card('k1', 'marauders'), { time: 1 })]);
+  expect(here(one, fired(one), turn).map((a) => a.kind)).toEqual(['counters', 'sacrifice']);
+  const fade = table([withCounters(card('o1', 'blastoderm'), { fade: 1 })]);
+  expect(here(fade, fired(fade), turn).map((a) => a.kind)).toEqual(['counters']);
+  const faded = table([card('o1', 'blastoderm')]);
+  expect(here(faded, fired(faded), turn).map((a) => [a.kind, a.auto])).toEqual([['sacrifice', true]]);
+  // Not on Sam's turn.
+  expect(firedBy(two, { kind: 'turn', ended: 0, began: 1, turn: 3 }, RECORDS)).toEqual([]);
+});
+
+test('cumulative upkeep: an age counter by itself, then pay for each one — or sacrifice it', () => {
+  const turn: Happening = { kind: 'turn', ended: 1, began: 0, turn: 3 };
+  const g = table([withCounters(card('r1', 'remora'), { age: 1 })]);
+  const [upkeep] = firedBy(g, turn, RECORDS).filter((f) => f.trigger.event === 'upkeep');
+  expect(here(g, upkeep, turn).map((a) => [a.kind, a.label, a.auto])).toEqual([
+    ['counters', 'An age counter', true],
+    ['upkeep', 'Pay {1}{1}', false],
+    ['sacrifice', 'Sacrifice it', false],
+  ]);
+  const chasm = table([card('c1', 'glacier')]);
+  const [life] = firedBy(chasm, turn, RECORDS);
+  expect(here(chasm, life, turn).map((a) => [a.kind, a.label])).toEqual([
+    ['counters', 'An age counter'],
+    ['lose', 'Pay 2 life'],
+    ['sacrifice', 'Sacrifice it'],
+  ]);
+});
+
+test('Annihilator is said, with nothing to press: the defending player has the sacrificing to do', () => {
+  const [annihilator] = readTriggers(RECORDS.eldrazi);
+  expect(annihilator).toMatchObject({ event: 'attacks', self: true, text: 'Annihilator 2: the defending player sacrifices 2 permanents.' });
+  expect(actsOf(annihilator)).toEqual([]);
 });

@@ -541,3 +541,121 @@ test('Training alone does nothing', async () => {
   expect(on('t1')?.counters).toBeUndefined();
   expect(shown()).toEqual([]);
 });
+
+// ---- what cards enter with, Sagas, and the keywords that are triggers ----
+
+Object.assign(RECORDS, {
+  feeder: rec('feeder', 'Spike Feeder', 'Creature — Spike', 'This creature enters with two +1/+1 counters on it.', { power: '0', toughness: '0' }),
+  saga: rec('saga', 'The Test of Ages', 'Enchantment — Saga', '(As this Saga enters and after your draw step, add a lore counter. Sacrifice after III.)\nI — Draw a card.\nII — You gain 2 life.\nIII — Each opponent loses 3 life.'),
+  fable: rec('fable', 'Fable of the Mirror-Breaker', 'Enchantment — Saga // Enchantment Creature — Goblin Shaman', '(As this Saga enters and after your draw step, add a lore counter.)\nI — Draw a card.\nII — You gain 1 life.\nIII — Exile this Saga, then return it to the battlefield transformed under your control.\n//\nWhenever this creature becomes tapped, create a token.'),
+  swiftspear: rec('swiftspear', 'Monastery Swiftspear', 'Creature — Human Monk', 'Haste\nProwess (Whenever you cast a noncreature spell, this creature gets +1/+1 until end of turn.)', { power: '1', toughness: '2' }),
+  squire: rec('squire', 'Akrasan Squire', 'Creature — Human Soldier', 'Exalted (Whenever a creature you control attacks alone, that creature gets +1/+1 until end of turn.)', { power: '1', toughness: '1' }),
+  remora: rec('remora', 'Mystic Remora', 'Enchantment', 'Cumulative upkeep {1} (At the beginning of your upkeep, put an age counter on this permanent, then sacrifice it unless you pay its upkeep cost for each age counter on it.)'),
+  ramgang: rec('ramgang', 'Boggart Ram-Gang', 'Creature — Goblin Warrior', 'Haste\nWither (This deals damage to creatures in the form of -1/-1 counters.)', { power: '3', toughness: '3' }),
+});
+const sizeOf = async (iid: string) => {
+  const { readUnit } = await import('../lib/combatEngine');
+  const read = readUnit(useAppStore.getState().game!, 0, { kind: 'card', id: iid }, RECORDS);
+  return [read?.power, read?.toughness];
+};
+
+test('a creature that "enters with two +1/+1 counters" has them as it lands — and when it is put back by hand', async () => {
+  start([], [card('h1', 'feeder')]);
+  await act(() => useAppStore.getState().playCard(0, 'h1'));
+  expect(on('h1')?.counters).toEqual({ p1p1: 2 });
+  await quiet();
+  expect(on('h1')?.counters).toEqual({ p1p1: 2 }); // not twice
+  act(() => useAppStore.getState().moveVirtualCard(0, 'h1', 'battlefield', 'graveyard'));
+  await quiet();
+  act(() => useAppStore.getState().moveVirtualCard(0, 'h1', 'graveyard', 'battlefield'));
+  await waitFor(() => expect(on('h1')?.counters).toEqual({ p1p1: 2 }));
+  expect(useAppStore.getState().game!.feed?.at(-1)?.text).toBe('Spike Feeder enters with two +1/+1 counters');
+});
+
+test('a Saga: chapter I as it is played, II and III as its player’s turns begin, then it is sacrificed', async () => {
+  start([], [card('h1', 'saga')]);
+  const store = () => useAppStore.getState();
+  await act(() => store().playCard(0, 'h1'));
+  expect(on('h1')?.counters).toEqual({ lore: 1 });
+  await waitFor(() => expect(mine().cards!.hand.map((c) => c.iid)).toEqual(['l1'])); // I — Draw a card.
+  expect(shown().at(-1)).toMatchObject({ because: 'Chapter I', text: 'I — Draw a card.' });
+  await quiet();
+  act(() => store().passTurn());
+  await quiet();
+  expect(on('h1')?.counters).toEqual({ lore: 1 }); // Sam's turn: not its player's
+  act(() => store().passTurn());
+  await waitFor(() => expect(mine().life).toBe(42)); // II — You gain 2 life.
+  expect(on('h1')?.counters).toEqual({ lore: 2 });
+  await quiet();
+  act(() => store().passTurn());
+  await quiet();
+  act(() => store().passTurn());
+  await waitFor(() => expect(theirs().life).toBe(37)); // III — Each opponent loses 3 life.
+  await waitFor(() => expect(mine().cards!.graveyard.map((c) => c.iid)).toEqual(['h1']));
+  expect(shown().at(-1)?.acts.map((a) => [a.label, a.done])).toEqual([
+    ['Each opponent loses 3', true],
+    ['Sacrifice it (its last chapter)', true],
+  ]);
+});
+
+test('Fable of the Mirror-Breaker’s last chapter: it comes back as its other face, with nothing on it', async () => {
+  start([{ ...card('f1', 'fable'), counters: { lore: 2 } }]);
+  act(() => useAppStore.getState().setVirtualCounter(0, 'f1', 'lore', 3));
+  await waitFor(() => expect(on('f1')?.cardId).toBe('fable~back'));
+  expect(on('f1')?.counters).toBeUndefined();
+  expect(mine().cards!.graveyard).toEqual([]);
+  expect(useAppStore.getState().game!.feed?.at(-1)?.text).toMatch(/^Fable of the Mirror-Breaker is exiled and returns transformed/);
+});
+
+test('Prowess: a noncreature spell cast makes it bigger until end of turn', async () => {
+  start([card('m1', 'swiftspear')], [card('h1', 'bolt')]);
+  await act(() => useAppStore.getState().playCard(0, 'h1'));
+  await waitFor(async () => expect(await sizeOf('m1')).toEqual([2, 3]));
+  expect(useAppStore.getState().game!.feed?.at(-1)?.text).toBe('Monastery Swiftspear gets +1/+1 until end of turn (prowess)');
+});
+
+test('Exalted: a creature attacking alone gets +1/+1; it says nothing when two attack', async () => {
+  start([card('x1', 'squire'), card('b1', 'bear'), card('b2', 'bear')]);
+  const store = () => useAppStore.getState();
+  act(() => store().startCombat());
+  await quiet();
+  act(() => store().setAttacker({ kind: 'card', id: 'b1' }, 1, 1));
+  await act(() => store().confirmAttackers());
+  await waitFor(async () => expect(await sizeOf('b1')).toEqual([3, 3]));
+  expect(shown().at(-1)?.acts.map((a) => a.label)).toEqual(['Exalted: Grizzly Bears +1/+1 until end of turn']);
+});
+
+test('cumulative upkeep: an age counter by itself as the turn begins, then a choice — Sacrifice it is one tap', async () => {
+  start([card('r1', 'remora')]);
+  const store = () => useAppStore.getState();
+  act(() => store().passTurn());
+  await quiet();
+  act(() => store().passTurn());
+  await waitFor(() => expect(on('r1')?.counters).toEqual({ age: 1 }));
+  render(<TriggerBanner />);
+  expect(screen.getByRole('button', { name: 'Pay {1}' })).toBeEnabled();
+  await act(() => new Promise((r) => setTimeout(r, 400)));
+  await userEvent.click(screen.getByRole('button', { name: 'Sacrifice it' }));
+  expect(mine().cards!.graveyard.map((c) => c.iid)).toEqual(['r1']);
+});
+
+test('wither in a fight: the creature that lives keeps -1/-1 counters', async () => {
+  start([card('g1', 'ramgang')]);
+  const g = useAppStore.getState().game!;
+  useAppStore.setState({
+    game: { ...g, players: g.players.map((p, i) => (i === 1 ? { ...p, cards: { ...mine().cards!, battlefield: [card('w9', 'dragon')], library: [], hand: [] } } : p)) },
+  });
+  const store = () => useAppStore.getState();
+  act(() => store().startCombat());
+  await quiet();
+  act(() => store().setAttacker({ kind: 'card', id: 'g1' }, 1, 1));
+  await act(() => store().confirmAttackers());
+  act(() => store().setBlocker(1, { kind: 'card', id: 'g1' }, { kind: 'card', id: 'w9' }, 1));
+  act(() => store().finishBlocks(1));
+  const { reviewCombat } = await import('../lib/combatReview');
+  const review = reviewCombat(store().game!, store().game!.combat!, RECORDS);
+  act(() => store().applyCombat(review.outcome));
+  expect(theirs().cards!.battlefield.find((c) => c.iid === 'w9')?.counters).toEqual({ m1m1: 3 });
+  expect(mine().cards!.graveyard.map((c) => c.iid)).toEqual(['g1']);
+  expect(useAppStore.getState().game!.feed?.at(-1)?.text).toBe('Combat: Boggart Ram-Gang dies · Shivan Dragon gets 3 -1/-1 counters');
+});

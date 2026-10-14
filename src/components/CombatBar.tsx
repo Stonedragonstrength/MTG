@@ -143,6 +143,7 @@ const MARKS: Record<CombatKeyword, string> = {
   vigilance: 'vig',
   indestructible: 'indes',
   infect: 'infect',
+  wither: 'wither',
   toxic: 'toxic',
   defender: 'def',
 };

@@ -512,11 +512,10 @@ describe('what the bar says', () => {
       { unit: card('skith'), target: 1, blockers: [card('sbear')] },
       { unit: stack('soldiers'), n: 3, target: 1 }, // the stack holds one
     ]);
-    expect(resultFlags(result)).toEqual([
-      '1 creature not read (Tarmogoyf)',
-      'check the soldiers stack',
-      'infect was blocked: its damage to creatures counts as ordinary damage',
-    ]);
+    expect(resultFlags(result)).toEqual(['1 creature not read (Tarmogoyf)', 'check the soldiers stack']);
+    expect(resultFlags({ ...result, infectOnCreatures: true })).toContain(
+      'infect or wither hit a token in a stack: that damage counts as ordinary damage',
+    );
     const clean = resolved(t, [{ unit: stack('soldiers'), target: 1 }]);
     expect(resultFlags(clean.result)).toEqual([]);
     expect(resultFlags({ ...clean.result, failed: true })).toEqual(['this fight could not be worked out — set it in Details']);

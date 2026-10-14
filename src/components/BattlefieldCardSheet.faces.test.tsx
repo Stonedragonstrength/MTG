@@ -172,3 +172,13 @@ test('on the board a card on its back wears a mark, and one on its front does no
   rerender(<VCard card={{ iid: 'd', cardId: 'c-delver', name: DELVER }} {...props} />);
   expect(screen.queryByLabelText('on its back face')).toBeNull();
 });
+
+test('a Saga wears its chapter on its corner; time, fade and age counters show the same way', () => {
+  const props = { art: null, sick: false, look: null, names: ['Nathan', 'Sam'], onTap: () => {}, onDetail: () => {} };
+  const { rerender } = render(<VCard card={{ iid: 's', cardId: 'c-saga', name: 'History of Benalia', counters: { lore: 2 } }} {...props} />);
+  expect(screen.getByLabelText('chapter II')).toHaveTextContent('II');
+  rerender(<VCard card={{ iid: 'k', cardId: 'c-k', name: 'Keldon Marauders', counters: { time: 1 } }} {...props} />);
+  expect(screen.getByLabelText('1 time counter')).toHaveTextContent('⏳1');
+  rerender(<VCard card={{ iid: 'b', cardId: 'c-b', name: 'Grizzly Bears', counters: { p1p1: 1 } }} {...props} />);
+  expect(screen.queryByLabelText(/chapter|time counter|fade|age/)).toBeNull();
+});

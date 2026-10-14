@@ -27,6 +27,19 @@ interface Props {
   onDetail: () => void;
 }
 
+/** The counters that keep time on a card, as its corner says them: a
+ * Saga's chapter ("II"), Vanishing's time counters, Fading's, cumulative
+ * upkeep's age. The first one it has; null for none. */
+export function tallyOf(counters: CardInstance['counters']): { text: string; label: string } | null {
+  const n = (kind: string) => Math.max(0, Math.floor(counters?.[kind] ?? 0));
+  const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
+  if (n('lore') > 0) return { text: ROMAN[n('lore')] ?? `${n('lore')}`, label: `chapter ${ROMAN[n('lore')] ?? n('lore')}` };
+  if (n('time') > 0) return { text: `⏳${n('time')}`, label: `${n('time')} time counter${n('time') === 1 ? '' : 's'}` };
+  if (n('fade') > 0) return { text: `fade ${n('fade')}`, label: `${n('fade')} fade counter${n('fade') === 1 ? '' : 's'}` };
+  if (n('age') > 0) return { text: `age ${n('age')}`, label: `${n('age')} age counter${n('age') === 1 ? '' : 's'}` };
+  return null;
+}
+
 /** One real card on the shared battlefield: tap = tap it, hold = sheet.
  * A summoning-sick creature only wears a badge: tapping it stays allowed
  * (crewing and convoke are legal).
@@ -42,6 +55,7 @@ export default function VCard({ card, art, sick, look, names, attached = 0, worn
   const plus = (card.counters?.p1p1 ?? 0) - (card.counters?.m1m1 ?? 0);
   // How much bigger (or smaller) than printed: counters and what it wears.
   const change: Size = { power: plus + (worn?.power ?? 0), toughness: plus + (worn?.toughness ?? 0) };
+  const tally = tallyOf(card.counters);
   const job = look?.mode === 'attack' ? 'attack' : 'block';
   // The result is waiting and it fought: the tap says whether it dies.
   const judged = picks && look.mode === 'damage';
@@ -94,6 +108,11 @@ export default function VCard({ card, art, sick, look, names, attached = 0, worn
         </span>
       )}
       <FaceMark cardId={card.cardId} />
+      {tally && (
+        <span className="tally-badge" role="img" aria-label={tally.label} title={tally.label}>
+          {tally.text}
+        </span>
+      )}
       <CombatMarks look={look} names={names} />
     </button>
   );
