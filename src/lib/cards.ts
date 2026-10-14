@@ -499,6 +499,50 @@ export function shuffleLibrary(g: GameState, seat: number, seed: number): GameSt
   return updateSeat(g, seat, (cards) => ({ ...cards, library: shuffled(cards.library, seed) }));
 }
 
+/** Where a card found in a library goes: onto the battlefield (tapped or
+ * not), into its owner's hand or graveyard, or back on top once the rest
+ * is shuffled. */
+export type FoundTo = 'tapped' | 'battlefield' | 'hand' | 'top' | 'graveyard';
+export interface Found {
+  iid: string;
+  to: FoundTo;
+  /** The shelf a card that lands on the battlefield is put on. */
+  row?: CardInstance['row'];
+}
+
+/** "Search your library for…, then shuffle", in one move: the cards found
+ * leave the library for where they are going, what is left is shuffled,
+ * and a card kept "on top" goes back on it afterwards (first found = top).
+ * A found card that has left the library meanwhile is passed over; a search
+ * that finds nothing still shuffles. */
+export function searchLibrary(g: GameState, seat: number, found: Found[], seed: number): GameState {
+  return updateSeat(g, seat, (cards) => {
+    const want = new Map(found.map((f) => [f.iid, f]));
+    const taken = cards.library.filter((c) => want.has(c.iid));
+    const byId = new Map(taken.map((c) => [c.iid, c]));
+    const going = (to: FoundTo[]) =>
+      found.flatMap((f) => (to.includes(f.to) && byId.has(f.iid) ? [{ f, card: stripped(byId.get(f.iid)!) }] : []));
+    const rest = shuffled(cards.library.filter((c) => !want.has(c.iid)), seed);
+    return {
+      ...cards,
+      library: [...going(['top']).map(({ card }) => card), ...rest],
+      hand: [...cards.hand, ...going(['hand']).map(({ card }) => card)],
+      graveyard: [...cards.graveyard, ...going(['graveyard']).map(({ card }) => card)],
+      battlefield: [
+        ...cards.battlefield,
+        ...going(['tapped', 'battlefield']).map(
+          ({ f, card }): CardInstance => ({
+            ...card,
+            ...(f.row ? { row: f.row } : {}),
+            ...(f.to === 'tapped' ? { tapped: true } : {}),
+            sick: true, // it has only just arrived, like anything else that lands there
+          }),
+        ),
+      ],
+    };
+  });
+}
+
 /** London mulligan: everything back, reshuffle, draw seven, count up —
  * the Keep step bottoms `mulligans` cards via bottomCards. */
 export function mulligan(g: GameState, seat: number, seed: number): GameState {

@@ -5,6 +5,7 @@ import { bestToken } from '../lib/deckTokens';
 import { effectOf, modesToChoose, spellPrompts, type SpellPrompt, type SpellTarget } from '../lib/spellEffects';
 import type { CardRecord, Reveal } from '../lib/types';
 import { useAppStore } from '../state/store';
+import LibrarySearchSheet from './LibrarySearchSheet';
 import { shieldBoard } from './Sheet';
 import SpellTargetSheet from './SpellTargetSheet';
 import { useCardRecords } from './useCardRecords';
@@ -152,6 +153,8 @@ function RevealPanel({ reveal, who, onDone }: PanelProps) {
   const askingRef = useRef(asking);
   askingRef.current = asking;
   const [aiming, setAiming] = useState<{ id: string; prompt: SpellPrompt } | null>(null);
+  // The spell sends its caster through their library: that list is open.
+  const [searching, setSearching] = useState<{ id: string; prompt: SpellPrompt } | null>(null);
 
   // The tap that puts it away is often the first half of a double tap, and a
   // finger may be on its way when it times out: either way the board it was
@@ -243,7 +246,8 @@ function RevealPanel({ reveal, who, onDone }: PanelProps) {
   const pressed = (e: MouseEvent, prompt: SpellPrompt) => {
     e.stopPropagation(); // the banner's own tap puts it away: a button's must not
     if (performance.now() - up.current.since < SETTLE_MS) return; // aimed at the board it now covers
-    if (prompt.pick) setAiming({ id: reveal.id, prompt });
+    if (prompt.kind === 'search') setSearching({ id: reveal.id, prompt });
+    else if (prompt.pick) setAiming({ id: reveal.id, prompt });
     else carryOut(prompt);
   };
 
@@ -318,6 +322,18 @@ function RevealPanel({ reveal, who, onDone }: PanelProps) {
             setAiming(null);
           }}
           onClose={() => setAiming(null)}
+        />
+      )}
+      {searching && searching.id === reveal.id && searching.prompt.kind === 'search' && (
+        <LibrarySearchSheet
+          playerIdx={reveal.seat}
+          ask={searching.prompt.ask}
+          source={reveal.cards[0].name}
+          onClose={(searched) => {
+            // Carried out, its button is done; closed unsearched, it still waits.
+            if (searched) setUsed({ id: reveal.id, keys: [...usedKeys, searching.prompt.key] });
+            setSearching(null);
+          }}
         />
       )}
     </>

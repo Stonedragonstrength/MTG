@@ -21,6 +21,7 @@ import {
   newIid,
   owesDraw,
   readyCards,
+  searchLibrary,
   seedSeat,
   setCardCounter,
   setCommanderReturns,
@@ -923,5 +924,50 @@ describe('feed + utilities', () => {
     });
     for (let seat = 0; seat < 4; seat++) g = seedSeat(g, seat, buildSeatCards(big, seat));
     expect(JSON.stringify(g).length).toBeLessThan(150_000);
+  });
+});
+
+describe('searchLibrary', () => {
+  test('the cards found go where they are sent, the rest is shuffled, and a card kept on top is on top', () => {
+    const g = seeded();
+    const lib = g.players[0].cards!.library;
+    const hand = g.players[0].cards!.hand;
+    const [a, b, c, d] = lib;
+    const after = searchLibrary(
+      g,
+      0,
+      [
+        { iid: a.iid, to: 'tapped', row: 'lands' },
+        { iid: b.iid, to: 'hand' },
+        { iid: c.iid, to: 'top' },
+        { iid: d.iid, to: 'graveyard' },
+      ],
+      7,
+    );
+    const cards = after.players[0].cards!;
+    expect(cards.battlefield).toEqual([{ ...a, row: 'lands', tapped: true, sick: true }]);
+    expect(cards.hand).toEqual([...hand, b]);
+    expect(cards.graveyard).toEqual([d]);
+    expect(cards.library[0]).toEqual(c);
+    // What is left: the same cards, in the order the seed gives — a replay shuffles alike.
+    expect(cards.library.slice(1)).toEqual(shuffled(lib.slice(4), 7));
+    expect(searchLibrary(g, 0, [{ iid: a.iid, to: 'battlefield' }], 7).players[0].cards!.battlefield).toEqual([
+      { ...a, sick: true },
+    ]);
+  });
+
+  test('finding nothing still shuffles; a card that has left the library is passed over', () => {
+    const g = seeded();
+    const lib = g.players[0].cards!.library;
+    const drawn = g.players[0].cards!.hand[0];
+    const after = searchLibrary(g, 0, [{ iid: drawn.iid, to: 'tapped' }], 3).players[0].cards!;
+    expect(after.battlefield).toEqual([]);
+    expect(after.hand).toEqual(g.players[0].cards!.hand);
+    expect(after.library).toEqual(shuffled(lib, 3));
+  });
+
+  test('a seat with no deck is left alone', () => {
+    const g = createGame(config);
+    expect(searchLibrary(g, 0, [], 1)).toBe(g);
   });
 });

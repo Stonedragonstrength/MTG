@@ -455,3 +455,48 @@ test('the list closes itself when the cast it belongs to is no longer the one on
   expect(onClose).toHaveBeenCalled();
   expect(screen.queryByRole('tab')).toBeNull();
 });
+
+test('a spell that searches the library opens the list: the card found goes where the spell says, the rest is shuffled', async () => {
+  RECORDS['c-growth'] = rec(
+    'c-growth',
+    'Rampant Growth',
+    'Sorcery',
+    'Search your library for a basic land card, put that card onto the battlefield tapped, then shuffle.',
+  );
+  casts('c-growth');
+  await settle();
+  expect(labels()).toEqual(['Search library…']);
+  pass(400);
+  fireEvent.click(screen.getByRole('button', { name: 'Search library…' }));
+  await settle();
+  const forest = screen.getByRole('button', { name: 'take Forest' });
+  expect(forest).toHaveTextContent('×3');
+  fireEvent.pointerDown(forest);
+  fireEvent.pointerUp(forest);
+  tap(screen.getByRole('button', { name: 'Done · shuffle the rest' }));
+  const mine = game().players[0].cards!;
+  expect(mine.library).toHaveLength(2);
+  expect(mine.battlefield.find((c) => c.iid === 'l1')).toMatchObject({ tapped: true, row: 'lands' });
+  expect(feed()).toContain(
+    'Nathan searches their library (Rampant Growth), puts Forest onto the battlefield tapped and shuffles',
+  );
+  // One move at the table, and the spell has nothing left to ask.
+  expect(screen.getByRole('button', { name: '✓ Search library' })).toBeDisabled();
+});
+
+test('closing the list unsearched leaves the button to press again', async () => {
+  RECORDS['c-growth'] = rec(
+    'c-growth',
+    'Rampant Growth',
+    'Sorcery',
+    'Search your library for a basic land card, put that card onto the battlefield tapped, then shuffle.',
+  );
+  casts('c-growth');
+  await settle();
+  pass(400);
+  fireEvent.click(screen.getByRole('button', { name: 'Search library…' }));
+  await settle();
+  tap(screen.getByRole('button', { name: /close/i }));
+  expect(game().players[0].cards!.library).toHaveLength(3);
+  expect(screen.getByRole('button', { name: 'Search library…' })).toBeEnabled();
+});

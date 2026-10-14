@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { shuffled } from '../lib/cards';
-import { normalize } from '../lib/fuzzy';
 import type { CardInstance } from '../lib/types';
 import { useAppStore } from '../state/store';
 import CardZoomSheet from './CardZoomSheet';
+import LibrarySearchSheet from './LibrarySearchSheet';
 import Sheet from './Sheet';
 import { useCardRecords } from './useCardRecords';
 
@@ -26,8 +26,9 @@ const DESTS: { key: Dest; label: string }[] = [
 /** A second press this soon after the last is the other half of a double tap. */
 const DOUBLE_TAP_MS = 600;
 
-/** The library's controls. Search shows names ALPHABETICALLY, never in
- * order, and taking a card shuffles — nobody learns the deck order.
+/** The library's controls. Search is a sheet of its own (LibrarySearchSheet):
+ * the cards ALPHABETICALLY, never in order, and it ends in a shuffle —
+ * nobody learns the deck order.
  * "Look at top N" is the one ordered view: scry, surveil, look-and-pick.
  * A reveal shows cards to the whole table and moves nothing. */
 export default function LibrarySheet({ playerIdx, claimed, onClose }: Props) {
@@ -38,13 +39,11 @@ export default function LibrarySheet({ playerIdx, claimed, onClose }: Props) {
   const millCards = useAppStore((s) => s.millCards);
   const exileCards = useAppStore((s) => s.exileCards);
   const shuffleSeat = useAppStore((s) => s.shuffleSeat);
-  const moveVirtualCard = useAppStore((s) => s.moveVirtualCard);
   const lookNotice = useAppStore((s) => s.lookNotice);
   const arrangeTop = useAppStore((s) => s.arrangeTop);
   const revealCards = useAppStore((s) => s.revealCards);
   const [n, setN] = useState(1);
   const [searching, setSearching] = useState(false);
-  const [filter, setFilter] = useState('');
   // The look: the cards as captured, the order they now sit in, and where
   // each is headed. Nothing moves until Done.
   const [looked, setLooked] = useState<string[] | null>(null);
@@ -60,13 +59,6 @@ export default function LibrarySheet({ playerIdx, claimed, onClose }: Props) {
   const [zoom, setZoom] = useState<string | null>(null);
 
   const library = game?.players[playerIdx]?.cards?.library ?? [];
-  const alphabetical = useMemo(
-    () =>
-      [...library]
-        .sort((a, b) => a.name.localeCompare(b.name))
-        .filter((c) => !filter.trim() || normalize(c.name).includes(normalize(filter))),
-    [library, filter],
-  );
   // A card drawn meanwhile drops out; a shuffle voids the look outright —
   // what was seen is only arrangeable while it is still the top.
   const remaining = order
@@ -89,13 +81,6 @@ export default function LibrarySheet({ playerIdx, claimed, onClose }: Props) {
   useEffect(() => {
     if (zoomGone) setZoom(null);
   }, [zoomGone]);
-
-  function take(iid: string, to: 'hand' | 'battlefield') {
-    moveVirtualCard(playerIdx, iid, 'library', to, to === 'battlefield' ? { row: 'front' } : undefined);
-    shuffleSeat(playerIdx); // a searched library is always shuffled
-    setSearching(false);
-    setFilter('');
-  }
 
   function look() {
     const iids = library.slice(0, n).map((c) => c.iid);
@@ -178,6 +163,9 @@ export default function LibrarySheet({ playerIdx, claimed, onClose }: Props) {
   ) : (
     <button onClick={() => setLooked(null)}>Look again</button>
   );
+
+  // The search takes the sheet's place, and both are done when it is.
+  if (searching) return <LibrarySearchSheet playerIdx={playerIdx} onClose={() => onClose()} />;
 
   return (
     <Sheet title={`Library · ${library.length}`} onClose={onClose} size="wide" footer={footer}>
@@ -273,7 +261,7 @@ export default function LibrarySheet({ playerIdx, claimed, onClose }: Props) {
             />
           )}
         </>
-      ) : !searching ? (
+      ) : (
         <>
           <div className="detail-row">
             <span>How many</span>
@@ -312,40 +300,19 @@ export default function LibrarySheet({ playerIdx, claimed, onClose }: Props) {
             )}
             <button onClick={() => { shuffleSeat(playerIdx); onClose(); }}>Shuffle</button>
             {claimed && (
-              <button className="ghost" onClick={() => setSearching(true)}>
-                Search…
-              </button>
+              <button onClick={() => setSearching(true)}>Search…</button>
             )}
           </div>
           {claimed ? (
             <p className="hint">
               Look is scry and surveil: see the top cards, then send each one to the top, bottom,
               graveyard, hand or exile. Reveal shows them to the whole table and leaves them
-              where they are.
+              where they are. Search shows every card: take the ones you are after, and the
+              rest is shuffled.
             </p>
           ) : (
             <p className="hint">Helping out a sleeping friend: draw, mill, exile, shuffle only.</p>
           )}
-        </>
-      ) : (
-        <>
-          <p className="hint">Alphabetical — the order stays secret. Taking a card shuffles.</p>
-          <input
-            autoFocus
-            type="search"
-            placeholder="Filter…"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-          />
-          <ul className="search-results stack-suggestions">
-            {alphabetical.map((c) => (
-              <li key={c.iid} className="search-result-row">
-                <span className="search-result-main">{c.name}</span>
-                <button onClick={() => take(c.iid, 'hand')}>Hand</button>
-                <button onClick={() => take(c.iid, 'battlefield')}>Field</button>
-              </li>
-            ))}
-          </ul>
         </>
       )}
     </Sheet>

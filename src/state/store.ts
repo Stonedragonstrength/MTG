@@ -101,6 +101,10 @@ export interface AppStore {
   lookNotice(seat: number, n: number): void;
   arrangeTop(seat: number, looked: string[], plan: cardsLib.TopPlan): void;
   shuffleSeat(seat: number): void;
+  /** A search of the seat's library, carried out: the cards found go where
+   * they are sent and the rest is shuffled — one move at the table. `why`
+   * is the card that asked for it, for the feed. */
+  searchLibrary(seat: number, found: cardsLib.Found[], why?: string): void;
   mulliganSeat(seat: number): void;
   keepHand(seat: number, bottomIids: string[]): void;
   castCommander(
@@ -924,6 +928,40 @@ export function createAppStore() {
           (base) => cardsLib.shuffleLibrary(base, seat, seed),
           `${seatName(g, seat)} shuffles`,
           undefined,
+          120_000,
+        );
+      },
+
+      searchLibrary(seat, found, why) {
+        const g = get().game;
+        const library = g?.players[seat]?.cards?.library;
+        if (!g || !library) return;
+        const here = found.filter((f) => library.some((c) => c.iid === f.iid));
+        const seed = Math.floor(Math.random() * 2 ** 31);
+        // Where a card went is public. Which card it was, only where it now
+        // lies in plain sight: the battlefield and the graveyard.
+        const names = (to: cardsLib.FoundTo) =>
+          here.filter((f) => f.to === to).map((f) => library.find((c) => c.iid === f.iid)!.name);
+        const cards = (n: number) => (n === 1 ? 'a card' : `${n} cards`);
+        const moves = [
+          names('tapped').length > 0 && `puts ${names('tapped').join(', ')} onto the battlefield tapped`,
+          names('battlefield').length > 0 && `puts ${names('battlefield').join(', ')} onto the battlefield`,
+          names('graveyard').length > 0 && `puts ${names('graveyard').join(', ')} into the graveyard`,
+          names('hand').length > 0 && `puts ${cards(names('hand').length)} in hand`,
+        ].filter(Boolean);
+        const top = names('top').length;
+        const text =
+          [`${seatName(g, seat)} searches their library${why ? ` (${why})` : ''}`, ...moves].join(', ') +
+          (top > 0 ? `, shuffles and puts ${cards(top)} on top` : ' and shuffles');
+        // As a shuffle: a stale one must not scramble a library someone has
+        // since stacked. And every card found has to be there still.
+        cardMutate(
+          (base) => cardsLib.searchLibrary(base, seat, here, seed),
+          text,
+          (base) => {
+            const now = base.players[seat]?.cards?.library;
+            return !!now && here.every((f) => now.some((c) => c.iid === f.iid));
+          },
           120_000,
         );
       },

@@ -203,3 +203,40 @@ test('on its own turn, with no fight on, the sheet offers the long way into one;
   render(<BattlefieldCardSheet playerIdx={0} iid={iid} onClose={onClose} />);
   expect(screen.queryByRole('button', { name: 'Pick attackers…' })).not.toBeInTheDocument();
 });
+
+test('a card that pays for a search by being sacrificed does both from its sheet', async () => {
+  RECORDS['c-wilds'] = {
+    ...rec('c-wilds', 'Evolving Wilds', 'Land'),
+    oracleText:
+      '{T}, Sacrifice this land: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.',
+  };
+  const { g: game, iid } = gameWithBear();
+  const mine = game.players[0].cards!;
+  const wilds = { ...mine.battlefield.find((c) => c.iid === iid)!, cardId: 'c-wilds', name: 'Evolving Wilds' };
+  const sacrificeCard = vi.fn();
+  useAppStore.setState({
+    game: {
+      ...game,
+      players: game.players.map((p, i) =>
+        i === 0 ? { ...p, cards: { ...mine, battlefield: mine.battlefield.map((c) => (c.iid === iid ? wilds : c)) } } : p,
+      ),
+    },
+    sacrificeCard,
+  });
+  const { default: userEvent } = await import('@testing-library/user-event');
+  const user = userEvent.setup();
+  render(<BattlefieldCardSheet playerIdx={0} iid={iid} onClose={() => {}} />);
+  expect(await screen.findByText('Find a basic land card.')).toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Sacrifice it and search…' }));
+  expect(sacrificeCard).toHaveBeenCalledWith(0, iid);
+  // The search has taken the sheet's place, and says whose it is.
+  expect(screen.getByRole('heading', { name: 'Search your library · Evolving Wilds' })).toBeInTheDocument();
+});
+
+test('a card that searches no library has no such section', async () => {
+  const { g, iid } = gameWithBear();
+  useAppStore.setState({ game: g });
+  render(<BattlefieldCardSheet playerIdx={0} iid={iid} onClose={() => {}} />);
+  await screen.findByRole('button', { name: 'Sacrifice' });
+  expect(screen.queryByRole('button', { name: /search/i })).not.toBeInTheDocument();
+});

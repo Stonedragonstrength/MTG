@@ -3,11 +3,13 @@ import { isAura } from '../lib/attach';
 import { boardSeat } from '../lib/combat';
 import { shareInSight } from '../lib/fit';
 import { affordable, asksAtCast, parseCosts, sourcesFrom } from '../lib/pay';
+import { searchAsk, type SearchAsk } from '../lib/search';
 import { canPlayLand, isLandCard } from '../lib/turnRules';
 import type { CardInstance } from '../lib/types';
 import { useAppStore } from '../state/store';
 import AttachSheet from './AttachSheet';
 import HandCardSheet from './HandCardSheet';
+import LibrarySearchSheet from './LibrarySearchSheet';
 import { useCardRecords } from './useCardRecords';
 import { useLongPress } from './useLongPress';
 import { useSeatTexts } from './useSeatTexts';
@@ -97,6 +99,8 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
   const [showHeld, setShowHeld] = useState(false); // dead-phone escape hatch
   const [xFor, setXFor] = useState<string | null>(null); // the card the X sheet is asking about
   const [attachFor, setAttachFor] = useState<string | null>(null); // the Aura just played, asking where it goes
+  // The permanent just played sends its player through their library as it enters.
+  const [searchFor, setSearchFor] = useState<{ ask: SearchAsk; source: string } | null>(null);
   // The card a tap brought to the front of the fan (its iid): it is in sight
   // whole until another card is tapped, or a card is played.
   const [front, setFront] = useState<string | null>(null);
@@ -157,7 +161,18 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
     // is on its own sheet.) If the play did not land, that sheet finds no
     // card and closes itself.
     else if (isAura(records[c.cardId])) void playCard(playerIdx, c.iid).then(() => setAttachFor(c.iid));
-    else void playCard(playerIdx, c.iid);
+    else {
+      // "When this enters, search your library for…": the list comes up by
+      // itself once the card has landed (a play the table refused leaves it
+      // in hand, and then nothing was searched for). An instant or a
+      // sorcery offers its search under the cast banner instead.
+      const ask = searchAsk(records[c.cardId]);
+      void playCard(playerIdx, c.iid).then(() => {
+        const hand = useAppStore.getState().game?.players[playerIdx]?.cards?.hand;
+        if (ask?.when === 'enters' && hand && !hand.some((h) => h.iid === c.iid))
+          setSearchFor({ ask, source: c.name });
+      });
+    }
   };
   const claimed = !online || online.mySeat === playerIdx || online.mySeat === null;
   if (!claimed) return null; // unclaimed hands live behind the dock's peek gate
@@ -314,6 +329,14 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
       )}
       {attachFor && (
         <AttachSheet playerIdx={playerIdx} iid={attachFor} onClose={() => setAttachFor(null)} />
+      )}
+      {searchFor && (
+        <LibrarySearchSheet
+          playerIdx={playerIdx}
+          ask={searchFor.ask}
+          source={searchFor.source}
+          onClose={() => setSearchFor(null)}
+        />
       )}
     </div>
   );

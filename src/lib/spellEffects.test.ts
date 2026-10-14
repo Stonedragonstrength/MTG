@@ -126,7 +126,7 @@ describe('reading a spell', () => {
       labels(
         'Search your library for up to two basic land cards, reveal those cards, put one onto the battlefield tapped and the other into your hand, then shuffle.',
       ),
-    ).toEqual([]); // Cultivate
+    ).toEqual(['Search library…']); // Cultivate: its search is a list of its own
     expect(labels('Counter target spell.')).toEqual([]);
     expect(labels('Target creature gets +3/+3 until end of turn.')).toEqual([]);
     expect(labels('Target player discards two cards.')).toEqual([]);

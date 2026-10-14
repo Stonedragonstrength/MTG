@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react';
 import { attachedTo, attaches, hostName, hostOf, isAura, isEquipment } from '../lib/attach';
 import { isCommander } from '../lib/cards';
 import { faceNames, isBackId, turnsOver } from '../lib/faces';
+import { searchAsk, type SearchAsk } from '../lib/search';
 import { shelfOf, type Shelf } from '../lib/shelf';
 import type { CardInstance } from '../lib/types';
 import { useAppStore } from '../state/store';
 import AttachSheet from './AttachSheet';
+import LibrarySearchSheet from './LibrarySearchSheet';
 import Sheet from './Sheet';
 import { useCardRecords } from './useCardRecords';
 import { useSeatCombat } from './useCombat';
@@ -38,16 +40,29 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose, picks = 
   const attachVirtualCard = useAppStore((s) => s.attachVirtualCard);
   const [counterName, setCounterName] = useState('');
   const [attaching, setAttaching] = useState(false);
+  // The search this card sends its player on, once asked for: it outlives
+  // the card, which may have been sacrificed to pay for it.
+  const [searching, setSearching] = useState<{ ask: SearchAsk; source: string } | null>(null);
   const seat = game?.players[playerIdx]?.cards;
   const card = seat?.battlefield.find((c) => c.iid === iid);
   const records = useCardRecords(card ? [card] : []);
   const combat = useSeatCombat(playerIdx, picks);
   // A peer moved the card away: close for real, or the still-mounted sheet
   // ghost-reopens when the card returns and squats on the back stack.
-  const gone = !card;
+  const gone = !card && !searching;
   useEffect(() => {
     if (gone) onClose();
   }, [gone, onClose]);
+  // The search takes this sheet's place; closing that closes the lot.
+  if (searching)
+    return (
+      <LibrarySearchSheet
+        playerIdx={playerIdx}
+        ask={searching.ask}
+        source={searching.source}
+        onClose={() => onClose()}
+      />
+    );
   if (!game || !seat || !card) return null;
   // Choosing what it goes on takes this sheet's place; closing that closes the lot.
   if (attaching) return <AttachSheet playerIdx={playerIdx} iid={iid} onClose={onClose} />;
@@ -81,6 +96,12 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose, picks = 
   const myTurn = game.activePlayerIndex === playerIdx && !game.players[playerIdx].eliminated;
   const shelf = shelfOf(card, record);
   const onBack = isBackId(card.cardId);
+  // "Search your library for…": the list of what it may find, a tap away.
+  // Where the card pays for it by being sacrificed, the same tap does that.
+  const ask = searchAsk(record);
+  const paysWithItself =
+    !!ask &&
+    /\bsacrifice (?:this \w+|it)\b[^.\n]*:[^\n]*\bsearch your library for\b/i.test(record?.oracleText ?? '');
   const faces = faceNames(record, card.name);
 
   return (
@@ -164,6 +185,24 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose, picks = 
           </button>
         </div>
       </div>
+
+      {ask && (
+        <div className="detail-section">
+          <span className="section-label">Library</span>
+          <p className="hint">Find {ask.what}.</p>
+          <div className="chip-row">
+            <button
+              className="chip"
+              onClick={() => {
+                if (paysWithItself) sacrificeCard(playerIdx, iid);
+                setSearching({ ask, source: card.name });
+              }}
+            >
+              {paysWithItself ? 'Sacrifice it and search…' : 'Search library…'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* A double-faced card: turn it over. The direction is read off the
           card as it lies, and everything on the table then reads that face. */}

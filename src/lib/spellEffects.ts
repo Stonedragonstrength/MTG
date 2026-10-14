@@ -4,6 +4,7 @@ import { hostIsThere, moveCard, setCardCounter, type Host } from './cards';
 import { hasKeyword, readSeat, readUnit, type CardRecords, type UnitRead } from './combatEngine';
 import { tokensMadeBy, type TokenWant } from './deckTokens';
 import { adjustLife } from './game';
+import { searchAsk, type SearchAsk } from './search';
 import { isCreatureCard, shelfOf } from './shelf';
 import type { CardRecord, GameState } from './types';
 
@@ -49,6 +50,8 @@ export type SpellPrompt = {
   | { kind: 'remove'; how: 'destroy' | 'exile' | 'bounce' }
   | { kind: 'sweep'; how: 'destroy' | 'exile' }
   | { kind: 'counters'; n: number }
+  // "Search your library for…": a list of its own, carried out by its player.
+  | { kind: 'search'; ask: SearchAsk }
 );
 
 /** No more buttons than this under one spell. */
@@ -305,6 +308,15 @@ export function spellPrompts(record: Read, opts?: { x?: number }): SpellPrompt[]
           n,
         });
     }
+  }
+
+  // A search of the caster's own library: one button, where the text has it.
+  const ask = searchAsk(record);
+  const searchAt = ask ? text.search(/\bsearch your library for\b/i) : -1;
+  if (ask && searchAt >= 0) {
+    const mode = options.findIndex((o) => searchAt >= o.from && searchAt < o.to);
+    const prompt: SpellPrompt = { key: 'search', label: 'Search library…', pick: null, kind: 'search', ask };
+    found.push({ at: searchAt, prompt: mode < 0 ? prompt : { ...prompt, mode } });
   }
 
   const out: SpellPrompt[] = [];

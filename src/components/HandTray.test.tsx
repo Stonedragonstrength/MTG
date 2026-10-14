@@ -849,3 +849,69 @@ test('an empty hand still has its fold button', () => {
   render(<HandTray playerIdx={0} />);
   expect(screen.getByRole('button', { name: 'collapse hand, 0 cards' })).toBeInTheDocument();
 });
+
+test('a permanent that searches the library as it enters brings the list up once it has landed', async () => {
+  RECORDS['c-storm'] = {
+    ...rec('c-storm', 'Encroaching Dragonstorm', 'Enchantment'),
+    manaCost: '{0}',
+    oracleText:
+      'When this enchantment enters, search your library for up to two basic land cards, put them onto the battlefield tapped, then shuffle.',
+  };
+  const g = seededGame();
+  const cards = g.players[0].cards!;
+  const storm = { iid: 'storm', cardId: 'c-storm', name: 'Encroaching Dragonstorm' };
+  const withStorm = {
+    ...g,
+    players: g.players.map((p, i) => (i === 0 ? { ...p, cards: { ...cards, hand: [storm, ...cards.hand.slice(1)] } } : p)),
+  };
+  // The play lands: the card leaves the hand for the battlefield.
+  const playCard = vi.fn(async () => {
+    const now = useAppStore.getState().game!;
+    const mine = now.players[0].cards!;
+    useAppStore.setState({
+      game: {
+        ...now,
+        players: now.players.map((p, i) =>
+          i === 0
+            ? { ...p, cards: { ...mine, hand: mine.hand.filter((c) => c.iid !== 'storm'), battlefield: [storm] } }
+            : p,
+        ),
+      },
+    });
+  });
+  useAppStore.setState({ game: withStorm, playCard });
+  render(<HandTray playerIdx={0} />);
+  const tile = await screen.findByRole('button', { name: 'play Encroaching Dragonstorm' });
+  await vi.waitFor(() => expect(tile).not.toHaveClass('hand-card--poor'));
+  fireEvent.pointerDown(tile);
+  fireEvent.pointerUp(tile);
+  expect(await screen.findByText(/Find up to two basic land cards\./)).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: 'Search your library · Encroaching Dragonstorm' })).toBeInTheDocument();
+});
+
+test('a play the table refused searches for nothing', async () => {
+  RECORDS['c-storm'] = {
+    ...rec('c-storm', 'Encroaching Dragonstorm', 'Enchantment'),
+    manaCost: '{0}',
+    oracleText: 'When this enchantment enters, search your library for up to two basic land cards.',
+  };
+  const g = seededGame();
+  const cards = g.players[0].cards!;
+  const storm = { iid: 'storm', cardId: 'c-storm', name: 'Encroaching Dragonstorm' };
+  const playCard = vi.fn(async () => {}); // nothing moved
+  useAppStore.setState({
+    game: {
+      ...g,
+      players: g.players.map((p, i) => (i === 0 ? { ...p, cards: { ...cards, hand: [storm, ...cards.hand.slice(1)] } } : p)),
+    },
+    playCard,
+  });
+  render(<HandTray playerIdx={0} />);
+  const tile = await screen.findByRole('button', { name: 'play Encroaching Dragonstorm' });
+  await vi.waitFor(() => expect(tile).not.toHaveClass('hand-card--poor'));
+  fireEvent.pointerDown(tile);
+  fireEvent.pointerUp(tile);
+  await vi.waitFor(() => expect(playCard).toHaveBeenCalledWith(0, 'storm'));
+  await new Promise((r) => setTimeout(r, 30));
+  expect(screen.queryByText(/Find up to two basic land cards/)).not.toBeInTheDocument();
+});
