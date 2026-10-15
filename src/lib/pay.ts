@@ -1,6 +1,7 @@
 import { keywordsGiven } from './attach';
 import { isSummoningSick, permanentTexts, sickCopies, tapsAsThoughHasty } from './keywords';
 import { tapManaFromText, type ManaColor } from './mana';
+import { godsFrom, notHeldBack } from './gods';
 import { manaTable, manaTextHere, type TableRead } from './manaHere';
 import { isLandCard } from './turnRules';
 import type { BoardItem, CardInstance, CardRecord } from './types';
@@ -435,6 +436,8 @@ export function sourcesFrom(
   };
   // What Urza's Tower, Nykthos, Gaea's Cradle and "Activate only if…" look at.
   const table = manaTable(battlefield, records, board, read);
+  // A god below its devotion is no creature: not sick, and no creature's grant.
+  const gods = godsFrom({ battlefield, board, graveyard: null }, records);
 
   // Haste from what a creature wears: an Equipment of this seat on it.
   const wears = (iid: string) =>
@@ -447,11 +450,12 @@ export function sourcesFrom(
     const record = records[c.cardId];
     if (!record) continue; // unresolved: its text is not readable yet
     // Tapping it by hand stays legal (crew, convoke) — it just floats nothing.
-    if (!tapsAtOnce && isSummoningSick(c, record, texts, wears(c.iid))) continue;
+    const held = !notHeldBack(gods, { kind: 'card', id: c.iid });
+    if (!tapsAtOnce && !held && isSummoningSick(c, record, texts, wears(c.iid))) continue;
     // Only the face that is up: a Pathway makes the color it was played as,
     // and Kazandu Mammoth is no land while its creature face is up.
     const typeUp = record.typeLine.split(' // ')[0];
-    const creature = /\bCreature\b/.test(typeUp);
+    const creature = /\bCreature\b/.test(typeUp) && !held;
     // Gaea's Cradle, Cabal Coffers, Nykthos, Marwyn: the amount as the table stands.
     const text = manaTextHere(frontText(record), table, { ...c, name: record.name, typeLine: typeUp });
     const own = tapManaFromText(text);

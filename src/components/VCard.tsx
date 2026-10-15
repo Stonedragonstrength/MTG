@@ -1,7 +1,9 @@
 import { sizeWords, type Size } from '../lib/attach';
+import { godWords, type GodRead } from '../lib/gods';
 import type { CardInstance } from '../lib/types';
 import CombatMarks, { combatClasses } from './CombatMarks';
 import FaceMark from './FaceMark';
+import ManaSymbol from './ManaSymbol';
 import type { UnitLook } from './useCombat';
 import { useLongPress } from './useLongPress';
 
@@ -23,6 +25,9 @@ interface Props {
    * Equipment lying unattached is tapped to 'equip' it. The card wears the
    * word, and its label says it. */
   use?: string;
+  /** A Theros god (lib/gods.ts): its devotion against its number, on the
+   * corner where its size is printed. Below the number it is no creature. */
+  god?: GodRead | null;
   onTap: () => void;
   onDetail: () => void;
 }
@@ -48,7 +53,7 @@ export function tallyOf(counters: CardInstance['counters']): { text: string; lab
  * a tap picks it (or is ignored, dimmed, when it cannot fight — the hold
  * still opens the sheet, where "Attack anyway" and a plain Tap live).
  * Anything that is no creature keeps its ordinary tap. */
-export default function VCard({ card, art, sick, look, names, attached = 0, worn, use, onTap, onDetail }: Props) {
+export default function VCard({ card, art, sick, look, names, attached = 0, worn, use, god, onTap, onDetail }: Props) {
   const picks = look?.picks === true;
   const press = useLongPress(picks ? look.tap : onTap, onDetail);
   // +1/+1 counters, less -1/-1 counters.
@@ -62,7 +67,7 @@ export default function VCard({ card, art, sick, look, names, attached = 0, worn
   // The result is waiting and it fought: the tap says whether it dies.
   const judged = picks && look.mode === 'damage';
   const label = !picks
-    ? `${use ?? 'tap'} ${card.name}${sick ? ', summoning sick' : ''}`
+    ? `${use ?? 'tap'} ${card.name}${sick ? ', summoning sick' : ''}${god && !god.creature ? ', not a creature' : ''}`
     : judged
       ? look.picked > 0
         ? `${card.name} dies — tap if it lives`
@@ -74,7 +79,7 @@ export default function VCard({ card, art, sick, look, names, attached = 0, worn
           : `${job} with ${card.name}`;
   return (
     <button
-      className={`vcard${card.tapped ? ' vcard--tapped' : ''}${combatClasses('vcard', look)}`}
+      className={`vcard${card.tapped ? ' vcard--tapped' : ''}${god && !god.creature ? ' vcard--dormant' : ''}${combatClasses('vcard', look)}`}
       data-iid={card.iid}
       aria-label={label}
       aria-pressed={picks ? look.picked > 0 : undefined}
@@ -103,8 +108,31 @@ export default function VCard({ card, art, sick, look, names, attached = 0, worn
           {loyalty}
         </span>
       )}
+      {god && (
+        // Keyed: it pulses as the god wakes, or goes back to sleep.
+        <span
+          key={String(god.creature)}
+          className={god.creature ? 'devotion-badge devotion-badge--awake' : 'devotion-badge'}
+          role="img"
+          aria-label={`${godWords(god)}${god.creature ? '' : ', not a creature'}`}
+          title={`${godWords(god)}${god.creature ? ' — a creature' : ' — not a creature yet'}`}
+        >
+          {god.need.kind === 'devotion'
+            ? god.need.colors.map((c) => <ManaSymbol key={c} symbol={c} label="" />)
+            : god.need.kind === 'graveyard'
+              ? '🪦'
+              : '⇄'}
+          <span className="devotion-count">
+            {god.now}/{god.need.needs}
+          </span>
+        </span>
+      )}
       {(change.power !== 0 || change.toughness !== 0) && (
-        <span className={loyalty !== undefined ? 'count-badge vcard-counter vcard-counter--beside' : 'count-badge vcard-counter'}>
+        <span
+          className={
+            loyalty !== undefined || god ? 'count-badge vcard-counter vcard-counter--beside' : 'count-badge vcard-counter'
+          }
+        >
           {sizeWords(change)}
         </span>
       )}

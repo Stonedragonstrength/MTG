@@ -4,6 +4,7 @@ import { levelChange } from '../lib/abilities';
 import { sizeAround } from '../lib/anthems';
 import { boostOf, plusSize, withBoost } from '../lib/boost';
 import { commanderTax, owesDraw } from '../lib/cards';
+import { godKey, godsOf } from '../lib/gods';
 import { isSummoningSick, permanentTexts } from '../lib/keywords';
 import { affordable, castCosts } from '../lib/pay';
 import { seatSources } from '../lib/seatMana';
@@ -150,6 +151,8 @@ export default function BattlefieldRow({ playerIdx, picks = true, corner = null 
   const shortIids = pedestals.filter((p) => p.poor).map((p) => p.card.iid);
   // What gives the seat's creatures haste, for the summoning-sick badge.
   const texts = permanentTexts(seat.battlefield, records, player.board);
+  // Its gods, and how near each is to being a creature.
+  const gods = godsOf(game, playerIdx, tableRecords);
   const names = (profiles ?? []).map((p) => p.name);
   // The turn's draw is still to be made: the library says so until it is.
   const owes = claimed && owesDraw(game, playerIdx);
@@ -159,12 +162,17 @@ export default function BattlefieldRow({ playerIdx, picks = true, corner = null 
     <div className={`bf-row bf-row--${size}`}>
       <div className="bf-cards" ref={cardsRef}>
         {field.map((c) => {
+          const god = gods.get(godKey({ kind: 'card', id: c.iid })) ?? null;
           const vcard = (
             <VCard
               key={c.iid}
               card={c}
               art={records[c.cardId]?.imageNormal ?? null}
-              sick={isSummoningSick(c, records[c.cardId], texts, keywordsNow(game, { seat: playerIdx, kind: 'card', id: c.iid }, tableRecords))}
+              sick={
+                god?.creature !== false &&
+                isSummoningSick(c, records[c.cardId], texts, keywordsNow(game, { seat: playerIdx, kind: 'card', id: c.iid }, tableRecords))
+              }
+              god={god}
               look={combat?.look({ kind: 'card', id: c.iid }) ?? null}
               names={names}
               worn={plusSize(

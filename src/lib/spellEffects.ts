@@ -5,6 +5,7 @@ import { changeCount, computedPT, removeItem, setCounter } from './board';
 import { holdInExile, hostIsThere, moveCard, setCardCounter, stealCard, tapCard, type Holder, type Host } from './cards';
 import { hasKeyword, readSeat, readUnit, type CardRecords, type UnitRead } from './combatEngine';
 import { tokensMadeBy, type TokenWant } from './deckTokens';
+import { godsOf, notCreature, notHeldBack } from './gods';
 import { isPlaneswalker } from './entering';
 import { adjustLife } from './game';
 import { searchAsk, type SearchAsk } from './search';
@@ -552,8 +553,10 @@ export function spellChoices(
 
   for (const c of player.cards?.battlefield ?? []) {
     const r = records[c.cardId];
-    if (r && !typeFits(frontType(r), pick.kinds)) continue;
-    const read = r && isCreatureCard(r) ? readUnit(g, seat, { kind: 'card', id: c.iid }, records, seatRead) : null;
+    // A god below its devotion is an enchantment, not a creature, for now.
+    const creature = notHeldBack(seatRead.gods, { kind: 'card', id: c.iid });
+    if (r && !typeFits(creature ? frontType(r) : notCreature(frontType(r)), pick.kinds)) continue;
+    const read = r && isCreatureCard(r) && creature ? readUnit(g, seat, { kind: 'card', id: c.iid }, records, seatRead) : null;
     // A planeswalker says its loyalty, and damage that takes the last of it off is the end of it.
     const loyalty = isPlaneswalker(r) ? c.counters?.loyalty : undefined;
     out.push({
@@ -571,7 +574,7 @@ export function spellChoices(
       kind === 'permanent'
         ? true
         : kind === 'creature'
-          ? sized && it.zone !== 'lands'
+          ? sized && it.zone !== 'lands' && notHeldBack(seatRead.gods, { kind: 'stack', id: it.id })
           : kind === 'land'
             ? isLand
             : kind === 'nonland'
@@ -750,14 +753,14 @@ export function planEffect(
         for (const c of player.cards?.battlefield ?? []) {
           const r = records[c.cardId];
           const on: Host = { seat: s, kind: 'card', id: c.iid };
-          if (!r || !isCreatureCard(r) || shelfOf(c, r) === 'lands' || stays(on)) continue;
+          if (!r || !isCreatureCard(r) || shelfOf(c, r) === 'lands' || !notHeldBack(seatRead.gods, on) || stays(on)) continue;
           swept.push(on);
           count += 1;
         }
         for (const it of player.board) {
           const on: Host = { seat: s, kind: 'stack', id: it.id };
           const sized = computedPT({ ...it, counters: it.counters ?? {} }) !== null;
-          if (!sized || it.zone === 'lands' || stays(on)) continue;
+          if (!sized || it.zone === 'lands' || !notHeldBack(seatRead.gods, on) || stays(on)) continue;
           swept.push(on);
           count += Math.max(0, it.count);
         }
@@ -787,14 +790,26 @@ export function planEffect(
         // Every creature of the caster's the table can see is one: a card it
         // has read, a stack with a size — never what sits on the lands shelf.
         const player = g.players[seat];
+        const gods = godsOf(g, seat, records);
         const cards = (player?.cards?.battlefield ?? [])
           .filter((c) => {
             const r = records[c.cardId];
-            return !!r && isCreatureCard(r) && shelfOf(c, r) !== 'lands' && c.iid !== effect.except;
+            return (
+              !!r &&
+              isCreatureCard(r) &&
+              shelfOf(c, r) !== 'lands' &&
+              c.iid !== effect.except &&
+              notHeldBack(gods, { kind: 'card', id: c.iid })
+            );
           })
           .map((c) => c.iid);
         const stacks = (player?.board ?? [])
-          .filter((it) => it.zone !== 'lands' && computedPT({ ...it, counters: it.counters ?? {} }) !== null)
+          .filter(
+            (it) =>
+              it.zone !== 'lands' &&
+              computedPT({ ...it, counters: it.counters ?? {} }) !== null &&
+              notHeldBack(gods, { kind: 'stack', id: it.id }),
+          )
           .map((it) => it.id);
         if (cards.length + stacks.length === 0) return null;
         return {

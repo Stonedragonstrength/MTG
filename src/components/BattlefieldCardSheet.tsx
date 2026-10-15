@@ -3,6 +3,7 @@ import { abilitiesOf, abilitiesWorn, type Ability } from '../lib/abilities';
 import { attachedTo, attaches, hostName, hostOf, isAura, isEquipment } from '../lib/attach';
 import { isCommander } from '../lib/cards';
 import { faceNames, isBackId, turnsOver } from '../lib/faces';
+import { godKey, godsOf, godWords } from '../lib/gods';
 import { searchAsk, type SearchAsk } from '../lib/search';
 import { seatSources } from '../lib/seatMana';
 import { shelfOf, type Shelf } from '../lib/shelf';
@@ -145,6 +146,8 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose, picks = 
     !!ask &&
     /\bsacrifice (?:this \w+|it)\b[^.\n]*:[^\n]*\bsearch your library for\b/i.test(record?.oracleText ?? '');
   const faces = faceNames(record, card.name);
+  // A Theros god: how near its devotion is to its number.
+  const god = godsOf(game, playerIdx, tableRecords).get(godKey({ kind: 'card', id: iid })) ?? null;
   // Monstrosity, Adapt, Outlast, firebreathing, Discover…: paid from this
   // seat's lands — its own, and what its Equipment and Auras give it.
   const abilities = [
@@ -161,6 +164,11 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose, picks = 
       <div className="card-hero">
         {record?.imageNormal && <img className="card-image" src={record.imageNormal} alt={card.name} />}
         {record?.typeLine && <p className="type-line">{record.typeLine}</p>}
+        {god && (
+          <p className={god.creature ? 'god-line god-line--awake' : 'god-line'}>
+            {god.creature ? 'A creature now' : 'Not a creature yet'} · {godWords(god)}
+          </p>
+        )}
       </div>
 
       {canAttach && (

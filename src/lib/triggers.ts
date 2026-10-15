@@ -4,6 +4,7 @@ import { cascadeGrants, reboundTurn, spellManaValue, type CascadePlan } from './
 import { liveCombat } from './combat';
 import { readUnit } from './combatEngine';
 import { isSaga } from './entering';
+import { godsOf, notCreature, notHeldBack } from './gods';
 import { keywordAmount, keywordCount, keywordList, keywordsOf } from './keywords';
 import { spellPrompts, type SpellPrompt } from './spellEffects';
 import type { BoardItem, CardRecord, CardZone, GameState } from './types';
@@ -1237,7 +1238,12 @@ export function firedBy(g: GameState, h: Happening, records: Records): Fired[] {
       const names: string[] = [];
       for (const t of h.things) {
         const itself = t.kind === 'card' && t.seat === source.seat && t.id === source.iid;
-        const e = seen(t, records);
+        const read = seen(t, records);
+        // A god that enters below its devotion enters as no creature.
+        const e =
+          read && h.kind === 'enters' && !notHeldBack(godsOf(g, t.seat, records), t)
+            ? { ...read, typeLine: notCreature(read.typeLine) }
+            : read;
         const ok = trigger.host
           ? !!source.on && source.on.seat === t.seat && source.on.kind === t.kind && source.on.id === t.id
           : itself

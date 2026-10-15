@@ -1,5 +1,5 @@
 import { counterName } from './entering';
-import { frontId, isBackId } from './faces';
+import { costsOf, devotionTo } from './gods';
 import { conditionHolds, countWith, type Conditions } from './lands';
 import type { ManaColor } from './mana';
 import type { BoardItem, CardInstance, CardRecord } from './types';
@@ -57,25 +57,6 @@ export interface ManaTable {
 /** The card whose words are being read. */
 export type ManaSelf = Pick<CardInstance, 'iid' | 'sick' | 'counters'> & { name: string; typeLine: string };
 
-/** The mana cost of the face that is up. A card lying on its back has its
- * back face's cost — a transformed card's back has none — read off the
- * front record where the table has it, otherwise nothing. */
-function costUp(c: CardInstance, records: Records): string {
-  if (!isBackId(c.cardId)) return (records[c.cardId]?.manaCost ?? '').split(' // ')[0];
-  return records[frontId(c.cardId)]?.back?.manaCost ?? '';
-}
-
-/** Each {G} in the mana costs of the permanents a seat controls counts
- * toward its devotion to green; a hybrid {G/W} counts toward both, {2/G}
- * and {G/P} toward green. */
-function addDevotion(into: Record<Colored, number>, manaCost: string, times: number): void {
-  for (const [, symbol] of manaCost.matchAll(/\{([^}]+)\}/g)) {
-    for (const part of new Set(symbol.toUpperCase().split('/'))) {
-      if ((COLORED as string[]).includes(part)) into[part as Colored] += times;
-    }
-  }
-}
-
 export function manaTable(
   battlefield: CardInstance[],
   records: Records,
@@ -83,18 +64,17 @@ export function manaTable(
   read: TableRead | null = null,
 ): ManaTable {
   const mine: string[] = [];
-  const devotion: Record<Colored, number> = { W: 0, U: 0, B: 0, R: 0, G: 0 };
   for (const c of battlefield) {
     const record = records[c.cardId];
     if (record) mine.push(record.typeLine);
-    addDevotion(devotion, costUp(c, records), 1);
   }
   for (const item of board) {
     const copies = Math.max(0, Math.min(item.count, 60));
     for (let i = 0; i < copies; i++) mine.push(item.typeLine);
-    // A token's cost is empty; a stack of a real card (or a copy of one) has its card's.
-    if (item.cardId) addDevotion(devotion, (records[item.cardId]?.manaCost ?? '').split(' // ')[0], copies);
   }
+  // Each {G} in the costs counts toward green; a hybrid {G/W} toward both (lib/gods.ts).
+  const costs = costsOf(battlefield, board, records);
+  const devotion = Object.fromEntries(COLORED.map((c) => [c, devotionTo(costs, [c])])) as Record<Colored, number>;
   return { mine, devotion, read };
 }
 

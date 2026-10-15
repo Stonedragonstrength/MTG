@@ -1,4 +1,5 @@
 import type { Host } from './cards';
+import { godsOf, notHeldBack } from './gods';
 import { keywordNames, keywordsOf } from './keywords';
 import type { CardRecord, GameState } from './types';
 
@@ -246,6 +247,8 @@ export function fits(a: Anthem, t: AnthemTarget): boolean {
 function targetOf(g: GameState, host: Host, records: Records): AnthemTarget | null {
   const player = g.players[host.seat];
   if (!player) return null;
+  // A god below its devotion is no creature: no anthem reaches it.
+  if (!notHeldBack(godsOf(g, host.seat, records), host)) return null;
   if (host.kind === 'card') {
     const card = player.cards?.battlefield.find((c) => c.iid === host.id);
     const record = card ? records[card.cardId] : undefined;

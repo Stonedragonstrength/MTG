@@ -3,6 +3,7 @@ import { boostOf } from './boost';
 import { computedPT } from './board';
 import { liveCombat } from './combat';
 import type { CardRecords } from './combatEngine';
+import { godsOf, notHeldBack } from './gods';
 import { isSummoningSick, permanentTexts, restrictionsOf, sickCopies } from './keywords';
 import type { CombatUnit, GameState } from './types';
 
@@ -28,8 +29,9 @@ export interface DraftPick {
  *   tap is marked used up);
  * - a creature that arrived this turn without haste: it may be tapped to
  *   crew or convoke, never to attack;
- * - anything on the lands shelf, anything that is no creature, and a card
- *   this device cannot read (the card's own sheet still starts a fight).
+ * - anything on the lands shelf, anything that is no creature (a god below
+ *   its devotion included), and a card this device cannot read (the card's
+ *   own sheet still starts a fight).
  * A stack offers its tapped copies, less the ones that only just arrived:
  * which copies are which is not tracked. */
 export function tappedToAttack(game: GameState, records: CardRecords): DraftPick[] {
@@ -39,11 +41,13 @@ export function tappedToAttack(game: GameState, records: CardRecords): DraftPick
   if (!player || player.eliminated) return [];
   const battlefield = player.cards?.battlefield ?? [];
   const texts = permanentTexts(battlefield, records, player.board);
+  const gods = godsOf(game, seat, records);
   const picks: DraftPick[] = [];
   for (const card of battlefield) {
     if (card.row === 'lands' || !card.tapped || (card.spent ?? 0) > 0) continue;
     const record = records[card.cardId];
     if (!record || !/\bCreature\b/.test(record.typeLine.split(' // ')[0])) continue;
+    if (!notHeldBack(gods, { kind: 'card', id: card.iid })) continue;
     if (isSummoningSick(card, record, texts, keywordsNow(game, { seat, kind: 'card', id: card.iid }, records))) continue;
     // "This creature can't attack", Pacifism on it: tapped, it is not an attack.
     if (
@@ -55,6 +59,7 @@ export function tappedToAttack(game: GameState, records: CardRecords): DraftPick
   }
   for (const item of player.board) {
     if (item.zone === 'lands' || computedPT({ ...item, counters: item.counters ?? {} }) === null) continue;
+    if (!notHeldBack(gods, { kind: 'stack', id: item.id })) continue;
     if (restrictionsOf(item.oracleText, item.name).cantAttack) continue;
     // What one token wears; what "until end of turn" gave every copy.
     const worn = new Set([

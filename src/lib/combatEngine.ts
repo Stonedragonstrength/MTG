@@ -5,6 +5,7 @@ import { boostOf } from './boost';
 import { computedPT } from './board';
 import { copiesOf, type CombatOutcome } from './combat';
 import { commanderKey } from './commanders';
+import { godsOf, notHeldBack, type GodRead } from './gods';
 import {
   combatGrants,
   isSummoningSick,
@@ -74,6 +75,8 @@ export interface SeatRead {
   texts: string[];
   /** What its permanents hand to its creatures in a fight (strictly). */
   grants: Grants;
+  /** Its gods (lib/gods.ts): one below its devotion is no creature. */
+  gods: Map<string, GodRead>;
 }
 
 /** One card or stack as combat reads it. */
@@ -84,7 +87,8 @@ export interface UnitRead {
   /** May a plain tap pick it? A front-row card whose front face is a
    * creature — or whose record is not read yet (taken on trust: what the
    * app cannot read never blocks a play) — or a stack with power and
-   * toughness that is not on the lands shelf. Anything else can still be
+   * toughness that is not on the lands shelf. A god below its devotion is
+   * none. Anything else can still be
    * sent in from the hold ("attack anyway"), and then fights as it reads. */
   creature: boolean;
   /** Its size cannot be trusted: the record is missing or late on this
@@ -138,6 +142,7 @@ export function readSeat(game: GameState, seat: number, records: CardRecords): S
         copies: it.count,
       })),
     ]),
+    gods: godsOf(game, seat, records),
   };
 }
 
@@ -166,7 +171,8 @@ function readCard(game: GameState, read: SeatRead, card: CardInstance, records: 
   const unit: CombatUnit = { kind: 'card', id: card.iid };
   const record = records[card.cardId] ?? null;
   const frontRow = card.row !== 'lands';
-  const creature = frontRow && (record ? /\bCreature\b/.test(record.typeLine.split(' // ')[0]) : true);
+  const creature =
+    frontRow && (record ? /\bCreature\b/.test(record.typeLine.split(' // ')[0]) && notHeldBack(read.gods, unit) : true);
   // +1/+1 counters, less -1/-1 counters (Persist).
   const p1p1 = Math.max(0, card.counters?.['p1p1'] ?? 0);
   const plus = p1p1 - Math.max(0, card.counters?.['m1m1'] ?? 0);
@@ -210,7 +216,7 @@ const NO_SIZE: Size = { power: 0, toughness: 0 };
 function readStack(game: GameState, read: SeatRead, item: BoardItem, records: CardRecords): UnitRead {
   const unit: CombatUnit = { kind: 'stack', id: item.id };
   const sized = computedPT({ ...item, counters: item.counters ?? {} }) !== null;
-  const creature = sized && item.zone !== 'lands';
+  const creature = sized && item.zone !== 'lands' && notHeldBack(read.gods, unit);
   const plus = Math.max(0, item.counters?.['p1p1'] ?? 0);
   const unsized = !sized || (item.basePower === 0 && item.baseToughness === 0);
   const count = Math.max(0, item.count);

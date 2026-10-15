@@ -1,6 +1,7 @@
 import { useState, type CSSProperties } from 'react';
 import { attachedTo, isAttached, isAura, isEquipment, keywordsNow, sizeWorn } from '../lib/attach';
 import { boostOf, withBoost } from '../lib/boost';
+import { godKey, godsOf } from '../lib/gods';
 import { isSummoningSick, permanentTexts } from '../lib/keywords';
 import { returnsItself, shelfOf } from '../lib/shelf';
 import { useAppStore } from '../state/store';
@@ -43,6 +44,7 @@ export default function SideShelf({ playerIdx, picks = true }: Props) {
   );
   // A creature someone put here by hand still wears its summoning sickness.
   const texts = permanentTexts(seat.battlefield, records, player.board);
+  const gods = godsOf(game, playerIdx, records);
   const names = game.config.profiles.map((p) => p.name);
 
   return (
@@ -57,6 +59,7 @@ export default function SideShelf({ playerIdx, picks = true }: Props) {
         >
           {side.map((c) => {
             const record = records[c.cardId];
+            const god = gods.get(godKey({ kind: 'card', id: c.iid })) ?? null;
             // An Equipment (or an Aura) lying here is waiting to go on
             // something: a tap offers what it can go on. A card whose own
             // text sends it back to its owner's hand goes there on a tap
@@ -74,7 +77,11 @@ export default function SideShelf({ playerIdx, picks = true }: Props) {
                 key={c.iid}
                 card={c}
                 art={record?.imageNormal ?? null}
-                sick={isSummoningSick(c, record, texts, keywordsNow(game, { seat: playerIdx, kind: 'card', id: c.iid }, records))}
+                sick={
+                  god?.creature !== false &&
+                  isSummoningSick(c, record, texts, keywordsNow(game, { seat: playerIdx, kind: 'card', id: c.iid }, records))
+                }
+                god={god}
                 look={combat?.look({ kind: 'card', id: c.iid }) ?? null}
                 names={names}
                 attached={attachedTo(game, { seat: playerIdx, kind: 'card', id: c.iid }).length}
