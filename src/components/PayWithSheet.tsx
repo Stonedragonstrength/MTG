@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { commanderTax } from '../lib/cards';
-import { seatIdentity } from '../lib/commanders';
 import { COLOR_NAMES, type ManaColor } from '../lib/mana';
 import {
   affordable,
@@ -11,7 +10,6 @@ import {
   planPayment,
   priceExtras,
   priceX,
-  sourcesFrom,
   type ManaSource,
   type PayCost,
 } from '../lib/pay';
@@ -25,6 +23,7 @@ import {
   type PayGroup,
   type Picked,
 } from '../lib/payWith';
+import { seatSources } from '../lib/seatMana';
 import type { BoardItem, CardInstance } from '../lib/types';
 import { useAppStore } from '../state/store';
 import ManaSymbol, { CostSymbols } from './ManaSymbol';
@@ -97,8 +96,7 @@ export default function PayWithSheet({ playerIdx, iid, from, x, extras, onBack, 
   const kinds = from === 'hand' ? extraCosts(record) : [];
   const times = extraTimes(kinds, extras);
   const priced = priceExtras(priceX(faces, asksX ? (x ?? 0) : 0), kinds, times);
-  const identity = seatIdentity(game, playerIdx);
-  const sources = sourcesFrom(seat.battlefield, records, player.board, identity);
+  const sources = seatSources(game, playerIdx, records);
   // The face the table would pay: the first it can afford, like the store.
   const cost: PayCost = priced.find((face) => affordable(face, sources)) ?? priced[0] ?? { generic: 0, pips: [] };
 
@@ -124,12 +122,10 @@ export default function PayWithSheet({ playerIdx, iid, from, x, extras, onBack, 
 
   // What has no mana left to give, shown so nobody looks for it: every
   // source the seat would have with all of it untapped, less the live ones.
-  const untapped = sourcesFrom(
-    seat.battlefield.map(({ tapped: _t, spent: _s, ...c }) => c),
-    records,
-    player.board.map((it) => (it.tapped ? { ...it, tapped: 0 } : it)),
-    identity,
-  );
+  const untapped = seatSources(game, playerIdx, records, {
+    battlefield: seat.battlefield.map(({ tapped: _t, spent: _s, ...c }) => c),
+    board: player.board.map((it) => (it.tapped ? { ...it, tapped: 0 } : it)),
+  });
   const live: Record<string, number> = {};
   for (const s of sources) live[s.key] = (live[s.key] ?? 0) + 1;
   const spent = inOrder(

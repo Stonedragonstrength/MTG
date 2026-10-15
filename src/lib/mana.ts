@@ -90,8 +90,9 @@ export function tapManaFromText(text: string): {
 
     let yielded = 1; // a choice between options is one mana
     if (unnamed && symbols.length === 0) {
-      const word = phrase.match(/\b(one|two|three|four|five|six|seven|eight|nine|ten)\b/i)?.[1];
-      yielded = word ? NUMBER_WORDS[word.toLowerCase()] : 1;
+      // "three mana of any one color"; "12 mana…" as manaHere writes a counted amount.
+      const word = phrase.match(/\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/i)?.[1];
+      yielded = !word ? 1 : /^\d+$/.test(word) ? Number(word) : NUMBER_WORDS[word.toLowerCase()];
     } else if (!unnamed && !/\bor\b/i.test(phrase)) {
       yielded = symbols.length; // "{C}{C}" is that many
     }

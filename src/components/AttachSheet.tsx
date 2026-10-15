@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { hostChoices, hostKind, hostOf, isEquipment, sizeGiven, sizeWords } from '../lib/attach';
-import { seatIdentity } from '../lib/commanders';
 import { comesAttached, equipHost, equipWay, equipWays } from '../lib/equip';
-import { affordable, sourcesFrom } from '../lib/pay';
+import { affordable } from '../lib/pay';
+import { seatSources } from '../lib/seatMana';
 import { useAppStore } from '../state/store';
 import { CostSymbols } from './ManaSymbol';
 import Sheet from './Sheet';
@@ -63,8 +63,7 @@ export default function AttachSheet({ playerIdx, iid, onClose }: Props) {
   // pay it with — the same reading the store pays by (lib/equip.ts).
   const ways = equipWays(record);
   const owes = ways.some((way) => way.cost.generic + way.cost.pips.length > 0);
-  const me = game.players[playerIdx];
-  const sources = sourcesFrom(me.cards?.battlefield ?? [], records, me.board, seatIdentity(game, playerIdx));
+  const sources = seatSources(game, playerIdx, records);
   // "When this Equipment enters, attach it to…": the first time it goes on
   // something, the turn it arrived, nothing is owed.
   const arriving = comesAttached(record) && card.sick === true && !current;

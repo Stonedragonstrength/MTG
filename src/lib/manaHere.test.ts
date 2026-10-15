@@ -157,6 +157,34 @@ describe('"Activate only if…"', () => {
   });
 });
 
+describe('counters and land types', () => {
+  const records: Record<string, CardRecord> = {
+    ...RECORDS,
+    chalice: rec('chalice', 'Everflowing Chalice', 'Artifact', '{0}', 'Multikicker {2}\nThis artifact enters with a charge counter on it for each time it was kicked.\n{T}: Add {C} for each charge counter on this artifact.'),
+    sage: rec('sage', 'Gyre Sage', 'Creature — Elf Druid', '{1}{G}', 'Evolve\n{T}: Add {G} for each +1/+1 counter on this creature.'),
+    geoscope: rec('geoscope', 'Prismatic Geoscope', 'Artifact', '{5}', 'Domain — {T}: Add X mana in any combination of colors, where X is the number of basic land types among lands you control.'),
+    dual: rec('dual', 'Breeding Pool', 'Land — Forest Island', '', '({T}: Add {G} or {U}.)'),
+  };
+  const at = (cards: CardInstance[], c: CardInstance) => sourcesFrom(cards, records, []).find((s) => s.key === c.iid);
+
+  test('Everflowing Chalice makes one for each charge counter; none, nothing', () => {
+    const two = card('chalice', { counters: { charge: 2 } });
+    expect(at([two], two)).toMatchObject({ produces: ['C'], amount: 2 });
+    const none = card('chalice');
+    expect(at([none], none)).toBeUndefined();
+  });
+
+  test('Gyre Sage makes one for each +1/+1 counter', () => {
+    const sage = card('sage', { counters: { p1p1: 3 } });
+    expect(at([sage], sage)).toMatchObject({ produces: ['G'], amount: 3 });
+  });
+
+  test('Prismatic Geoscope counts basic land types, a dual giving two', () => {
+    const geoscope = card('geoscope');
+    expect(at([geoscope, card('dual'), card('plains'), card('forest')], geoscope)).toMatchObject({ produces: ['any'], amount: 3 });
+  });
+});
+
 test('Leafkin Druid counts a token stack copy by copy', () => {
   const druid = card('leafkin');
   const saprolings: BoardItem = {

@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { isAura } from '../lib/attach';
 import { boardSeat } from '../lib/combat';
-import { seatIdentity } from '../lib/commanders';
 import { shareInSight } from '../lib/fit';
-import { affordable, asksAtCast, parseCosts, sourcesFrom } from '../lib/pay';
+import { affordable, asksAtCast, parseCosts } from '../lib/pay';
 import { landEntry, type LandContext } from '../lib/lands';
 import { searchAsk, type SearchAsk } from '../lib/search';
+import { seatSources } from '../lib/seatMana';
 import { canPlayLand, isLandCard } from '../lib/turnRules';
 import type { CardInstance } from '../lib/types';
 import { useAppStore } from '../state/store';
@@ -147,7 +147,7 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
   // a land only while the seat has a land drop left on its own turn. An
   // unread record never blocks; "Play anyway" lives in the hold sheet for
   // cost-reducers, treasure math and every rule the gates can't see.
-  const sources = sourcesFrom(seat.battlefield, bfRecords, game.players[playerIdx]?.board ?? [], seatIdentity(game, playerIdx));
+  const sources = seatSources(game, playerIdx, bfRecords);
   /** Why a tap will not play this card right now — null when it will. */
   const refusal = (c: CardInstance): string | null => {
     const r = records[c.cardId];

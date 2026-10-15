@@ -94,8 +94,9 @@ describe('lands that count your board', () => {
     expect(availableMana(all)).toBe(6);
   });
 
-  test('Tolarian Academy with no artifacts still offers a mana (generous), and counts them when there are some', () => {
+  test('Tolarian Academy makes nothing with no artifacts, and one for each when there are some', () => {
     const academy = card('academy');
+    expect(source([academy], ['U']).find((s) => s.key === academy.iid)).toBeUndefined();
     expect(source([academy, card('signet'), card('signet')], ['U']).find((s) => s.key === academy.iid)).toMatchObject({
       produces: ['U'],
       amount: 2,

@@ -1,7 +1,7 @@
 import { keywordsGiven } from './attach';
 import { isSummoningSick, permanentTexts, sickCopies, tapsAsThoughHasty } from './keywords';
 import { tapManaFromText, type ManaColor } from './mana';
-import { manaTable, manaTextHere } from './manaHere';
+import { manaTable, manaTextHere, type TableRead } from './manaHere';
 import { isLandCard } from './turnRules';
 import type { BoardItem, CardInstance, CardRecord } from './types';
 
@@ -399,39 +399,6 @@ function inIdentity(produces: Colors, text: string, identity: ManaColor[] | null
   return out;
 }
 
-const COUNTED: Record<string, (typeLine: string) => boolean> = {
-  creature: (t) => /\bCreature\b/.test(t),
-  artifact: (t) => /\bArtifact\b/.test(t),
-  enchantment: (t) => /\bEnchantment\b/.test(t),
-  land: (t) => /\bLand\b/.test(t),
-};
-
-/** "{T}: Add {G} for each creature you control" (Gaea's Cradle), "{2}, {T}:
- * Add {B} for each Swamp you control" (Cabal Coffers): the mana its player's
- * board makes it worth, less what the ability costs. null for anything else. */
-function forEachMana(
-  text: string,
-  battlefield: CardInstance[],
-  records: Record<string, CardRecord | null | undefined>,
-  board: BoardItem[],
-): { produces: Colors; amount: number } | null {
-  for (const line of text.replace(/"[^"]*"/g, '').split('\n')) {
-    const m = line.match(/([^.(]*\{T\}[^:]*):\s*add \{([WUBRGC])\} for each (basic )?([a-z]+?)s? you control\b/i);
-    if (!m || /\bsacrifice\b/i.test(m[1])) continue;
-    const paid =
-      [...m[1].matchAll(/\{(\d+)\}/g)].reduce((sum, [, n]) => sum + Number(n), 0) + [...m[1].matchAll(/\{[WUBRGC]\}/g)].length;
-    const kind = m[4].toLowerCase();
-    const fits = COUNTED[kind] ?? ((t: string) => new RegExp(`\\b${kind}\\b`, 'i').test(t.split(' — ')[1] ?? ''));
-    const basic = (t: string) => !m[3] || /\bBasic\b/.test(t);
-    const typeOf = (c: CardInstance) => (records[c.cardId]?.typeLine ?? '').split(' // ')[0];
-    const count =
-      battlefield.filter((c) => fits(typeOf(c)) && basic(typeOf(c))).length +
-      board.filter((it) => fits(it.typeLine) && basic(it.typeLine)).reduce((n, it) => n + Math.max(0, it.count), 0);
-    return { produces: [m[2] as ManaColor], amount: Math.max(0, count - paid) };
-  }
-  return null;
-}
-
 /** Everything a seat can draw mana from right now. Untapped mana cards
  * are fresh sources; a card you tapped by hand floats whatever nothing has
  * spent yet. Board stacks offer their untapped copies. An ability that
@@ -448,6 +415,10 @@ export function sourcesFrom(
    * what Command Tower, Arcane Signet, Path of Ancestry make. null = not
    * known (no commander): they make any color, generously. */
   identity: ManaColor[] | null = null,
+  /** What the table shows beyond these cards — the seat's creatures' sizes,
+   * every seat's permanents (lib/seatMana.ts tableRead) — for Marwyn's power,
+   * Priest of Titania's Elves. null: those read as printed. */
+  read: TableRead | null = null,
 ): ManaSource[] {
   const granted = grantsFrom(
     battlefield.map((c) => records[c.cardId]?.oracleText ?? '').filter((t) => t !== ''),
@@ -460,8 +431,8 @@ export function sourcesFrom(
   const widen = (produces: Colors, extra: Colors) => {
     for (const g of extra) if (!produces.includes(g)) produces.push(g);
   };
-  // What Urza's Tower, Nykthos and "Activate only if…" look at.
-  const table = manaTable(battlefield, records, board);
+  // What Urza's Tower, Nykthos, Gaea's Cradle and "Activate only if…" look at.
+  const table = manaTable(battlefield, records, board, read);
 
   // Haste from what a creature wears: an Equipment of this seat on it.
   const wears = (iid: string) =>
@@ -476,15 +447,10 @@ export function sourcesFrom(
     // Tapping it by hand stays legal (crew, convoke) — it just floats nothing.
     if (!tapsAtOnce && isSummoningSick(c, record, texts, wears(c.iid))) continue;
     const creature = /Creature/.test(record.typeLine);
-    const text = manaTextHere(record.oracleText, table, c);
+    // Gaea's Cradle, Cabal Coffers, Nykthos, Marwyn: the amount as the table stands.
+    const text = manaTextHere(record.oracleText, table, { ...c, name: record.name, typeLine: record.typeLine });
     const own = tapManaFromText(text);
     const produces = inIdentity([...own.produces], text, identity);
-    // Gaea's Cradle, Cabal Coffers, Tolarian Academy: one mana for each.
-    const counted = forEachMana(text, battlefield, records, board);
-    if (counted) {
-      for (const color of counted.produces) if (!produces.includes(color)) produces.push(color);
-      own.amount = Math.max(own.amount, counted.amount);
-    }
     if (creature) widen(produces, granted.nontoken);
     if (/\bLand\b/.test(record.typeLine)) widen(produces, granted.lands);
     if (produces.length === 0) continue;

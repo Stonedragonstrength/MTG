@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react';
 import { abilitiesOf, abilitiesWorn, type Ability } from '../lib/abilities';
 import { attachedTo, attaches, hostName, hostOf, isAura, isEquipment } from '../lib/attach';
-import { sourcesFrom } from '../lib/pay';
 import { isCommander } from '../lib/cards';
-import { seatIdentity } from '../lib/commanders';
 import { faceNames, isBackId, turnsOver } from '../lib/faces';
 import { searchAsk, type SearchAsk } from '../lib/search';
+import { seatSources } from '../lib/seatMana';
 import { shelfOf, type Shelf } from '../lib/shelf';
 import type { CardInstance } from '../lib/types';
 import { useAppStore } from '../state/store';
@@ -154,7 +153,7 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose, picks = 
   ];
   const sources =
     abilities.length > 0
-      ? sourcesFrom(seat.battlefield, tableRecords, game.players[playerIdx].board, seatIdentity(game, playerIdx))
+      ? seatSources(game, playerIdx, tableRecords)
       : [];
 
   return (

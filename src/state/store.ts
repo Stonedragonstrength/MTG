@@ -8,7 +8,7 @@ import * as cardsLib from '../lib/cards';
 import * as combatLib from '../lib/combat';
 import type { CombatOutcome } from '../lib/combat';
 import { hasKeyword, readSeat, readUnit } from '../lib/combatEngine';
-import { attackerLabel, seatIdentity } from '../lib/commanders';
+import { attackerLabel } from '../lib/commanders';
 import { isValidGame, migrateGame } from '../lib/migrate';
 import { DEFAULT_SETTINGS, getSettings, saveSettings, type Settings } from '../data/settings';
 import { hostName, hostOf } from '../lib/attach';
@@ -24,6 +24,7 @@ import { backView, faceNames, frontId, isBackId, turnsOver } from '../lib/faces'
 import * as gameLib from '../lib/game';
 import * as payLib from '../lib/pay';
 import * as payWithLib from '../lib/payWith';
+import { seatSources } from '../lib/seatMana';
 import { planEffect, type SpellEffect } from '../lib/spellEffects';
 import { happeningsBetween, unitThing, type Happening } from '../lib/triggers';
 import { dayNightNeeds, turnedDayNight, withCasts } from '../lib/dayNight';
@@ -434,10 +435,7 @@ function payFrom(
   using?: Record<string, number>,
 ): (moved: GameState) => GameState {
   const sameTurn = isTurn(base, castIn);
-  const player = base.players[seat];
-  const sources = sameTurn
-    ? payLib.sourcesFrom(player?.cards?.battlefield ?? [], records, player?.board ?? [], seatIdentity(base, seat))
-    : [];
+  const sources = sameTurn ? seatSources(base, seat, records) : [];
   if (using) {
     const chosen = payWithLib.payWith(costs, payWithLib.sourcesUsing(sources, using));
     return (moved) => {

@@ -9,7 +9,8 @@ import { liveCombat } from '../lib/combat';
 import { readUnits } from '../lib/combatEngine';
 import { seatIdentity } from '../lib/commanders';
 import { COLOR_NAMES, isOneShotSource, landSummary, MANA_COLORS, type ManaColor } from '../lib/mana';
-import { availableMana, sourcesFrom } from '../lib/pay';
+import { availableMana } from '../lib/pay';
+import { seatSources } from '../lib/seatMana';
 import { shelfOf } from '../lib/shelf';
 import { isLandCard, landAllowance } from '../lib/turnRules';
 import type { BoardItem, CardInstance } from '../lib/types';
@@ -254,9 +255,7 @@ export default function LandsRow({ playerIdx, attackButton = true, part }: Props
     game.players[playerIdx].board.some((it) => (it.tapped ?? 0) > 0) ||
     (seat?.battlefield.some((c) => c.tapped) ?? false);
   // What the cast gate sees: untapped sources plus mana still floating.
-  const ready = seat
-    ? availableMana(sourcesFrom(seat.battlefield, records, game.players[playerIdx].board, seatIdentity(game, playerIdx)))
-    : null;
+  const ready = seat ? availableMana(seatSources(game, playerIdx, records)) : null;
   // The land drop, for the deck seat whose turn it is: how many lands it
   // has played from hand against how many it may (the hand's gate reads
   // the same two numbers). Nobody else has a land drop to show.

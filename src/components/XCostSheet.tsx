@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { commanderTax } from '../lib/cards';
-import { seatIdentity } from '../lib/commanders';
 import {
   affordable,
   availableMana,
@@ -11,8 +10,8 @@ import {
   maxX,
   priceExtras,
   priceX,
-  sourcesFrom,
 } from '../lib/pay';
+import { seatSources } from '../lib/seatMana';
 import { useAppStore } from '../state/store';
 import PayWithSheet from './PayWithSheet';
 import Sheet from './Sheet';
@@ -67,7 +66,7 @@ export default function XCostSheet({ playerIdx, iid, from, onClose }: Props) {
   const asksX = hasX(faces);
   const extras = from === 'hand' ? extraCosts(record) : [];
   const times = extraTimes(extras, asked);
-  const sources = sourcesFrom(seat.battlefield, records, player.board, seatIdentity(game, playerIdx));
+  const sources = seatSources(game, playerIdx, records);
   const ready = availableMana(sources);
   const priced = priceExtras(priceX(faces, x), extras, times);
   // What will be paid: the first face the seat can afford, as in the store.

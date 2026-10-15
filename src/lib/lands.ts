@@ -23,6 +23,9 @@ export interface Conditions {
   fresh?: boolean;
   /** The counters on the card itself, named as the table keeps them. */
   counters?: Record<string, number>;
+  /** Its controller's creatures as a fight reads them (a token stack once
+   * per copy); `unread` = a size the table cannot trust. */
+  creatures?: ReadonlyArray<{ power: number; unread?: boolean }>;
 }
 
 /** What a land's "enters tapped unless…" looks at: its controller's other
@@ -39,19 +42,21 @@ const num = (w: string) => NUMBER[w.toLowerCase()] ?? Number(w);
 const front = (typeLine: string) => typeLine.split(' // ')[0];
 
 /** Does one of these type lines say all of `words` ("basic land", "legendary creature", "Forest")? */
-function anyWith(typeLines: string[], phrase: string): boolean {
+export function anyWith(typeLines: string[], phrase: string): boolean {
   const words = phrase
     .toLowerCase()
+    .replace(/’/g, "'")
     .replace(/s$/, '')
     .split(/\s+/)
-    .filter((w) => w !== 'a' && w !== 'an');
+    .filter((w) => w !== 'a' && w !== 'an')
+    .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
   return typeLines.some((t) => {
     const line = front(t).toLowerCase().replace(/’/g, "'");
     return words.every((w) => new RegExp(`\\b${w}s?\\b`).test(line));
   });
 }
 
-const countWith = (typeLines: string[], phrase: string) => typeLines.filter((t) => anyWith([t], phrase)).length;
+export const countWith = (typeLines: string[], phrase: string) => typeLines.filter((t) => anyWith([t], phrase)).length;
 
 /** "you control a Forest or an Island", "you control two or fewer other
  * lands", "a player has 13 or less life", "you control an Urza's Mine and an
@@ -88,6 +93,19 @@ export function conditionHolds(cond: string, ctx: Conditions): boolean | null {
     if (!ctx.counters) return null;
     const n = /^an?$/i.test(m[1]) ? 1 : num(m[1]);
     return Number.isNaN(n) ? null : (ctx.counters[counterName(m[2])] ?? 0) >= n;
+  }
+  // Ferocious: "you control a creature with power 4 or greater". Formidable:
+  // "creatures you control have total power 8 or greater". A size the table
+  // cannot trust might be the one that makes it: then it cannot be told.
+  const ferocious = c.match(/^you control an? creature with power (\w+) or greater$/i);
+  const formidable = c.match(/^creatures you control have total power (\w+) or greater$/i);
+  if (ferocious || formidable) {
+    const list = ctx.creatures;
+    if (!list) return null;
+    const n = num((ferocious ?? formidable)![1]);
+    const read = list.filter((k) => !k.unread);
+    const yes = ferocious ? read.some((k) => k.power >= n) : read.reduce((sum, k) => sum + k.power, 0) >= n;
+    return yes ? true : read.length < list.length ? null : false;
   }
   // "…unless you revealed a Dragon card this way or you control a Dragon" (the reveal is from the hand).
   if ((m = c.match(/^you revealed an? (.+?) card this way or you control an? (.+)$/i)))
