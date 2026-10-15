@@ -64,6 +64,10 @@ export interface CardInstance {
    * leaves the card unattached — read it through lib/attach.ts, never
    * directly. Builds that do not know the field ignore it and keep it. */
   on?: { seat: number; kind: 'card' | 'stack'; id: string; plus?: number };
+  /** Battlefield only: the turn this planeswalker last used a loyalty
+   * ability, named by turnNumber and activePlayerIndex (like landPlays). A
+   * stamp from any other turn means none used yet; nothing clears it. */
+  loyaltyUsed?: { turn: number; active: number };
   /** Battlefield only: the card arrived since its controller's last turn
    * began. Every card gets it, whatever its type — the reducers do not
    * read cards. Whether it means summoning sickness is for the table and

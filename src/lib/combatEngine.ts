@@ -1,4 +1,5 @@
 import { levelNow } from './abilities';
+import { sizeAround } from './anthems';
 import { keywordsNow, keywordsWorn, restrictionsWorn, sizeWorn, type Size } from './attach';
 import { boostOf } from './boost';
 import { computedPT } from './board';
@@ -31,9 +32,10 @@ import type {
  * is, what it can do, and what a declared fight does to everyone in it.
  *
  * Pure, and it never throws: anything it cannot read becomes "unread",
- * not an error. It reads the printed card, the +1/+1 counters on it and
- * what its Auras and Equipment add in plain numbers ("gets +2/+0"), and
- * nothing else — no anthems, no lords, no tricks. The
+ * not an error. It reads the printed card, the +1/+1 counters on it, what
+ * its Auras and Equipment add in plain numbers ("gets +2/+0"), and the
+ * standing anthems and lords on the table (lib/anthems.ts) — no tricks
+ * beyond those. The
  * players put the result right in Review before it is applied; this
  * module's job is to be right about what it does read and to say out loud
  * what it could not. */
@@ -174,6 +176,8 @@ function readCard(game: GameState, read: SeatRead, card: CardInstance, records: 
   const toughness = level ? level.toughness : plainNumber(record?.toughness);
   const unsized = power === null || toughness === null || (power === 0 && toughness === 0);
   const worn = sizeWorn(game, { seat: read.seat, kind: 'card', id: card.iid }, records);
+  // The anthems and lords on the table (lib/anthems.ts).
+  const around = sizeAround(game, { seat: read.seat, kind: 'card', id: card.iid }, records);
   // What it wears, and what "until end of turn" effects did to it this turn.
   const wornKeywords = keywordsNow(game, { seat: read.seat, kind: 'card', id: card.iid }, records);
   if (level) for (const keyword of keywordsOf(level.text)) wornKeywords.add(keyword);
@@ -189,8 +193,8 @@ function readCard(game: GameState, read: SeatRead, card: CardInstance, records: 
     name: record?.name ?? card.name,
     creature,
     unread: !record || (unsized && p1p1 === 0),
-    power: Math.max(0, (power ?? 0) + plus + worn.power + (boost?.power ?? 0)),
-    toughness: (toughness ?? 0) + plus + worn.toughness + (boost?.toughness ?? 0),
+    power: Math.max(0, (power ?? 0) + plus + worn.power + around.power + (boost?.power ?? 0)),
+    toughness: (toughness ?? 0) + plus + worn.toughness + around.toughness + (boost?.toughness ?? 0),
     ...keywordsFor(record?.oracleText ?? '', unitKey(unit), read.grants, wornKeywords),
     commander: commanderKey(game, read.seat, unit),
     count: 1,
@@ -213,8 +217,10 @@ function readStack(game: GameState, read: SeatRead, item: BoardItem, records: Ca
   const standing = Math.max(0, count - (item.tapped ?? 0));
   // One Equipment is on one token: a stack of several does not all wear it.
   const worn = count === 1 ? sizeWorn(game, { seat: read.seat, kind: 'stack', id: item.id }, records) : NO_SIZE;
-  // A boost is on every copy (Overrun pumps them all); what is worn, on one only.
+  // A boost is on every copy (Overrun pumps them all); what is worn, on one
+  // only; an anthem, on every copy too.
   const boost = boostOf(game, item);
+  const around = sizeAround(game, { seat: read.seat, kind: 'stack', id: item.id }, records);
   const wornKeywords = new Set([
     ...(count === 1 ? keywordsWorn(game, { seat: read.seat, kind: 'stack', id: item.id }, records) : []),
     ...(boost?.keywords ?? []),
@@ -229,8 +235,8 @@ function readStack(game: GameState, read: SeatRead, item: BoardItem, records: Ca
     name: item.name,
     creature,
     unread: unsized && plus === 0,
-    power: Math.max(0, (item.basePower ?? 0) + plus + worn.power + (boost?.power ?? 0)),
-    toughness: (item.baseToughness ?? 0) + plus + worn.toughness + (boost?.toughness ?? 0),
+    power: Math.max(0, (item.basePower ?? 0) + plus + worn.power + around.power + (boost?.power ?? 0)),
+    toughness: (item.baseToughness ?? 0) + plus + worn.toughness + around.toughness + (boost?.toughness ?? 0),
     ...keywordsFor(item.oracleText ?? '', unitKey(unit), read.grants, wornKeywords),
     commander: commanderKey(game, read.seat, unit),
     count,

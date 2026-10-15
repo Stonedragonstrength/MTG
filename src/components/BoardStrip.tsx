@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { sizeAround } from '../lib/anthems';
 import { attachedTo, sizeWorn, type Size } from '../lib/attach';
-import { boostOf, withBoost } from '../lib/boost';
+import { boostOf, plusSize, withBoost } from '../lib/boost';
 import { computedPT } from '../lib/board';
 import { sickCopies } from '../lib/keywords';
 import { COLOR_NAMES, effectiveManaColors } from '../lib/mana';
@@ -229,14 +230,20 @@ export default function BoardStrip({ playerIdx, cornerRef }: Props) {
               look={look}
               names={names}
               attached={attachedTo(game, { seat: playerIdx, kind: 'stack', id: item.id }).length}
-              // What one token wears, and what "until end of turn" did to every copy.
-              worn={
-                item.count === 1
-                  ? withBoost(sizeWorn(game, { seat: playerIdx, kind: 'stack', id: item.id }, tableRecords), boostOf(game, item))
-                  : boostOf(game, item)
-                    ? withBoost({ power: 0, toughness: 0 }, boostOf(game, item))
-                    : null
-              }
+              // What one token wears, what "until end of turn" did to every
+              // copy, and what the anthems on the table give every copy.
+              worn={(() => {
+                const around = sizeAround(game, { seat: playerIdx, kind: 'stack', id: item.id }, tableRecords);
+                const anthem = around.power !== 0 || around.toughness !== 0;
+                if (item.count === 1)
+                  return plusSize(
+                    withBoost(sizeWorn(game, { seat: playerIdx, kind: 'stack', id: item.id }, tableRecords), boostOf(game, item)),
+                    around,
+                  );
+                return boostOf(game, item) || anthem
+                  ? plusSize(withBoost({ power: 0, toughness: 0 }, boostOf(game, item)), around)
+                  : null;
+              })()}
               onTap={() => tapItem(playerIdx, item.id, 1)}
               onDetail={() => setDetailId(item.id)}
             />

@@ -256,15 +256,15 @@ describe('who is what', () => {
     expect([is('soldiers'), is('treasure'), is('half'), is('arbor'), is('gone')]).toEqual([true, false, false, false, false]);
   });
 
-  test('size is the printed front-face size plus +1/+1 counters; an anthem is not read', () => {
+  test('size is the printed front-face size plus +1/+1 counters, plus the anthems on the table', () => {
     const t = table({
       cards: { bear: BEAR, big: BEAR, anthem: rec('Glorious Anthem', null, null, 'Creatures you control get +1/+1.', 'Enchantment') },
       wear: { big: { counters: { p1p1: 3, oil: 2 } } },
       stacks: [tokens('soldiers', 3, 1, 1, { counters: { p1p1: 2 } })],
     });
-    expect(readUnit(t.g, 0, card('bear'), t.records)).toMatchObject({ power: 2, toughness: 2, unread: false });
-    expect(readUnit(t.g, 0, card('big'), t.records)).toMatchObject({ power: 5, toughness: 5 });
-    expect(readUnit(t.g, 0, stack('soldiers'), t.records)).toMatchObject({ power: 3, toughness: 3, count: 3 });
+    expect(readUnit(t.g, 0, card('bear'), t.records)).toMatchObject({ power: 3, toughness: 3, unread: false });
+    expect(readUnit(t.g, 0, card('big'), t.records)).toMatchObject({ power: 6, toughness: 6 });
+    expect(readUnit(t.g, 0, stack('soldiers'), t.records)).toMatchObject({ power: 4, toughness: 4, count: 3 });
   });
 
   test('…and what its Equipment and Auras add: each number by itself, from either side of the table', () => {

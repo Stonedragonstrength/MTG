@@ -610,6 +610,12 @@ button.primary {
   border-style: dashed;
 }
 
+/* A planeswalker that used its loyalty ability this turn: its rows wait for the next. */
+.ability-row--used .ability-cost,
+.ability-row--used .ability-label {
+  opacity: 0.5;
+}
+
 /* A planeswalker's loyalty cost, as the card prints it: "−3", "+1". */
 .ability-loyalty {
   min-width: 2.4em;

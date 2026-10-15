@@ -376,3 +376,13 @@ test('loyalty its player keeps by hand is left alone: the ability is still said 
   expect(store.getState().game!.feed!.at(-1)!.text).toBe('Nathan: Quintorius Kand +1 — Create a 3/2 red and white Spirit creature token.');
   expect(store.getState().happened?.events[0]).toMatchObject({ kind: 'activated' });
 });
+
+test('a loyalty ability marks the walker as used for this turn; the mark goes with it when it leaves', async () => {
+  await getDb().cards.bulkPut(WALKERS);
+  const store = table([{ iid: 'q1', cardId: 'c-quint2', name: 'Quintorius Kand', counters: { loyalty: 4 } }]);
+  const g = store.getState().game!;
+  await store.getState().activateAbility(0, 'q1', abilitiesOf(WALKERS[0])[0].key);
+  expect(it(store, 'q1').loyaltyUsed).toEqual({ turn: g.turnNumber, active: g.activePlayerIndex });
+  store.getState().moveVirtualCard(0, 'q1', 'battlefield', 'hand');
+  expect(store.getState().game!.players[0].cards!.hand.find((c) => c.iid === 'q1')!.loyaltyUsed).toBeUndefined();
+});

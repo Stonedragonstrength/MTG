@@ -34,6 +34,15 @@ export default function AbilityRow({
   onUsed?: () => void;
 }) {
   const activateAbility = useAppStore((s) => s.activateAbility);
+  // One loyalty ability a turn: once used, the walker's rows say so (a card
+  // that allows more — The Chain Veil — still can: "Use anyway").
+  const usedThisTurn = useAppStore(
+    (s) =>
+      ability.loyalty !== undefined &&
+      !!s.game &&
+      card.loyaltyUsed?.turn === s.game.turnNumber &&
+      card.loyaltyUsed.active === s.game.activePlayerIndex,
+  );
   // A card tapped or sacrificed for its own ability pays nothing towards it.
   const own = ability.tap || ability.sacrifice ? sources.filter((s) => s.key !== card.iid) : sources;
   const loyaltyX = ability.loyalty === '-X';
@@ -47,7 +56,7 @@ export default function AbilityRow({
   const bare = xs === 0 && !ability.tap && ability.loyalty === undefined && words.length === 0;
   const use: AbilityUse = { ...(asksX ? { x } : {}), ...(short ? { free: true } : {}) };
   return (
-    <div className="ability-row">
+    <div className={usedThisTurn ? 'ability-row ability-row--used' : 'ability-row'}>
       <span className="ability-cost" aria-label="cost">
         {ability.loyalty !== undefined && (
           <span className="ability-loyalty" aria-label={`loyalty ${loyaltyWords(ability.loyalty)}`}>
@@ -76,9 +85,12 @@ export default function AbilityRow({
         </span>
       )}
       <button
-        className={short && !blocked ? 'chip ability-use ability-use--free' : 'chip ability-use'}
+        className={(short || usedThisTurn) && !blocked ? 'chip ability-use ability-use--free' : 'chip ability-use'}
         disabled={!!blocked}
-        title={blocked ?? (short ? 'Not enough mana ready' : undefined)}
+        title={
+          blocked ??
+          (usedThisTurn ? 'A loyalty ability was used this turn already' : short ? 'Not enough mana ready' : undefined)
+        }
         onClick={() => {
           if (ability.effect.kind === 'discover' && onDiscover) {
             onDiscover(use);
@@ -88,7 +100,7 @@ export default function AbilityRow({
           if (ability.effect.kind === 'loyalty') onUsed?.();
         }}
       >
-        {blocked ?? (short ? 'Use without paying' : 'Use')}
+        {blocked ?? (usedThisTurn ? 'Used this turn · use anyway' : short ? 'Use without paying' : 'Use')}
       </button>
     </div>
   );

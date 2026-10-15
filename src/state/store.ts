@@ -1163,6 +1163,8 @@ export function createAppStore() {
               loyalty + change > 0
                 ? cardsLib.setCardCounter(next, seat, iid, 'loyalty', loyalty + change)
                 : cardsLib.moveCard(next, seat, iid, 'battlefield', 'graveyard');
+          // One loyalty ability a turn: the walker remembers this one.
+          if (ability.loyalty !== undefined) next = cardsLib.markLoyaltyUsed(next, seat, iid);
           if (pick) {
             const moved = cardsLib.moveCard(next, seat, pick.iid, 'graveyard', 'exile');
             if (moved === next) return null;

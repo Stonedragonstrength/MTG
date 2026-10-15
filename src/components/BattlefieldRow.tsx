@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { attachedTo, isAttached, keywordsNow, sizeWorn } from '../lib/attach';
 import { levelChange } from '../lib/abilities';
+import { sizeAround } from '../lib/anthems';
 import { boostOf, plusSize, withBoost } from '../lib/boost';
 import { commanderTax, owesDraw } from '../lib/cards';
 import { isSummoningSick, permanentTexts } from '../lib/keywords';
@@ -166,9 +167,13 @@ export default function BattlefieldRow({ playerIdx, picks = true, corner = null 
               look={combat?.look({ kind: 'card', id: c.iid }) ?? null}
               names={names}
               worn={plusSize(
-                withBoost(sizeWorn(game, { seat: playerIdx, kind: 'card', id: c.iid }, tableRecords), boostOf(game, c)),
-                // A leveler is bigger than printed once it reaches a level.
-                levelChange(records[c.cardId], c.counters?.level ?? 0),
+                plusSize(
+                  withBoost(sizeWorn(game, { seat: playerIdx, kind: 'card', id: c.iid }, tableRecords), boostOf(game, c)),
+                  // A leveler is bigger than printed once it reaches a level.
+                  levelChange(records[c.cardId], c.counters?.level ?? 0),
+                ),
+                // The anthems and lords on the table.
+                sizeAround(game, { seat: playerIdx, kind: 'card', id: c.iid }, tableRecords),
               )}
               onTap={() => tapVirtualCard(playerIdx, c.iid)}
               onDetail={() => setCardSheet({ seat: playerIdx, iid: c.iid })}

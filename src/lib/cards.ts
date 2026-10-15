@@ -112,7 +112,7 @@ export function seedSeat(g: GameState, seat: number, cards: SeatCards): GameStat
 /** Battlefield-only fields never travel to other zones — and neither does
  * the face that was up: a card that leaves is its front face again. */
 function stripped(c: CardInstance): CardInstance {
-  const { tapped: _t, counters: _c, row: _r, spent: _s, sick: _k, on: _o, boost: _b, held: _h, rebound: _rb, ...rest } = c;
+  const { tapped: _t, counters: _c, row: _r, spent: _s, sick: _k, on: _o, boost: _b, held: _h, rebound: _rb, loyaltyUsed: _l, ...rest } = c;
   return isBackId(rest.cardId) ? { ...rest, cardId: frontId(rest.cardId) } : rest;
 }
 
@@ -539,6 +539,16 @@ export function useUpTap(g: GameState, seat: number, iid: string): GameState {
       battlefield: cards.battlefield.map((c) => (c.iid === iid ? { ...c, spent: USED_UP } : c)),
     };
   });
+}
+
+/** Stamps a planeswalker on the battlefield as having used a loyalty ability this turn. */
+export function markLoyaltyUsed(g: GameState, seat: number, iid: string): GameState {
+  const stamp = { turn: g.turnNumber, active: g.activePlayerIndex };
+  return updateSeat(g, seat, (cards) =>
+    cards.battlefield.some((c) => c.iid === iid)
+      ? { ...cards, battlefield: cards.battlefield.map((c) => (c.iid === iid ? { ...c, loyaltyUsed: stamp } : c)) }
+      : null,
+  );
 }
 
 export function setCardCounter(
