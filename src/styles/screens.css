@@ -1081,6 +1081,159 @@ label {
   right: 14px;
   font-size: 0.85rem;
   color: #9a9aa5;
+  background: rgba(20, 20, 26, 0.6);
+}
+
+/* ---- Home: the table's art behind, the crest, glass tiles ---- */
+.screen.home {
+  position: relative;
+  isolation: isolate;
+  justify-content: flex-start;
+  padding-top: clamp(28px, 6vh, 64px);
+  gap: 18px;
+}
+
+.home-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.home-backdrop .land-bg {
+  border-radius: 0;
+}
+
+.home-vignette {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 50% 28%, rgba(16, 16, 20, 0.15), rgba(16, 16, 20, 0.78) 72%),
+    linear-gradient(to bottom, rgba(16, 16, 20, 0.25), rgba(16, 16, 20, 0.88) 85%);
+}
+
+.home-crest {
+  width: clamp(76px, 11vh, 108px);
+  height: clamp(76px, 11vh, 108px);
+  border-radius: 24%;
+  box-shadow:
+    0 0 0 2px rgba(200, 168, 75, 0.75),
+    0 10px 40px rgba(0, 0, 0, 0.65),
+    0 0 60px rgba(200, 168, 75, 0.25);
+  animation: crest-in 900ms cubic-bezier(0.2, 0.9, 0.25, 1.15) both;
+}
+
+.home-title {
+  margin: 0;
+}
+
+.home .action-card,
+.home .profile-card {
+  background-color: rgba(28, 28, 36, 0.72);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.35);
+}
+
+.action-card--hero {
+  min-width: min(320px, 86vw);
+  padding: 22px 40px;
+}
+
+.action-card--hero .action-card-title {
+  font-size: 1.6rem;
+}
+
+.action-card--new:not(:disabled) {
+  background-image: linear-gradient(135deg, rgba(200, 168, 75, 0.22), rgba(200, 168, 75, 0.04));
+}
+
+.action-card-lives {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 12px;
+  margin-top: 2px;
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  color: #c3c2b7;
+}
+
+.resume-life strong {
+  color: #fff;
+}
+
+.resume-life--out {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+
+.home-actions--tiles {
+  gap: 12px;
+}
+
+.action-card--tile {
+  min-width: 170px;
+  padding: 14px 20px;
+  align-items: center;
+}
+
+.action-card--tile .action-card-title {
+  font-size: 1.15rem;
+}
+
+.action-icon {
+  font-size: 1.7rem;
+  line-height: 1;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.6));
+}
+
+.home-section {
+  margin: 10px 0 -4px;
+  font-size: 0.85rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: #9a9aa5;
+}
+
+/* A player's tile wears their picture (their commander's art) behind them,
+   soft, so their commander's card stands out in front of it. */
+.profile-card--art {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  padding-top: 22px;
+  background-image: linear-gradient(to bottom, rgba(16, 16, 20, 0), rgba(16, 16, 20, 0.35) 45%, rgba(16, 16, 20, 0.92) 85%);
+}
+
+.profile-card--art::before {
+  content: '';
+  position: absolute;
+  inset: -12px;
+  z-index: -1;
+  background: var(--art) center 20% / cover;
+  filter: blur(5px) brightness(0.6) saturate(1.2);
+}
+
+.profile-card--art .avatar--big {
+  display: none;
+}
+
+.profile-card--art .profile-name {
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9);
+}
+
+@keyframes crest-in {
+  from {
+    opacity: 0;
+    transform: translateY(-12px) scale(0.85);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-crest {
+    animation: none;
+  }
 }
 
 /* SQL needs to be readable and grabbable on a tablet. */
@@ -1369,6 +1522,186 @@ label {
   .play-choice {
     grid-template-columns: 1fr;
   }
+}
+
+/* ---- New Game: gold segments instead of the browser's dots, seats on a tablet ---- */
+.ng-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px 14px;
+  width: 100%;
+  max-width: 640px;
+}
+
+.ng-label {
+  min-width: 7.5em;
+  font-size: 0.85rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-align: right;
+  color: #9a9aa5;
+}
+
+.threshold.ng-row .ng-label {
+  min-width: 0;
+  text-align: center;
+}
+
+.ng-segments {
+  display: flex;
+  flex: 1;
+  min-width: 260px;
+  padding: 4px;
+  gap: 4px;
+  border: 1px solid #3a3a44;
+  border-radius: 14px;
+  background: #18181e;
+}
+
+.ng-segment {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  font-size: 1rem;
+}
+
+.ng-segment small {
+  font-family: var(--font-body);
+  font-size: 0.75rem;
+  color: #9a9aa5;
+}
+
+.ng-segment.selected {
+  border-color: var(--accent);
+  background: linear-gradient(135deg, rgba(200, 168, 75, 0.28), rgba(200, 168, 75, 0.08));
+  color: var(--accent);
+  box-shadow: 0 0 18px rgba(200, 168, 75, 0.15);
+}
+
+.ng-segment.selected small {
+  color: #d9c58a;
+}
+
+.ng-note {
+  margin: -6px 0 0 !important;
+  font-size: 0.8rem;
+}
+
+.ng-heading {
+  margin: 8px 0 0;
+  font-size: 1.05rem;
+  letter-spacing: 0.08em;
+}
+
+.ng-player {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 18px 8px 8px;
+  border-radius: 999px;
+}
+
+.ng-player-face {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #2c2c35;
+}
+
+.ng-player-face--empty {
+  border: 1px dashed #4a4a55;
+}
+
+.ng-player-seat {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #141410;
+  font-family: var(--font-body);
+  font-size: 0.75rem;
+  font-weight: 800;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+}
+
+/* Who sits where, drawn: the tablet in the middle, the names on its edges. */
+.seat-map {
+  position: relative;
+  width: min(340px, 80vw);
+  height: 150px;
+  margin: 2px 0 4px;
+}
+
+.seat-map-table {
+  position: absolute;
+  inset: 26px 70px;
+  display: grid;
+  place-items: center;
+  border: 2px solid #4a4a55;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #1d1d24, #141419);
+  box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.6);
+}
+
+.seat-map-tablet {
+  font-size: 0.7rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #6f6f7a;
+}
+
+.seat-map-seat {
+  position: absolute;
+  padding: 3px 10px;
+  border: 1px solid rgba(200, 168, 75, 0.6);
+  border-radius: 999px;
+  background: #241f12;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  color: var(--fg);
+}
+
+.seat-map-seat b {
+  color: var(--accent);
+}
+
+.seat-map-seat--bottom {
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.seat-map-seat--top {
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.seat-map-seat--right {
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+}
+
+.seat-map-seat--left {
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
 }
 
 /* The player editor's "Deck" row. */

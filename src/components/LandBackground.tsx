@@ -10,11 +10,17 @@ interface Layer {
 
 const TARGET_PACK_SIZE = 400;
 
-export default function LandBackground() {
+interface Props {
+  /** Seconds between pictures, whatever the setting says (Home: no turns to step on). */
+  cycle?: number;
+}
+
+export default function LandBackground({ cycle }: Props = {}) {
   const turnNumber = useAppStore((s) => s.game?.turnNumber ?? 1);
-  const { backgroundMode: mode, backgroundIntensity, cycleSeconds, fadeSeconds } = useAppStore(
+  const { backgroundMode: mode, backgroundIntensity, cycleSeconds: setting, fadeSeconds } = useAppStore(
     (s) => s.settings,
   );
+  const cycleSeconds = cycle ?? setting;
   const [pack, setPack] = useState<LandArtPack | null>(null);
   const [tick, setTick] = useState(0);
   const [layers, setLayers] = useState<Layer[]>([]);

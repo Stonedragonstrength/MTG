@@ -31,6 +31,17 @@ textarea {
   font-family: var(--font-body);
 }
 
+/* The small print under a title reads in the body font too: Cinzel stays
+   on names, titles and buttons, where its capitals are the look. */
+.action-card-sub,
+.profile-commander,
+.deck-tile-count,
+.deck-row-type,
+.curation-value {
+  font-family: var(--font-body);
+  letter-spacing: 0.01em;
+}
+
 * {
   box-sizing: border-box;
   -webkit-tap-highlight-color: transparent;

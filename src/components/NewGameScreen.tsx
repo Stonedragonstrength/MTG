@@ -10,6 +10,14 @@ interface Props {
  * decks dealt and played on screen. */
 type Play = 'assistant' | 'tablet';
 
+/** Where each seat sits, by how many there are (the game screen's own order). */
+const SEAT_EDGES: Record<number, string[]> = {
+  1: ['bottom'],
+  2: ['bottom', 'top'],
+  3: ['bottom', 'right', 'left'],
+  4: ['bottom', 'right', 'top', 'left'],
+};
+
 export default function NewGameScreen({ onBack }: Props) {
   const profiles = useAppStore((s) => s.profiles);
   const decks = useAppStore((s) => s.decks);
@@ -185,55 +193,59 @@ export default function NewGameScreen({ onBack }: Props) {
           )}
         </button>
       </div>
-      <fieldset className="format-toggle">
-        <legend>Where</legend>
-        <label>
-          <input
-            type="radio"
-            name="where"
-            checked={where === 'local'}
-            onChange={() => setWhere('local')}
-          />
-          This tablet (pass around)
-        </label>
-        <label>
-          <input
-            type="radio"
-            name="where"
+      <div className="ng-row">
+        <span className="ng-label">Where</span>
+        <div className="ng-segments" role="radiogroup" aria-label="Where">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={where === 'local'}
+            className={where === 'local' ? 'ng-segment selected' : 'ng-segment'}
+            onClick={() => setWhere('local')}
+          >
+            This tablet <small>pass it around</small>
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={where === 'online'}
             disabled={!cloudReady}
-            checked={where === 'online'}
-            onChange={() => setWhere('online')}
-          />
-          Online — everyone's own device
-          {!cloudReady && <small> (sign in under Settings → Cloud sync first)</small>}
-        </label>
-      </fieldset>
+            className={where === 'online' ? 'ng-segment selected' : 'ng-segment'}
+            onClick={() => setWhere('online')}
+          >
+            Online <small>everyone's own device</small>
+          </button>
+        </div>
+      </div>
+      {!cloudReady && <p className="hint ng-note">To play online, sign in under Settings → Cloud sync first.</p>}
       {!onTablet && (
-        <fieldset className="format-toggle">
-          <legend>Format</legend>
-          <label>
-            <input
-              type="radio"
-              name="format"
-              checked={format === 'commander'}
-              onChange={() => setPickedFormat('commander')}
-            />
-            Commander (40 life)
-          </label>
-          <label>
-            <input
-              type="radio"
-              name="format"
-              checked={format === 'standard'}
-              onChange={() => setPickedFormat('standard')}
-            />
-            Standard (20 life)
-          </label>
-        </fieldset>
+        <div className="ng-row">
+          <span className="ng-label">Format</span>
+          <div className="ng-segments" role="radiogroup" aria-label="Format">
+            <button
+              type="button"
+              role="radio"
+              aria-checked={format === 'commander'}
+              className={format === 'commander' ? 'ng-segment selected' : 'ng-segment'}
+              onClick={() => setPickedFormat('commander')}
+            >
+              Commander <small>40 life</small>
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={format === 'standard'}
+              className={format === 'standard' ? 'ng-segment selected' : 'ng-segment'}
+              onClick={() => setPickedFormat('standard')}
+            >
+              Standard <small>20 life</small>
+            </button>
+          </div>
+        </div>
       )}
       {format === 'commander' && (
-        <label className="threshold">
-          Commander damage to eliminate
+        <label className="threshold ng-row">
+          <span className="ng-label">Commander damage to eliminate</span>
           <input
             type="number"
             min={1}
@@ -242,22 +254,46 @@ export default function NewGameScreen({ onBack }: Props) {
           />
         </label>
       )}
-      <p>Who's playing? (2–4, in seat order)</p>
-      <p className="hint">
-        Tap in seating order: the first player gets the tablet's bottom edge, then clockwise
-        around the table.
+      <h3 className="ng-heading">Who's playing?</h3>
+      <p className="hint ng-note">
+        Tap them in seating order: the first sits at the tablet's bottom edge, the rest clockwise.
       </p>
-      <div className="profile-grid">
-        {profiles.map((p) => (
-          <button
-            key={p.id}
-            className={seated.includes(p.id) ? 'profile-chip selected' : 'profile-chip'}
-            onClick={() => toggle(p.id)}
-          >
-            {p.name}
-          </button>
-        ))}
+      <div className="profile-grid ng-players">
+        {profiles.map((p) => {
+          const at = seated.indexOf(p.id);
+          return (
+            <button
+              key={p.id}
+              className={at >= 0 ? 'profile-chip ng-player selected' : 'profile-chip ng-player'}
+              onClick={() => toggle(p.id)}
+            >
+              {p.avatarUrl ? (
+                <img className="ng-player-face" src={p.avatarUrl} alt="" />
+              ) : (
+                <span className="ng-player-face ng-player-face--empty" />
+              )}
+              {p.name}
+              {at >= 0 && (
+                <span className="ng-player-seat" aria-hidden="true">
+                  {at + 1}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
+      {seatedProfiles.length > 0 && (
+        <div className="seat-map" aria-label="where everyone sits">
+          <div className="seat-map-table">
+            <span className="seat-map-tablet">the tablet</span>
+          </div>
+          {seatedProfiles.map((p, i) => (
+            <span key={p.id} className={`seat-map-seat seat-map-seat--${SEAT_EDGES[seatedProfiles.length]?.[i] ?? 'bottom'}`}>
+              <b>{i + 1}</b> {p.name}
+            </span>
+          ))}
+        </div>
+      )}
       {pickingDecks && seatedProfiles.length > 0 && (
         <div className="deck-picks">
           {seatedProfiles.map((p) => (

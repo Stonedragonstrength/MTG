@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { findCardByName } from '../data/scryfall';
 import { registerBack } from '../lib/backstack';
 import { playerStandings, winsOf } from '../lib/history';
@@ -10,6 +10,7 @@ import DecksScreen from './DecksScreen';
 import GarageScreen from './GarageScreen';
 import HistoryScreen from './HistoryScreen';
 import JoinTableSheet from './JoinTableSheet';
+import LandBackground from './LandBackground';
 import NewGameScreen from './NewGameScreen';
 import ProfileEditor from './ProfileEditor';
 import SettingsSheet from './SettingsSheet';
@@ -103,6 +104,11 @@ export default function HomeScreen() {
 
   return (
     <div className="screen home">
+      {/* The table's own art behind everything, slowly changing. */}
+      <div className="home-backdrop" aria-hidden="true">
+        <LandBackground cycle={24} />
+        <div className="home-vignette" />
+      </div>
       <button
         className="ghost home-settings"
         aria-label="settings"
@@ -110,6 +116,7 @@ export default function HomeScreen() {
       >
         ⚙ Settings
       </button>
+      <img className="home-crest" src="/icons/icon-192.png" alt="" draggable={false} />
       <h1 className="home-title">
         <span className="home-title-main">MTG Battlefield</span>
         <span className="home-title-sub">Hub &amp; Tracker</span>
@@ -117,17 +124,26 @@ export default function HomeScreen() {
 
       <div className="home-actions">
         {game && (
-          <button className="action-card action-card--resume" onClick={enterGame}>
+          <button className="action-card action-card--hero action-card--resume" onClick={enterGame}>
             <span className="action-card-title">Pick up game</span>
             <span className="action-card-sub">
               {over !== null
                 ? `${typeof over === 'number' ? `${game.config.profiles[over]?.name} won` : 'A draw'} · see the results`
                 : `Turn ${game.turnNumber} · ${savedNames}`}
             </span>
+            {over === null && (
+              <span className="action-card-lives" aria-hidden="true">
+                {game.players.map((pl, i) => (
+                  <span key={pl.profileId} className={pl.eliminated ? 'resume-life resume-life--out' : 'resume-life'}>
+                    {game.config.profiles[i]?.name} <strong>{pl.life}</strong>
+                  </span>
+                ))}
+              </span>
+            )}
           </button>
         )}
         <button
-          className="action-card action-card--new"
+          className="action-card action-card--hero action-card--new"
           disabled={profiles.length < 2}
           onClick={() => setView('newgame')}
         >
@@ -136,13 +152,18 @@ export default function HomeScreen() {
             {profiles.length < 2 ? 'Add two players first' : 'Shuffle up'}
           </span>
         </button>
+      </div>
+
+      <div className="home-actions home-actions--tiles">
         {cloudReady && (
-          <button className="action-card" onClick={() => setJoinOpen(true)}>
+          <button className="action-card action-card--tile" onClick={() => setJoinOpen(true)}>
+            <span className="action-icon" aria-hidden="true">🌐</span>
             <span className="action-card-title">Join table</span>
             <span className="action-card-sub">Enter a friend's code</span>
           </button>
         )}
-        <button className="action-card" onClick={() => setView('decks')}>
+        <button className="action-card action-card--tile" onClick={() => setView('decks')}>
+          <span className="action-icon" aria-hidden="true">🂠</span>
           <span className="action-card-title">Decks</span>
           <span className="action-card-sub">
             {decks.length > 0
@@ -150,7 +171,8 @@ export default function HomeScreen() {
               : 'Build & keep lists'}
           </span>
         </button>
-        <button className="action-card" onClick={() => setView('garage')}>
+        <button className="action-card action-card--tile" onClick={() => setView('garage')}>
+          <span className="action-icon" aria-hidden="true">📚</span>
           <span className="action-card-title">Curation</span>
           <span className="action-card-sub">
             {garage.length > 0
@@ -158,7 +180,8 @@ export default function HomeScreen() {
               : 'Your collection'}
           </span>
         </button>
-        <button className="action-card" onClick={() => setView('history')}>
+        <button className="action-card action-card--tile" onClick={() => setView('history')}>
+          <span className="action-icon" aria-hidden="true">🏆</span>
           <span className="action-card-title">History</span>
           <span className="action-card-sub">
             {games.length === 0
@@ -168,12 +191,18 @@ export default function HomeScreen() {
         </button>
       </div>
 
+      <h2 className="home-section">Players</h2>
       <div className="profile-grid">
         {profiles.map((p) => (
           <button
             key={p.id}
-            className="profile-card"
-            style={{ borderColor: profileAccent(p) }}
+            className={p.avatarUrl || p.commanderImage ? 'profile-card profile-card--art' : 'profile-card'}
+            style={
+              {
+                borderColor: profileAccent(p),
+                '--art': p.avatarUrl || p.commanderImage ? `url("${p.avatarUrl ?? p.commanderImage}")` : undefined,
+              } as CSSProperties
+            }
             onClick={() => setEditing(p)}
           >
             {p.avatarUrl ? (
