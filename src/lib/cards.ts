@@ -112,7 +112,7 @@ export function seedSeat(g: GameState, seat: number, cards: SeatCards): GameStat
 /** Battlefield-only fields never travel to other zones — and neither does
  * the face that was up: a card that leaves is its front face again. */
 function stripped(c: CardInstance): CardInstance {
-  const { tapped: _t, counters: _c, row: _r, spent: _s, sick: _k, on: _o, boost: _b, held: _h, rebound: _rb, loyaltyUsed: _l, ...rest } = c;
+  const { tapped: _t, counters: _c, row: _r, spent: _s, sick: _k, on: _o, boost: _b, held: _h, rebound: _rb, loyaltyUsed: _l, stolen: _st, ...rest } = c;
   return isBackId(rest.cardId) ? { ...rest, cardId: frontId(rest.cardId) } : rest;
 }
 
@@ -229,12 +229,86 @@ export function moveCard(
   to: CardZone,
   opts?: { pos?: 'top' | 'bottom'; row?: CardInstance['row'] },
 ): GameState {
-  const moved = moveWithinSeat(g, seat, iid, from, to, opts);
+  const left = from === 'battlefield' ? g.players[seat]?.cards?.battlefield.find((c) => c.iid === iid) : undefined;
+  // A stolen card leaving the battlefield goes to its owner's zone.
+  const owner = left?.stolen?.owner;
+  const moved =
+    left && to !== 'battlefield' && owner !== undefined && owner !== seat && g.players[owner]?.cards
+      ? moveAcross(g, seat, owner, iid, to, opts)
+      : moveWithinSeat(g, seat, iid, from, to, opts);
   if (moved === g || from !== 'battlefield' || to === 'battlefield') return moved;
   // It left the battlefield: what it was attached to, and what was attached
   // to it, is settled in the same move.
-  const left = g.players[seat]?.cards?.battlefield.find((c) => c.iid === iid);
   return left ? afterLeaving(moved, seat, left) : moved;
+}
+
+/** Off one seat's battlefield into another seat's zone (a stolen card going home to die). */
+function moveAcross(
+  g: GameState,
+  seat: number,
+  owner: number,
+  iid: string,
+  to: CardZone,
+  opts?: { pos?: 'top' | 'bottom' },
+): GameState {
+  const card = g.players[seat]?.cards?.battlefield.find((c) => c.iid === iid);
+  if (!card) return g;
+  const gone = updateSeat(g, seat, (cards) => ({ ...cards, battlefield: cards.battlefield.filter((c) => c.iid !== iid) }));
+  return updateSeat(gone, owner, (cards) => {
+    const moved = stripped(card);
+    const placed = to === 'library' && opts?.pos !== 'bottom' ? [moved, ...cards[to]] : [...cards[to], moved];
+    return { ...cards, [to]: placed };
+  });
+}
+
+// ---- control: a permanent on another player's side ----
+
+/** `toSeat` gains control of the permanent `iid` on `fromSeat`'s
+ * battlefield: it moves to `toSeat`'s side, remembering whose it is, and
+ * what is attached to it follows it there. Taken back by its owner, it is
+ * simply theirs again. It has only just come under its controller's
+ * control (summoning sick unless it has haste). */
+export function stealCard(
+  g: GameState,
+  fromSeat: number,
+  iid: string,
+  toSeat: number,
+  opts: { until?: { turn: number; active: number }; by?: string } = {},
+): GameState {
+  if (fromSeat === toSeat) return g;
+  const card = g.players[fromSeat]?.cards?.battlefield.find((c) => c.iid === iid);
+  if (!card || !g.players[toSeat]?.cards) return g;
+  const owner = card.stolen?.owner ?? fromSeat;
+  const { stolen: _was, ...plain } = card;
+  const moved: CardInstance =
+    owner === toSeat
+      ? { ...plain, sick: true }
+      : { ...plain, sick: true, stolen: { owner, ...(opts.until ? { until: opts.until } : {}), ...(opts.by ? { by: opts.by } : {}) } };
+  let next = updateSeat(g, fromSeat, (cards) => ({ ...cards, battlefield: cards.battlefield.filter((c) => c.iid !== iid) }));
+  next = updateSeat(next, toSeat, (cards) => ({ ...cards, battlefield: [...cards.battlefield, moved] }));
+  // What is attached to it points at its new place.
+  next.players.forEach((p, s) => {
+    for (const c of p.cards?.battlefield ?? []) {
+      if (c.on?.kind === 'card' && c.on.seat === fromSeat && c.on.id === iid)
+        next = mapBattlefieldCard(next, s, c.iid, (x) => ({ ...x, on: { ...x.on!, seat: toSeat } }));
+    }
+  });
+  return next;
+}
+
+/** A stolen permanent goes back to its owner's side. */
+export function returnStolen(g: GameState, seat: number, iid: string): GameState {
+  const card = g.players[seat]?.cards?.battlefield.find((c) => c.iid === iid);
+  return card?.stolen ? stealCard(g, seat, iid, card.stolen.owner) : g;
+}
+
+/** Every permanent taken "until end of turn" goes back: the turn is over. */
+export function returnBorrowed(g: GameState): GameState {
+  let next = g;
+  g.players.forEach((p, seat) => {
+    for (const c of p.cards?.battlefield ?? []) if (c.stolen?.until) next = returnStolen(next, seat, c.iid);
+  });
+  return next;
 }
 
 function moveWithinSeat(
@@ -455,6 +529,9 @@ function afterLeaving(g: GameState, seat: number, left: CardInstance): GameState
       }
     }
   });
+  // What it held by its control (Control Magic) goes back to its owner.
+  for (const c of next.players[seat]?.cards?.battlefield ?? [])
+    if (c.stolen?.by === left.iid) next = returnStolen(next, seat, c.iid);
   return next;
 }
 

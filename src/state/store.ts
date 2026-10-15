@@ -26,6 +26,7 @@ import * as payLib from '../lib/pay';
 import * as payWithLib from '../lib/payWith';
 import { planEffect, type SpellEffect } from '../lib/spellEffects';
 import { happeningsBetween, unitThing, type Happening } from '../lib/triggers';
+import { dayNightNeeds, turnedDayNight, withCasts } from '../lib/dayNight';
 import { recordOf } from '../lib/history';
 import { beginStory, decided, withStory } from '../lib/story';
 import { isLandCard } from '../lib/turnRules';
@@ -131,6 +132,12 @@ export interface AppStore {
   /** A permanent goes back to its owner's hand, and the table is told
    * which: it was in plain sight, unlike a card put there from a library. */
   returnToHand(seat: number, iid: string): void;
+  /** `toSeat` gains control of a permanent on `fromSeat`'s side: for the
+   * turn (untapped, with haste — Threaten), or for good. `by`: the card on
+   * `toSeat`'s side that holds it (Control Magic): when that leaves, it goes back. */
+  takeControl(toSeat: number, fromSeat: number, iid: string, opts?: { untilEndOfTurn?: boolean; by?: string }): void;
+  /** A permanent its controller took goes back to its owner. */
+  giveBack(seat: number, iid: string): void;
   /** One of a card's abilities (lib/abilities.ts, by its key — one an Aura
    * or Equipment gives it by the attachment's): its whole cost is paid in
    * the same move — the mana (`free`: not paid), {T}, a sacrifice, counters,
@@ -579,9 +586,11 @@ export function createAppStore() {
       const game = get().game;
       if (!game) return;
       if (get().online?.status.kind === 'stale-build') return; // refresh first
-      // The game's story (lib/story.ts) rides inside every move, so a move
-      // replayed on another base retells its part of it too.
-      const fn = (g: GameState) => withStory(g, move(g));
+      // The game's story (lib/story.ts) and the spells cast this turn (for
+      // day and night, lib/dayNight.ts) ride inside every move, so a move
+      // replayed on another base retells its part of them too.
+      const castBy = also.flatMap((e) => (e.kind === 'cast' ? [e.seat] : []));
+      const fn = (g: GameState) => withStory(g, withCasts(g, move(g), castBy));
       const next = fn(game);
       if (next === game) return;
       // Tripwire: the server refuses >512KB; refuse earlier and louder.
@@ -603,6 +612,7 @@ export function createAppStore() {
       if (described) appendLog([described]);
       mergeFeedToLog(next);
       announceDefeats(game, next);
+      settleDayNight();
     };
 
     /** Card ops: feed line composed at act time, replay-safe, nap-proof. */
@@ -629,6 +639,63 @@ export function createAppStore() {
         return entry ? cardsLib.appendFeed(after, entry) : after;
       };
       mutateGame(fn, undefined, { guard: guard ?? (() => true), maxAgeMs }, typeof also === 'function' ? also(entry) : also);
+    };
+
+    // ---- day and night (lib/dayNight.ts) ----
+    // After a move made here: if a daybound permanent is out and it is
+    // neither, it becomes day; and every day/night card turns over to
+    // match the time. Its own moves, after the move that called for them.
+    let settling = false;
+    let settleAgain = false;
+    const settleDayNight = () => {
+      const g = get().game;
+      if (!g || !g.players.some((p) => p.cards?.battlefield.some((c) => c.name.includes(' // ')))) return;
+      if (settling) {
+        settleAgain = true;
+        return;
+      }
+      settling = true;
+      void (async () => {
+        try {
+          do {
+            settleAgain = false;
+            const now = get().game;
+            if (!now) break;
+            const records = await tableRecords(now);
+            if (get().game !== now) {
+              settleAgain = true;
+              continue;
+            }
+            if (dayNightNeeds(now, records).becomeDay)
+              mutateGame(
+                (base) => (base.dayNight === undefined ? { ...base, dayNight: 'day' } : base),
+                () => 'It becomes day',
+              );
+            const after = get().game;
+            if (!after) break;
+            const flips = dayNightNeeds(after, records).flips;
+            if (flips.length === 0) continue;
+            const said = flips
+              .map((f) => {
+                const [front, back] = f.name.split(' // ');
+                return f.toBack ? `${front} becomes ${back ?? front}` : `${back ?? f.name} turns back into ${front}`;
+              })
+              .join(', ');
+            cardMutate(
+              (base) =>
+                flips.reduce((acc, f) => {
+                  const card = acc.players[f.seat]?.cards?.battlefield.find((c) => c.iid === f.iid);
+                  return card && isBackId(card.cardId) !== f.toBack ? cardsLib.flipCard(acc, f.seat, f.iid, f.toBack) : acc;
+                }, base),
+              `It is ${after.dayNight}: ${said}`,
+            );
+          } while (settleAgain);
+        } catch (err) {
+          console.error('Day and night could not be settled', err);
+        } finally {
+          settling = false;
+        }
+      })();
     };
 
     // A look made on this device is not news to it: when the table calls
@@ -1094,6 +1161,30 @@ export function createAppStore() {
           text,
           (base) => !!base.players[seat]?.cards?.[from].some((c) => c.iid === iid),
         );
+      },
+
+      takeControl(toSeat, fromSeat, iid, opts = {}) {
+        const g = get().game;
+        const card = g?.players[fromSeat]?.cards?.battlefield.find((c) => c.iid === iid);
+        if (!g || !card || toSeat === fromSeat || !g.players[toSeat]?.cards) return;
+        const until = opts.untilEndOfTurn ? { turn: g.turnNumber, active: g.activePlayerIndex } : undefined;
+        const home = card.stolen?.owner === toSeat;
+        cardMutate(
+          (base) => {
+            if (!base.players[fromSeat]?.cards?.battlefield.some((c) => c.iid === iid)) return base;
+            const taken = cardsLib.stealCard(base, fromSeat, iid, toSeat, { until, by: opts.by });
+            return until ? boostCard(cardsLib.tapCard(taken, toSeat, iid, false), toSeat, iid, { power: 0, toughness: 0, keywords: ['haste'] }) : taken;
+          },
+          home
+            ? `${card.name.split(' // ')[0]} goes back to ${seatName(g, toSeat)}`
+            : `${seatName(g, toSeat)} gains control of ${seatName(g, fromSeat)}’s ${card.name.split(' // ')[0]}${until ? ' until end of turn' : ''}`,
+          (base) => !!base.players[fromSeat]?.cards?.battlefield.some((c) => c.iid === iid),
+        );
+      },
+
+      giveBack(seat, iid) {
+        const card = get().game?.players[seat]?.cards?.battlefield.find((c) => c.iid === iid);
+        if (card?.stolen) get().takeControl(card.stolen.owner, seat, iid);
       },
 
       returnToHand(seat, iid) {
@@ -2013,7 +2104,12 @@ export function createAppStore() {
         if (get().settings.soundOn) playTurnChime();
         mutateGame(
           (g) => {
-            const next = gameLib.passTurn(g);
+            // Day or night turns as the new turn begins, by the spells cast in the one that ended.
+            const time = turnedDayNight(g);
+            // What was taken "until end of turn" goes back to its owners.
+            const ended = cardsLib.returnBorrowed(g);
+            const passed = gameLib.passTurn(ended);
+            const next = passed !== ended && time !== g.dayNight ? { ...passed, dayNight: time } : passed;
             const incoming = next.activePlayerIndex;
             // The incoming player's untap step readies all their permanents —
             // token stacks and virtual cards alike.
@@ -2025,7 +2121,9 @@ export function createAppStore() {
             // The turn is over, and so is whatever fight there was in it.
             return combatLib.dropCombat(readied);
           },
-          (_prev, next) => `Turn ${next.turnNumber}: ${playerName(next, next.activePlayerIndex)}`,
+          (prev, next) =>
+            `Turn ${next.turnNumber}: ${playerName(next, next.activePlayerIndex)}` +
+            (next.dayNight !== prev.dayNight && next.dayNight ? ` · it becomes ${next.dayNight}` : ''),
           {
             // Online: if someone else already passed, don't double-advance.
             // And the fight on the table must be the one this device saw

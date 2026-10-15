@@ -28,6 +28,7 @@ interface Props {
 export default function AttachSheet({ playerIdx, iid, onClose }: Props) {
   const game = useAppStore((s) => s.game);
   const attachVirtualCard = useAppStore((s) => s.attachVirtualCard);
+  const takeControl = useAppStore((s) => s.takeControl);
   const equipCard = useAppStore((s) => s.equipCard);
   const [tab, setTab] = useState(playerIdx);
   // Whether this equip is paid for, once the player has said so: null = as
@@ -48,6 +49,7 @@ export default function AttachSheet({ playerIdx, iid, onClose }: Props) {
 
   const record = records[card.cardId];
   const equipment = isEquipment(record);
+  const controlsHost = /\byou control enchanted (?:creature|permanent|artifact)\b/i.test(record?.oracleText.split('\n//\n')[0] ?? '');
   const current = hostOf(game, card);
   const given = sizeGiven(record);
   // Your own side first, then the others in turn order.
@@ -164,7 +166,13 @@ export default function AttachSheet({ playerIdx, iid, onClose }: Props) {
                   onClick={() => {
                     if (short) return;
                     const on = { seat: host.seat, kind: host.kind, id: host.id };
-                    if (!equipment) attachVirtualCard(playerIdx, iid, on);
+                    if (!equipment) {
+                      attachVirtualCard(playerIdx, iid, on);
+                      // "You control enchanted creature" (Control Magic): the
+                      // creature comes over, held by the Aura while it stays.
+                      if (controlsHost && on.kind === 'card' && on.seat !== playerIdx)
+                        takeControl(playerIdx, on.seat, on.id, { by: iid });
+                    }
                     // On it already: nothing moves, nothing is owed.
                     else if (!here) void (free ? equipCard(playerIdx, iid, on, { free: true }) : equipCard(playerIdx, iid, on));
                     onClose();

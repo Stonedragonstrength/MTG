@@ -64,6 +64,13 @@ export interface CardInstance {
    * leaves the card unattached — read it through lib/attach.ts, never
    * directly. Builds that do not know the field ignore it and keep it. */
   on?: { seat: number; kind: 'card' | 'stack'; id: string; plus?: number };
+  /** Battlefield only: a permanent that changed control. It lies on its
+   * new controller's battlefield; `owner` is the seat whose card it is —
+   * where it goes when it leaves the battlefield, and where it goes back.
+   * `until`: taken "until end of turn" in that turn (it goes back when the
+   * turn passes). `by`: the instance on the same side that holds it (Control
+   * Magic) — when that leaves, it goes back. */
+  stolen?: { owner: number; until?: { turn: number; active: number }; by?: string };
   /** Battlefield only: the turn this planeswalker last used a loyalty
    * ability, named by turnNumber and activePlayerIndex (like landPlays). A
    * stamp from any other turn means none used yet; nothing clears it. */
@@ -208,6 +215,13 @@ export interface GameState {
    * takes it back with the move. Absent on games begun before it existed;
    * builds that do not know it keep it as it is. */
   story?: GameStory;
+  /** Day or night (lib/dayNight.ts): absent until a daybound permanent
+   * makes it day. Pass turn turns it by how many spells the player whose
+   * turn ended cast in it. */
+  dayNight?: 'day' | 'night';
+  /** Spells the active player has cast this turn, named like landPlays: a
+   * stamp from any other turn counts as none. Written inside every move. */
+  casts?: { turn: number; active: number; n: number };
 }
 
 /** The story of one game, for the recap when it ends (lib/story.ts). */

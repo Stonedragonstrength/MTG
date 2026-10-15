@@ -2,7 +2,7 @@ import { hostName } from './attach';
 import { boostCard, boostStack, boostWords } from './boost';
 import { keywordList } from './keywords';
 import { changeCount, computedPT, removeItem, setCounter } from './board';
-import { holdInExile, hostIsThere, moveCard, setCardCounter, type Holder, type Host } from './cards';
+import { holdInExile, hostIsThere, moveCard, setCardCounter, stealCard, tapCard, type Holder, type Host } from './cards';
 import { hasKeyword, readSeat, readUnit, type CardRecords, type UnitRead } from './combatEngine';
 import { tokensMadeBy, type TokenWant } from './deckTokens';
 import { isPlaneswalker } from './entering';
@@ -62,6 +62,9 @@ export type SpellPrompt = {
   // turns the cards over and asks: cast the one it finds, or take it. `n`
   // null: "discover X, where X is…" — its player says how much X is.
   | { kind: 'discover'; n: number | null }
+  // "Gain control of target creature (until end of turn)": Act of Treason,
+  // Threaten (untapped, with haste, for the turn), Confiscate (for good).
+  | { kind: 'steal'; until: boolean }
 );
 
 /** No more buttons than this under one spell. */
@@ -115,6 +118,11 @@ const REMOVE = new RegExp(`\\b(destroy|exile) (?:up to one )?(?:another )?target
 const BOUNCE = new RegExp(`\\breturn (?:up to one )?(?:another )?target ${THING} to (?:its|their) owner['’]s hand\\b`, 'gi');
 const SWEEP = /\b(destroy|exile) all creatures(?=\s*(?:,|$))/gi;
 const COUNTERS = new RegExp(`\\bput ${N} \\+1\\/\\+1 counters? on target creature\\b`, 'gi');
+// "Gain control of target creature until end of turn" (Act of Treason),
+// "Untap target creature and gain control of it until end of turn" (Threaten),
+// "Gain control of target artifact" (for good).
+const STEAL = new RegExp(`\\bgain control of (?:up to one )?target ${THING}(?: an opponent controls)?( until end of turn)?`, 'gi');
+const STEAL_UNTAP = new RegExp(`\\buntap target ${THING}(?: an opponent controls)? and gain control of it( until end of turn)?`, 'gi');
 // "Discover 4", "…, discover 3": the caster's ("that player discovers X" is not).
 const DISCOVER = new RegExp(`\\bdiscover ${N}\\b`, 'gi');
 // "Discover X, where X is that spell's mana value": X is the players' to work out.
@@ -371,6 +379,17 @@ export function spellPrompts(record: Read, opts?: { x?: number }): SpellPrompt[]
       const n = num(m[1]);
       if (n !== null) add(m, { key: `discover:${n}`, label: `Discover ${n}…`, pick: null, kind: 'discover', n });
     }
+    for (const m of [...sentence.matchAll(STEAL), ...sentence.matchAll(STEAL_UNTAP)]) {
+      const kinds = kindsOf(m[1], m[2], m[3]);
+      const until = !!m[4];
+      add(m, {
+        key: `steal:${until ? 'turn' : 'keep'}:${kinds.join('+')}`,
+        label: until ? `Take ${kindWords(kinds)} for the turn…` : `Take ${kindWords(kinds)}…`,
+        pick: { players: null, kinds },
+        kind: 'steal',
+        until,
+      });
+    }
   }
 
   // A search of the caster's own library: one button, where the text has it.
@@ -406,7 +425,9 @@ export type SpellEffect =
   | { kind: 'sweep'; how: 'destroy' | 'exile' }
   | { kind: 'counters'; n: number; on: Host }
   /** `except`: the one creature of the team that does not get it ("other"). */
-  | { kind: 'pump'; power: number; toughness: number; keywords: string[]; on: Host | 'team'; except?: string };
+  | { kind: 'pump'; power: number; toughness: number; keywords: string[]; on: Host | 'team'; except?: string }
+  /** The caster gains control of it: for the turn (untapped, with haste), or for good. */
+  | { kind: 'steal'; on: Host; until: boolean };
 
 /** The effect a prompt comes to once its target (if it asks for one) is
  * picked; null when the two do not go together, and for the prompts that
@@ -445,6 +466,9 @@ export function effectOf(
       if (prompt.team) return { kind: 'pump', ...size, on: 'team', ...(prompt.other && sourceIid ? { except: sourceIid } : {}) };
       return target && target.kind !== 'player' ? { kind: 'pump', ...size, on: target } : null;
     }
+    case 'steal':
+      // A card only: a copy of a token stack does not cross the table.
+      return target && target.kind === 'card' && target.seat !== caster ? { kind: 'steal', on: target, until: prompt.until } : null;
     default:
       return null;
   }
@@ -813,6 +837,23 @@ export function planEffect(
           }
           const item = player?.board.find((it) => it.id === on.id);
           return item ? setCounter(base, on.seat, on.id, 'p1p1', (item.counters?.['p1p1'] ?? 0) + n) : base;
+        },
+        guard: (base) => hostIsThere(base, on),
+      };
+    }
+
+    case 'steal': {
+      const on = effect.on;
+      if (on.kind !== 'card' || on.seat === seat || !hostIsThere(g, on) || !g.players[seat]?.cards) return null;
+      const until = effect.until ? { turn: g.turnNumber, active: g.activePlayerIndex } : undefined;
+      return {
+        text: `${lead}: ${nameOf(seat)} gains control of ${theirs(on)}${until ? ' until end of turn' : ''}`,
+        // For the turn: untapped, and with haste, as Threaten and Act of
+        // Treason say; for good: just taken.
+        apply: (base) => {
+          if (!hostIsThere(base, on)) return base;
+          const taken = stealCard(base, on.seat, on.id, seat, { until });
+          return until ? boostCard(tapCard(taken, seat, on.id, false), seat, on.id, { power: 0, toughness: 0, keywords: ['haste'] }) : taken;
         },
         guard: (base) => hostIsThere(base, on),
       };

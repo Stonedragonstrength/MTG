@@ -119,6 +119,15 @@ export default function VCard({ card, art, sick, look, names, attached = 0, worn
         </span>
       )}
       <FaceMark cardId={card.cardId} />
+      {card.stolen && (
+        // Whose card it really is, where another player has taken it.
+        <span
+          className={card.stolen.until ? 'stolen-badge stolen-badge--turn' : 'stolen-badge'}
+          title={`${names[card.stolen.owner] ?? 'Someone'}'s card${card.stolen.until ? ', for this turn' : ''}`}
+        >
+          ⇄ {names[card.stolen.owner] ?? '?'}
+        </span>
+      )}
       {tally && (
         <span className="tally-badge" role="img" aria-label={tally.label} title={tally.label}>
           {tally.text}

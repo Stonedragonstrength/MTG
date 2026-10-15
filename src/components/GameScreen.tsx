@@ -124,7 +124,7 @@ export default function GameScreen() {
   }
 
   return (
-    <div className={`game-screen players-${n} focus-mode${table360 ? ' table-360' : ''}`}>
+    <div className={`game-screen players-${n} focus-mode${table360 ? ' table-360' : ''}${game.dayNight === 'night' ? ' is-night' : ''}`}>
       <LandBackground />
       {game.players.map((p, i) => (
         <PlayerZone

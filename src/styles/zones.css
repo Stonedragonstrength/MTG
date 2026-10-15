@@ -537,6 +537,29 @@ button.term {
   opacity: 1;
 }
 
+/* Night (day/night cards): the table's art goes dark blue. */
+.land-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 50% 20%, rgba(40, 60, 140, 0.25), rgba(8, 12, 40, 0.55));
+  opacity: 0;
+  transition: opacity 2s ease-in-out;
+  pointer-events: none;
+}
+
+.is-night .land-bg::after {
+  opacity: 1;
+}
+
+.hub-time--day {
+  color: #f2c94c;
+}
+
+.hub-time--night {
+  color: #9db4ff;
+}
+
 .zone,
 .center-hub {
   position: relative;

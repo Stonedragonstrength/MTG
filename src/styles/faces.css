@@ -78,6 +78,31 @@
   left: calc(2px + 1.8em);
 }
 
+/* Someone else's card, taken (Threaten, Control Magic): whose it is, on a
+   band across its top — red while it is only borrowed for the turn. */
+.stolen-badge {
+  position: absolute;
+  top: 18%;
+  left: 0;
+  right: 0;
+  padding: 2px 4px;
+  overflow: hidden;
+  background: rgba(30, 60, 120, 0.85);
+  color: #dfe8ff;
+  font-family: var(--font-body);
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-align: center;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.stolen-badge--turn {
+  background: rgba(150, 50, 30, 0.88);
+  color: #ffe2d8;
+}
+
 .zone--cards.zone--focused .vcard .tally-badge,
 .hs-board .vcard .tally-badge {
   top: 4px;

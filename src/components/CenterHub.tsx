@@ -168,6 +168,11 @@ export default function CenterHub({ variant = 'overlay', seat, compact = false }
       <div className="hub-main">
         <div className="hub-turn">
           <span className="hub-turn-number">
+            {game.dayNight && (
+              <span className={`hub-time hub-time--${game.dayNight}`} title={`It is ${game.dayNight}`}>
+                {game.dayNight === 'day' ? '☀' : '☾'}{' '}
+              </span>
+            )}
             Turn {game.turnNumber}
             {whose && (
               <span className="hub-whose">

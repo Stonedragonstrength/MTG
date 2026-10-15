@@ -51,6 +51,9 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose, picks = 
   const startCombat = useAppStore((s) => s.startCombat);
   const attachVirtualCard = useAppStore((s) => s.attachVirtualCard);
   const activateAbility = useAppStore((s) => s.activateAbility);
+  const takeControl = useAppStore((s) => s.takeControl);
+  const giveBack = useAppStore((s) => s.giveBack);
+  const mySeat = useAppStore((s) => s.online?.mySeat ?? null);
   const [counterName, setCounterName] = useState('');
   const [attaching, setAttaching] = useState(false);
   // The search this card sends its player on, once asked for: it outlives
@@ -129,6 +132,12 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose, picks = 
   const myTurn = game.activePlayerIndex === playerIdx && !game.players[playerIdx].eliminated;
   const shelf = shelfOf(card, record);
   const onBack = isBackId(card.cardId);
+  // Who would take control of it: this device's player online, else the
+  // player whose turn it is (a seat that plays cards: a tracker seat has no
+  // battlefield to put it on). Its own controller takes nothing.
+  const takerSeat = mySeat ?? game.activePlayerIndex;
+  const taker = game.players[takerSeat]?.cards ? takerSeat : playerIdx;
+  const takerName = game.config.profiles[taker]?.name ?? 'You';
   // "Search your library for…": the list of what it may find, a tap away.
   // Where the card pays for it by being sacrificed, the same tap does that.
   const ask = searchAsk(record);
@@ -329,6 +338,32 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose, picks = 
           )}
         </div>
       </div>
+
+      {/* Who controls it: someone else's taken (Threaten, Control Magic —
+          any card the reader does not carry out itself), or a taken one
+          given back. Taken by the player whose device this is, else the one
+          whose turn it is. */}
+      {(card.stolen || taker !== playerIdx) && (
+        <div className="detail-section">
+          <span className="section-label">Control</span>
+          <div className="chip-row">
+            {card.stolen ? (
+              <button className="chip" onClick={go(() => giveBack(playerIdx, iid))}>
+                ⇄ Give back to {game.config.profiles[card.stolen.owner]?.name ?? 'its owner'}
+              </button>
+            ) : (
+              <>
+                <button className="chip" onClick={go(() => takeControl(taker, playerIdx, iid, { untilEndOfTurn: true }))}>
+                  ⇄ {takerName} takes it for the turn
+                </button>
+                <button className="chip" onClick={go(() => takeControl(taker, playerIdx, iid))}>
+                  ⇄ {takerName} takes it
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Where it is drawn. The board sorts cards by type; this is for the
           one that belongs somewhere else (an animated land, a Vehicle the
