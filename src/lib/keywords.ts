@@ -43,6 +43,18 @@ function readPart(part: string): Keyword | null {
   return m ? { name: m[1], value: m[2] ?? '' } : null;
 }
 
+/** The keyword names in a granted list ("flying and first strike", "haste,
+ * vigilance, and trample"); a piece that is no keyword, or the second half
+ * of "protection from black and from red", is passed over. */
+export function keywordNames(list: string): string[] {
+  const out: string[] = [];
+  for (const piece of list.toLowerCase().split(/[,;]|\band\b/)) {
+    const k = readPart(piece.trim());
+    if (k && !/^from\b/.test(k.name) && !out.includes(k.name)) out.push(k.name);
+  }
+  return out;
+}
+
 /** The keywords on one line of rules text — none unless the line is made
  * of keywords only. */
 function readLine(line: string): Keyword[] {

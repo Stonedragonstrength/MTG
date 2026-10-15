@@ -1,5 +1,5 @@
 import type { Host } from './cards';
-import { keywordsOf } from './keywords';
+import { keywordNames, keywordsOf } from './keywords';
 import type { CardRecord, GameState } from './types';
 
 type Records = Record<string, CardRecord | null | undefined>;
@@ -37,6 +37,13 @@ export interface Anthem {
   artifact: boolean;
   /** "with flying" true, "without flying" false, null = either. */
   flying: boolean | null;
+  /** What it hands out besides size: "…have haste", "…get +1/+1 and have
+   * mountainwalk". (The plain "Creatures you control have …" stays with
+   * keywords.ts combatGrants, which reads it already.) */
+  keywords: string[];
+  /** "Attacking creatures you control get +1/+0": only while attacking (or
+   * blocking) — counted in a fight, never on the card at rest. */
+  when: 'attacking' | 'blocking' | null;
 }
 
 const COLORS: Record<string, string> = { white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' };
@@ -59,13 +66,16 @@ const singular = (w: string) => IRREGULAR[w] ?? (w.length > 3 && w.endsWith('s')
 
 /** Not standing, or not the whole of who gets it: left to the players. */
 const NOT_STANDING =
-  /until end of turn|until your next turn|for each|where x|as long as|\bif\b|\bduring\b|that are|that's|chosen|attacking|blocking|this turn|perpetually|emblem|but don't own|to the left|\bin your\b|\bcards?\b/i;
-const GETS = /^(.+?) gets? ([+-]\d+)\/([+-]\d+)(?: and (?:have|gain) [^.]*)?\.?$/i;
+  /until end of turn|until your next turn|for each|where x|as long as|\bif\b|\bduring\b|that are|that's|chosen|attacking you|blocking you|this turn|perpetually|emblem|but don't own|to the left|\bin your\b|\bcards?\b|\bgains?\b/i;
+const GETS = /^(.+?) gets? ([+-]\d+)\/([+-]\d+)(?: and (?:have|has) ([^.]*))?\.?$/i;
+const HAS = /^(.+?) (?:have|has) ([^.]+?)\.?$/i;
 
-/** Who a sentence's "…get +N/+N" is for, or null when it is not read. */
-function readSubject(raw: string): Omit<Anthem, 'power' | 'toughness'> | null {
+type Subject = Omit<Anthem, 'power' | 'toughness' | 'keywords'>;
+
+/** Who a sentence's "…get +N/+N" (or "…have K") is for, or null when it is not read. */
+function readSubject(raw: string): Subject | null {
   let s = raw.trim().toLowerCase();
-  const a: Omit<Anthem, 'power' | 'toughness'> = {
+  const a: Subject = {
     whose: 'all',
     other: false,
     types: [],
@@ -77,6 +87,7 @@ function readSubject(raw: string): Omit<Anthem, 'power' | 'toughness'> | null {
     legendary: false,
     artifact: false,
     flying: null,
+    when: null,
   };
   if (s.startsWith('each other creature')) {
     a.other = true;
@@ -86,6 +97,11 @@ function readSubject(raw: string): Omit<Anthem, 'power' | 'toughness'> | null {
     a.other = true;
     s = s.slice(6);
   } else if (s.startsWith('all ')) s = s.slice(4);
+  const role = /^(attacking|blocking) /.exec(s);
+  if (role) {
+    a.when = role[1] as 'attacking' | 'blocking';
+    s = s.slice(role[0].length);
+  }
   const fly = / (with|without) flying\b/.exec(s);
   if (fly) {
     a.flying = fly[1] === 'with';
@@ -110,7 +126,15 @@ function readSubject(raw: string): Omit<Anthem, 'power' | 'toughness'> | null {
       .split(/,\s*|\s+and\s+|\s+or\s+/)
       .map((w) => w.replace(/^and\s+/, '').trim())
       .filter(Boolean);
-    if (list.length === 0 || list.some((w) => !/^[a-z][a-z'-]*$/.test(w) || /^(creature|permanent|token|land|it|they)s?$/.test(w)))
+    // "You have hexproof", "Each player…": a player, not creatures.
+    if (
+      list.length === 0 ||
+      list.some(
+        (w) =>
+          !/^[a-z][a-z'-]*$/.test(w) ||
+          /^(creature|permanent|token|land|it|they|you|your|each|player|opponent|spell|card|emblem)s?$/.test(w),
+      )
+    )
       return null;
     a.types = list.map((w) => [singular(w)]);
     return a;
@@ -151,10 +175,26 @@ export function anthemsOf(oracleText: string): Anthem[] {
     for (const sentence of line.split(/(?<=\.)\s+/)) {
       const s = sentence.trim();
       if (!s || s.includes('"') || s.includes('“') || NOT_STANDING.test(s)) continue;
-      const m = GETS.exec(s);
-      if (!m) continue;
-      const who = readSubject(m[1]);
-      if (who) out.push({ ...who, power: Number(m[2]), toughness: Number(m[3]) });
+      const got = GETS.exec(s);
+      const has = got ? null : HAS.exec(s);
+      const who = got ? readSubject(got[1]) : has ? readSubject(has[1]) : null;
+      if (!who) continue;
+      // The plain "(Other) creatures you control … have …" is combatGrants' own.
+      const plain =
+        who.whose === 'you' &&
+        who.when === null &&
+        who.types.length === 0 &&
+        who.colors.length === 0 &&
+        who.notColors.length === 0 &&
+        !who.colorless &&
+        !who.multicolored &&
+        who.token === null &&
+        !who.legendary &&
+        !who.artifact &&
+        who.flying === null;
+      const keywords = plain ? [] : keywordNames((got ? got[4] : has?.[2]) ?? '');
+      if (got) out.push({ ...who, power: Number(got[2]), toughness: Number(got[3]), keywords });
+      else if (keywords.length > 0) out.push({ ...who, power: 0, toughness: 0, keywords });
     }
   }
   return out;
@@ -182,10 +222,13 @@ export interface AnthemTarget {
 export function fits(a: Anthem, t: AnthemTarget): boolean {
   const front = t.typeLine.split(' // ')[0];
   if (!/\bCreature\b/.test(front)) return false;
-  const sub = (front.split(/\s+—\s+/)[1] ?? '').toLowerCase().split(/\s+/).filter(Boolean);
+  const [mainPart, subPart] = front.split(/\s+—\s+/);
+  const sub = (subPart ?? '').toLowerCase().split(/\s+/).filter(Boolean);
+  // "Land creatures you control have trample": a card type counts as well.
+  const main = mainPart.toLowerCase().split(/\s+/);
   if (
     a.types.length > 0 &&
-    !a.types.some((group) => group.every((x) => sub.includes(x))) &&
+    !a.types.some((group) => group.every((x) => sub.includes(x) || main.includes(x))) &&
     !keywordsOf(t.text).has('changeling')
   )
     return false;
@@ -223,35 +266,61 @@ function targetOf(g: GameState, host: Host, records: Records): AnthemTarget | nu
 const whoseFits = (a: Anthem, sourceSeat: number, seat: number) =>
   a.whose === 'all' || (a.whose === 'you' ? sourceSeat === seat : sourceSeat !== seat);
 
-/** What the anthems on the table add to that creature's size, every seat's
- * permanents and token stacks counted (a stack once per copy). 0/0 when
- * nothing on the table is an anthem it fits. Never stored, like what it
- * wears: the lord leaves, the bonus goes with it. */
-export function sizeAround(g: GameState, host: Host, records: Records): Size {
-  const total: Size = { power: 0, toughness: 0 };
+/** Every anthem on the table that creature fits, with how many copies of
+ * its source say it (a token stack once per copy, "other" leaving the
+ * creature itself out). */
+function eachAnthem(g: GameState, host: Host, records: Records, visit: (a: Anthem, copies: number) => void): void {
   let target: AnthemTarget | null | undefined;
+  const fitting = (a: Anthem) => {
+    target ??= targetOf(g, host, records);
+    return !!target && fits(a, target);
+  };
   g.players.forEach((p, seat) => {
     for (const c of p.cards?.battlefield ?? []) {
       const record = records[c.cardId];
       if (!record) continue;
       for (const a of anthemsCached(record.oracleText)) {
         if (!whoseFits(a, seat, host.seat) || (a.other && host.kind === 'card' && host.id === c.iid && seat === host.seat)) continue;
-        target ??= targetOf(g, host, records);
-        if (!target || !fits(a, target)) continue;
-        total.power += a.power;
-        total.toughness += a.toughness;
+        if (fitting(a)) visit(a, 1);
       }
     }
     for (const it of p.board) {
       for (const a of anthemsCached(it.oracleText ?? '')) {
-        if (!whoseFits(a, seat, host.seat)) continue;
-        target ??= targetOf(g, host, records);
-        if (!target || !fits(a, target)) continue;
+        if (!whoseFits(a, seat, host.seat) || !fitting(a)) continue;
         const copies = Math.max(0, it.count) - (a.other && host.kind === 'stack' && host.id === it.id && seat === host.seat ? 1 : 0);
-        total.power += a.power * copies;
-        total.toughness += a.toughness * copies;
+        if (copies > 0) visit(a, copies);
       }
     }
   });
+}
+
+/** What the standing anthems on the table add to that creature's size,
+ * every seat's permanents and token stacks counted. 0/0 when nothing on the
+ * table is an anthem it fits. Never stored, like what it wears: the lord
+ * leaves, the bonus goes with it. Attacking-only ones are not in it (sizeWhen). */
+export function sizeAround(g: GameState, host: Host, records: Records): Size {
+  return sizeWhen(g, host, records, null);
+}
+
+/** The anthems for a creature in that role of a fight ("Attacking creatures
+ * you control get +1/+0"); null = the standing ones. */
+export function sizeWhen(g: GameState, host: Host, records: Records, role: Anthem['when']): Size {
+  const total: Size = { power: 0, toughness: 0 };
+  eachAnthem(g, host, records, (a, copies) => {
+    if (a.when !== role) return;
+    total.power += a.power * copies;
+    total.toughness += a.toughness * copies;
+  });
   return total;
+}
+
+/** The keywords the lords on the table hand that creature ("Other Goblins
+ * you control have haste", "Slivers you control have flying"); with a role,
+ * also the ones for attacking or blocking creatures. */
+export function keywordsAround(g: GameState, host: Host, records: Records, role: Anthem['when'] = null): Set<string> {
+  const out = new Set<string>();
+  eachAnthem(g, host, records, (a) => {
+    if (a.when === null || a.when === role) for (const k of a.keywords) out.add(k);
+  });
+  return out;
 }

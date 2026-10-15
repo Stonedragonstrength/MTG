@@ -1,5 +1,5 @@
 import { levelNow } from './abilities';
-import { sizeAround } from './anthems';
+import { keywordsAround, sizeAround, sizeWhen } from './anthems';
 import { keywordsNow, keywordsWorn, restrictionsWorn, sizeWorn, type Size } from './attach';
 import { boostOf } from './boost';
 import { computedPT } from './board';
@@ -224,6 +224,8 @@ function readStack(game: GameState, read: SeatRead, item: BoardItem, records: Ca
   const wornKeywords = new Set([
     ...(count === 1 ? keywordsWorn(game, { seat: read.seat, kind: 'stack', id: item.id }, records) : []),
     ...(boost?.keywords ?? []),
+    // What the lords on the table hand every copy.
+    ...keywordsAround(game, { seat: read.seat, kind: 'stack', id: item.id }, records),
   ]);
   const forbids = joinRestrictions(
     restrictionsOf(item.oracleText ?? '', item.name),
@@ -464,6 +466,30 @@ interface Body {
   blocking: Body | null;
 }
 
+/** A unit as it fights in that role: what "Attacking creatures you control
+ * get +1/+0" or "Blocking creatures have reach" add to it there. */
+function inRole(
+  game: GameState,
+  seat: number,
+  unit: CombatUnit,
+  read: UnitRead | null,
+  records: CardRecords,
+  role: 'attacking' | 'blocking',
+): UnitRead | null {
+  if (!read) return null;
+  const host = { seat, kind: unit.kind, id: unit.id };
+  const extra = sizeWhen(game, host, records, role);
+  const handed = keywordsAround(game, host, records, role);
+  const more = COMBAT_KEYWORDS.filter((k) => handed.has(k) && !read.printed.includes(k) && !read.granted.includes(k));
+  if (extra.power === 0 && extra.toughness === 0 && more.length === 0) return read;
+  return {
+    ...read,
+    power: Math.max(0, read.power + extra.power),
+    toughness: read.toughness + extra.toughness,
+    granted: [...read.granted, ...more],
+  };
+}
+
 function fighterOf(seat: number, unit: CombatUnit, read: UnitRead | null, n: number): Fighter {
   return {
     seat,
@@ -569,13 +595,13 @@ function resolve(game: GameState, combat: CombatState, records: CardRecords): Co
   const works: Work[] = [];
   (combat.attacks ?? []).forEach((attack, index) => {
     if (!attack || !isUnit(attack.unit) || !game.players[attack.target]) return;
-    const read = readUnit(game, attacker, attack.unit, records, seatRead(attacker));
+    const read = inRole(game, attacker, attack.unit, readUnit(game, attacker, attack.unit, records, seatRead(attacker)), records, 'attacking');
     const declared = attack.unit.kind === 'card' ? 1 : wholeCopies(attack);
     const blockers: CombatBlock[] = (Array.isArray(attack.blockers) ? attack.blockers : []).filter(isUnit);
     const slots: Slot[] = [];
     const rows: Fighter[] = [];
     for (const b of blockers) {
-      const blockerRead = readUnit(game, attack.target, b, records, seatRead(attack.target));
+      const blockerRead = inRole(game, attack.target, b, readUnit(game, attack.target, b, records, seatRead(attack.target)), records, 'blocking');
       const copies = b.kind === 'card' ? 1 : wholeCopies(b);
       const fighter = fighterOf(attack.target, b, blockerRead, copies);
       rows.push(fighter);

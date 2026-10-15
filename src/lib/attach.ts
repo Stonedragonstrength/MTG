@@ -1,3 +1,4 @@
+import { keywordsAround } from './anthems';
 import { computedPT } from './board';
 import { boostOf } from './boost';
 import { hostIsThere, type Host } from './cards';
@@ -155,7 +156,8 @@ export function restrictionsWorn(g: GameState, host: Host, records: Records): Re
 }
 
 /** The keywords it has right now from outside its own text: what it wears,
- * and what "…gains flying until end of turn" gave it this turn. */
+ * what "…gains flying until end of turn" gave it this turn, and what the
+ * lords on the table hand it ("Other Goblins you control have haste"). */
 export function keywordsNow(g: GameState, host: Host, records: Records): Set<string> {
   const out = keywordsWorn(g, host, records);
   const player = g.players[host.seat];
@@ -164,6 +166,7 @@ export function keywordsNow(g: GameState, host: Host, records: Records): Set<str
       ? player?.cards?.battlefield.find((c) => c.iid === host.id)
       : player?.board.find((item) => item.id === host.id);
   for (const keyword of boostOf(g, it)?.keywords ?? []) out.add(keyword);
+  for (const keyword of keywordsAround(g, host, records)) out.add(keyword);
   return out;
 }
 

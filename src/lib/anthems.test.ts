@@ -58,7 +58,6 @@ describe('anthemsOf', () => {
       'As long as you control six or more lands, creatures you control get +2/+2.',
       'Creatures you control of the chosen type get +1/+1.',
       '{2}{W}: Creatures you control get +1/+1 until end of turn.',
-      'Attacking creatures you control get +1/+0.',
       '−7: You get an emblem with "Creatures you control get +2/+2 and have flying."',
       'Creatures you control get +1/+1 for each valor counter on this creature.',
       'During your turn, creatures you control get +1/+0 and have trample.',
