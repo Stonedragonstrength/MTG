@@ -143,6 +143,17 @@ img.mana-sym {
   opacity: 0.45;
 }
 
+/* Mana kept for other spells ("Spend this mana only…"): there, but no help with this one. */
+.pay-tile--kept:not(.pay-tile--lit) {
+  border-style: dashed;
+  color: #8a877f;
+}
+
+.pay-tile--kept:not(.pay-tile--lit) .pay-art,
+.pay-tile--kept:not(.pay-tile--lit) .pay-makes {
+  opacity: 0.45;
+}
+
 .pay-name {
   flex: 1;
   min-width: 0;

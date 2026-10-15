@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { isAura } from '../lib/attach';
 import { boardSeat } from '../lib/combat';
 import { shareInSight } from '../lib/fit';
-import { affordable, asksAtCast, parseCosts } from '../lib/pay';
+import { affordable, asksAtCast, castCosts } from '../lib/pay';
 import { asksLife, entryLife } from '../lib/lands';
 import { searchAsk, type SearchAsk } from '../lib/search';
 import { seatSources } from '../lib/seatMana';
@@ -156,7 +156,7 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
     // Either face will do: a split card needs one half, an adventure
     // creature its own cost — never the two added together. A card with
     // {X} lights up as soon as X = 0 is payable.
-    return parseCosts(r.manaCost).some((cost) => affordable(cost, sources))
+    return castCosts(r, 'hand').some((cost) => affordable(cost, sources))
       ? null
       : 'Not enough mana ready.';
   };

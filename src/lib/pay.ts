@@ -1,6 +1,7 @@
 import { keywordsGiven } from './attach';
 import { isSummoningSick, permanentTexts, sickCopies, tapsAsThoughHasty } from './keywords';
-import { tapManaFromText, type ManaColor } from './mana';
+import { tapManaByUse, tapManaFromText, type ManaColor } from './mana';
+import { spendAllows, spendOnCard, type SpendOn } from './spendOnly';
 import { godsFrom, notHeldBack } from './gods';
 import { manaTable, manaTextHere, type TableRead } from './manaHere';
 import { isLandCard } from './turnRules';
@@ -14,6 +15,10 @@ export interface PayCost {
   /** How many {X} the face holds. Left out when it holds none. X costs
    * nothing until the caster names it — see withX. */
   x?: number;
+  /** What it pays for — a creature spell, an Equipment's equip — where
+   * mana kept for some things ("Spend this mana only…") asks. Left out:
+   * not known, and such mana pays, last. */
+  on?: SpendOn;
 }
 
 /** One thing a seat can draw mana from right now: a virtual card (key =
@@ -29,6 +34,12 @@ export interface ManaSource {
   /** Creatures pay last (they may be needed to attack). One that is
    * summoning sick is not on offer at all: sourcesFrom leaves it out. */
   creature?: boolean;
+  /** Its mana is kept for some things: the words after "Spend this mana
+   * only" (Ancient Ziggurat: "to cast a creature spell"). `produces` and
+   * `amount` are then what it makes for those, and `free` what it makes
+   * for anything else (Cavern of Souls' {C}); left out, nothing. */
+  only?: string;
+  free?: { produces: (ManaColor | 'any')[]; amount: number };
 }
 
 /** What the payment does: units to draw from each virtual card (tapping it
@@ -84,15 +95,19 @@ function parseFace(manaCost: string): PayCost {
  * unread card costs nothing, as always. The store and the table both
  * price from here, so they cannot disagree about what a card asks. */
 export function castCosts(
-  record: Pick<CardRecord, 'typeLine' | 'manaCost'> | null | undefined,
+  record: (Pick<CardRecord, 'typeLine' | 'manaCost'> & Partial<Pick<CardRecord, 'oracleText' | 'colors'>>) | null | undefined,
   from: 'hand' | 'command',
   tax = 0,
 ): PayCost[] {
+  // What each face is, for mana that may only pay for some spells.
+  const on = (face: number): { on?: SpendOn } =>
+    record ? { on: spendOnCard(record, 'cast', face, { from, ...(from === 'command' ? { commander: true } : {}) }) } : {};
   if (from === 'command') {
     const cost = parseCost(record?.manaCost ?? '');
-    return [{ ...cost, generic: cost.generic + tax }];
+    return [{ ...cost, generic: cost.generic + tax, ...on(0) }];
   }
-  return isLandCard(record?.typeLine ?? '') ? [] : parseCosts(record?.manaCost ?? '');
+  if (isLandCard(record?.typeLine ?? '')) return [];
+  return parseCosts(record?.manaCost ?? '').map((cost, face) => ({ ...cost, ...on(face) }));
 }
 
 /** Does any of these faces hold an {X}? Then the cast has to ask for it. */
@@ -171,6 +186,8 @@ export function extraTimes(extras: ExtraCost[], asked: readonly unknown[] | unde
 /** Each face's cost with the chosen extras on top. */
 export function priceExtras(costs: PayCost[], extras: ExtraCost[], times: number[]): PayCost[] {
   if (!times.some((n) => n > 0)) return costs;
+  // Elfhame Druid's mana is for "kicked spells".
+  const kicked = extras.some((e, i) => /kicker/.test(e.kind) && (times[i] ?? 0) > 0);
   return costs.map((cost) => {
     let generic = cost.generic;
     const pips = [...cost.pips];
@@ -180,7 +197,7 @@ export function priceExtras(costs: PayCost[], extras: ExtraCost[], times: number
         pips.push(...extra.cost.pips);
       }
     });
-    return { ...cost, generic, pips };
+    return { ...cost, generic, pips, ...(kicked && cost.on ? { on: { ...cost.on, kicked: true } } : {}) };
   });
 }
 
@@ -237,13 +254,49 @@ export function canPay(s: ManaSource, pip: ManaColor[]): boolean {
   return s.produces.some((p) => p !== 'any' && pip.includes(p));
 }
 
-/** Lower pays first: mana already floating, then colorless-only sources
+/** May this source's kept mana pay for it? Unknown purpose or unread
+ * words: null — it may, generously, but it pays last. */
+function keptFor(s: ManaSource, on: SpendOn | undefined): boolean | null {
+  return s.only && on ? spendAllows(s.only, on) : null;
+}
+
+/** The sources as they stand for this payment. Mana kept for other things
+ * ("Spend this mana only to cast creature spells") is not there for a
+ * Lightning Bolt: the source makes what it makes for anything else
+ * (Cavern of Souls' {C}), or nothing. */
+export function sourcesFor(sources: ManaSource[], on: SpendOn | undefined): ManaSource[] {
+  if (!sources.some((s) => s.only)) return sources;
+  const out: ManaSource[] = [];
+  for (const s of sources) {
+    if (!s.only || keptFor(s, on) !== false) {
+      out.push(s);
+      continue;
+    }
+    // Tapped by hand: which of its abilities it was is not known — at most what the free one makes.
+    const amount = Math.min(s.amount, s.free?.amount ?? 0);
+    if (!s.free || amount <= 0) continue;
+    const { only: _o, free: _f, ...rest } = s;
+    out.push({ ...rest, produces: s.free.produces, amount });
+  }
+  return out;
+}
+
+/** Lower pays first: mana already floating, then mana kept for just this
+ * kind of spell (it pays for nothing else), then colorless-only sources
  * (they can never cover a colored pip), then the least flexible — so duals
- * and any-color lands stay open. Creatures go last. */
-function rank(s: ManaSource): number {
+ * and any-color lands stay open. Creatures go late, and mana whose "only…"
+ * the app cannot read last of all. */
+function rank(s: ManaSource, on: SpendOn | undefined): number {
   const flexibility = s.produces.includes('any') ? 9 : s.produces.length;
   const onlyColorless = s.produces.length === 1 && s.produces[0] === 'C';
-  return (s.floating ? 0 : 1000) + (s.creature ? 100 : 0) + (onlyColorless ? 0 : 10) + flexibility;
+  const kept = s.only ? keptFor(s, on) : undefined;
+  return (
+    (s.floating ? 0 : kept === true ? 500 : 1000) +
+    (kept === null ? 300 : 0) +
+    (s.creature ? 100 : 0) +
+    (onlyColorless ? 0 : 10) +
+    flexibility
+  );
 }
 
 /** Colored pips are matched with augmenting paths, so an assignment is
@@ -251,7 +304,7 @@ function rank(s: ManaSource): number {
  * preferring to drain a source whole over leaving it half-used. Null
  * when the seat cannot pay. */
 export function planPayment(cost: PayCost, sources: ManaSource[]): PaymentPlan | null {
-  const pool = [...sources].sort((a, b) => rank(a) - rank(b));
+  const pool = [...sourcesFor(sources, cost.on)].sort((a, b) => rank(a, cost.on) - rank(b, cost.on));
   const left = pool.map((s) => s.amount);
   const used = pool.map(() => 0);
 
@@ -336,7 +389,7 @@ export function maxX(cost: PayCost, sources: ManaSource[]): number {
   if (!cost.x) return 0;
   // Every point of X is `cost.x` more mana than the rest of the cost:
   // nothing above this ceiling can be payable, whatever the colors.
-  const spare = availableMana(sources) - cost.generic - cost.pips.length;
+  const spare = availableMana(sourcesFor(sources, cost.on)) - cost.generic - cost.pips.length;
   for (let value = Math.min(40, Math.floor(spare / cost.x)); value > 0; value--) {
     if (affordable(withX(cost, value), sources)) return value;
   }
@@ -404,6 +457,20 @@ function inIdentity(produces: Colors, text: string, identity: ManaColor[] | null
   return out;
 }
 
+/** Mana a card keeps for some things ("Spend this mana only to cast a
+ * creature spell"): those words, and what it makes for anything else — its
+ * other abilities, and what another permanent gives it (Chromatic Lantern).
+ * Nothing when all of its mana pays for anything. */
+function keptMana(text: string, grants: Colors, own: (produces: Colors) => Colors): Pick<ManaSource, 'only' | 'free'> {
+  if (!/spend this mana only/i.test(text)) return {};
+  const { free, only } = tapManaByUse(text);
+  if (!only) return {};
+  const produces = own([...free.produces]);
+  for (const g of grants) if (!produces.includes(g)) produces.push(g);
+  const amount = free.amount > 0 ? free.amount : grants.length > 0 ? 1 : 0;
+  return { only: only.words, ...(amount > 0 && produces.length > 0 ? { free: { produces, amount } } : {}) };
+}
+
 /** Everything a seat can draw mana from right now. Untapped mana cards
  * are fresh sources; a card you tapped by hand floats whatever nothing has
  * spent yet. Board stacks offer their untapped copies. An ability that
@@ -459,9 +526,11 @@ export function sourcesFrom(
     // Gaea's Cradle, Cabal Coffers, Nykthos, Marwyn: the amount as the table stands.
     const text = manaTextHere(frontText(record), table, { ...c, name: record.name, typeLine: typeUp });
     const own = tapManaFromText(text);
+    const grants: Colors = [];
+    if (creature) widen(grants, granted.nontoken);
+    if (/\bLand\b/.test(typeUp)) widen(grants, granted.lands);
     const produces = inIdentity([...own.produces], text, identity);
-    if (creature) widen(produces, granted.nontoken);
-    if (/\bLand\b/.test(typeUp)) widen(produces, granted.lands);
+    widen(produces, grants);
     if (produces.length === 0) continue;
     const total = Math.max(own.amount, 1);
     const amount = c.tapped ? total - (c.spent ?? 0) : total;
@@ -473,6 +542,7 @@ export function sourcesFrom(
       amount,
       ...(c.tapped ? { floating: true } : {}),
       ...(creature ? { creature: true } : {}),
+      ...keptMana(text, grants, (p) => inIdentity(p, text, identity)),
     });
   }
 
@@ -484,9 +554,12 @@ export function sourcesFrom(
     const produces: Colors = item.manaMode
       ? [item.manaMode]
       : [...tapManaFromText(item.oracleText).produces];
-    if (creature) widen(produces, granted.creatures);
-    if (item.zone === 'lands' || /\bLand\b/.test(item.typeLine)) widen(produces, granted.lands);
+    const grants: Colors = [];
+    if (creature) widen(grants, granted.creatures);
+    if (item.zone === 'lands' || /\bLand\b/.test(item.typeLine)) widen(grants, granted.lands);
+    widen(produces, grants);
     if (produces.length === 0) continue;
+    const kept = item.manaMode ? {} : keptMana(item.oracleText, grants, (p) => p);
     // Which copies are tapped and which only just arrived is not tracked:
     // offer as many as could be both untapped and past their first turn.
     const sick = creature && !tapsAtOnce ? sickCopies(item, texts) : 0;
@@ -498,6 +571,7 @@ export function sourcesFrom(
         produces,
         amount: 1,
         ...(creature ? { creature: true } : {}),
+        ...kept,
       });
     }
   }

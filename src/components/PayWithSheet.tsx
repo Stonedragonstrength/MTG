@@ -10,6 +10,7 @@ import {
   planPayment,
   priceExtras,
   priceX,
+  sourcesFor,
   type ManaSource,
   type PayCost,
 } from '../lib/pay';
@@ -24,6 +25,7 @@ import {
   type Picked,
 } from '../lib/payWith';
 import { seatSources } from '../lib/seatMana';
+import { spendWords } from '../lib/spendOnly';
 import type { BoardItem, CardInstance } from '../lib/types';
 import { useAppStore } from '../state/store';
 import ManaSymbol, { CostSymbols } from './ManaSymbol';
@@ -43,8 +45,10 @@ interface Props {
   onClose: () => void;
 }
 
+const NUMBER_WORDS: Record<number, string> = { 2: 'two', 3: 'three', 4: 'four', 5: 'five' };
+
 /** What one of them taps for: "G", "G or U", two colorless for a Sol Ring. */
-function Makes({ group }: { group: PayGroup }) {
+function Makes({ group }: { group: Pick<PayGroup, 'produces' | 'each'> }) {
   if (group.produces.includes('any'))
     return (
       <span className="pay-makes">
@@ -212,23 +216,39 @@ export default function PayWithSheet({ playerIdx, iid, from, x, extras, onBack, 
           const { name, art } = face(group);
           const n = Math.min(group.members.length, picked[group.id] ?? 0);
           const many = group.members.length > 1;
+          // Mana kept for some spells ("Spend this mana only…"): what it makes for this one.
+          const only = group.members[0].only;
+          const here = only ? sourcesFor(group.members.slice(0, 1), cost.on)[0] : group.members[0];
+          // Cavern of Souls makes {C} for anything: "any color only to cast a creature spell…".
+          const free = group.members[0].free;
+          const more = !free
+            ? ''
+            : group.produces.includes('any') && !free.produces.includes('any')
+              ? 'any color '
+              : group.each > free.amount
+                ? `${NUMBER_WORDS[group.each] ?? group.each} `
+                : '';
+          const note = only
+            ? `${more}only ${spendWords(only)}`
+            : group.floating
+              ? 'tapped · mana in your pool'
+              : group.creature
+                ? 'creature'
+                : null;
+          const tile = ['pay-tile', n > 0 && 'pay-tile--lit', !here && 'pay-tile--kept'].filter(Boolean).join(' ');
           const top = (
             <span className="pay-top">
               {art ? <img className="pay-art" src={art} alt="" loading="lazy" /> : <span className="pay-art" />}
               <span className="pay-name">
                 {name}
                 {many && <small> ×{group.members.length}</small>}
-                {(group.floating || group.creature) && (
-                  <small className="pay-note">
-                    {group.floating ? 'tapped · mana in your pool' : 'creature'}
-                  </small>
-                )}
+                {note && <small className="pay-note">{note}</small>}
               </span>
-              <Makes group={group} />
+              <Makes group={here ? { produces: here.produces, each: here.amount } : group} />
             </span>
           );
           return many ? (
-            <div key={group.id} className={n > 0 ? 'pay-tile pay-tile--lit' : 'pay-tile'}>
+            <div key={group.id} className={tile}>
               {top}
               <span className="pay-step">
                 <button aria-label={`one fewer ${name}`} disabled={n === 0} onClick={() => set(group, n - 1)}>
@@ -247,7 +267,7 @@ export default function PayWithSheet({ playerIdx, iid, from, x, extras, onBack, 
           ) : (
             <button
               key={group.id}
-              className={n > 0 ? 'pay-tile pay-tile--lit' : 'pay-tile'}
+              className={tile}
               aria-pressed={n > 0}
               aria-label={`pay with ${name}`}
               onClick={() => set(group, n > 0 ? 0 : 1)}

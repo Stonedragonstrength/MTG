@@ -15,6 +15,7 @@ import {
   sourcesFrom,
   withX,
   type ManaSource,
+  type PayCost,
 } from './pay';
 
 function src(
@@ -154,27 +155,29 @@ describe('X costs', () => {
 
   test('castCosts: every face from hand, the front face plus tax from the command zone, none for a land', () => {
     const card = (typeLine: string, manaCost: string) => ({ typeLine, manaCost });
-    expect(castCosts(card('Sorcery', '{X}{R}'), 'hand')).toEqual([{ generic: 0, pips: [['R']], x: 1 }]);
-    expect(castCosts(card('Instant // Instant', '{1}{R} // {1}{U}'), 'hand')).toHaveLength(2);
-    expect(castCosts(card('Basic Land — Forest', ''), 'hand')).toEqual([]); // played, not cast
+    // What each face pays for rides along (spendOnly.ts): not what these look at.
+    const bare = (costs: PayCost[]) => costs.map(({ on: _on, ...cost }) => cost);
+    expect(bare(castCosts(card('Sorcery', '{X}{R}'), 'hand'))).toEqual([{ generic: 0, pips: [['R']], x: 1 }]);
+    expect(bare(castCosts(card('Instant // Instant', '{1}{R} // {1}{U}'), 'hand'))).toHaveLength(2);
+    expect(bare(castCosts(card('Basic Land — Forest', ''), 'hand'))).toEqual([]); // played, not cast
     // Shatterskull Smashing: a tap casts the front, which costs {X}{R}{R}. Only a card
     // whose FRONT is a land is played for nothing; the land on the back is behind the hold.
-    expect(castCosts(card('Sorcery // Land', '{X}{R}{R}'), 'hand')).toEqual([
+    expect(bare(castCosts(card('Sorcery // Land', '{X}{R}{R}'), 'hand'))).toEqual([
       { generic: 0, pips: [['R'], ['R']], x: 1 },
     ]);
     // Growing Rites of Itlimoc: an enchantment that only later turns into a land
-    expect(castCosts(card('Legendary Enchantment // Legendary Land', '{2}{G}'), 'hand')).toEqual([
+    expect(bare(castCosts(card('Legendary Enchantment // Legendary Land', '{2}{G}'), 'hand'))).toEqual([
       { generic: 2, pips: [['G']] },
     ]);
-    expect(castCosts(card('Land // Sorcery', ''), 'hand')).toEqual([]);
-    expect(castCosts(card('Legendary Creature — Hydra', '{X}{G}{U}'), 'command', 4)).toEqual([
+    expect(bare(castCosts(card('Land // Sorcery', ''), 'hand'))).toEqual([]);
+    expect(bare(castCosts(card('Legendary Creature — Hydra', '{X}{G}{U}'), 'command', 4))).toEqual([
       { generic: 4, pips: [['G'], ['U']], x: 1 },
     ]);
-    expect(castCosts(card('Legendary Creature — Giant // Sorcery', '{2}{R} // {1}{R}'), 'command')).toEqual([
+    expect(bare(castCosts(card('Legendary Creature — Giant // Sorcery', '{2}{R} // {1}{R}'), 'command'))).toEqual([
       { generic: 2, pips: [['R']] },
     ]);
-    expect(castCosts(undefined, 'hand')).toEqual([{ generic: 0, pips: [] }]); // unread: free, as before
-    expect(castCosts(null, 'command', 2)).toEqual([{ generic: 2, pips: [] }]);
+    expect(bare(castCosts(undefined, 'hand'))).toEqual([{ generic: 0, pips: [] }]); // unread: free, as before
+    expect(bare(castCosts(null, 'command', 2))).toEqual([{ generic: 2, pips: [] }]);
   });
 
   test('entersWithX reads the one line about X the table acts on', () => {

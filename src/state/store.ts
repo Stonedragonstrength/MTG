@@ -25,6 +25,7 @@ import * as gameLib from '../lib/game';
 import * as payLib from '../lib/pay';
 import * as payWithLib from '../lib/payWith';
 import { seatSources } from '../lib/seatMana';
+import type { SpendOn } from '../lib/spendOnly';
 import { planEffect, type SpellEffect } from '../lib/spellEffects';
 import { happeningsBetween, unitThing, type Happening } from '../lib/triggers';
 import { dayNightNeeds, turnedDayNight, withCasts } from '../lib/dayNight';
@@ -1549,7 +1550,9 @@ export function createAppStore() {
         cardMutate(
           (base) => {
             if (!base.players[seat]?.cards?.battlefield.some((c) => c.iid === iid)) return base;
-            const pay = payFrom(base, seat, [payLib.parseCost(cost)], records, paidIn);
+            // Mana kept for spells or abilities does not pay an upkeep.
+            const on: SpendOn = { act: 'upkeep', typeLine: '', colors: [], manaValue: 0 };
+            const pay = payFrom(base, seat, [{ ...payLib.parseCost(cost), on }], records, paidIn);
             // Something has to change for a move to be one: the upkeep paid is said in the feed.
             return { ...pay(base) };
           },

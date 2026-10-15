@@ -101,6 +101,33 @@ export function tapManaFromText(text: string): {
   return amount > 0 ? { produces, amount } : { produces: [], amount: 0 };
 }
 
+/** What a tap yields, split by what the mana may pay for: `free` pays for
+ * anything; `only` is what abilities that say "Spend this mana only…" add,
+ * with their words after "only" (null when there are none). Cavern of
+ * Souls: {C} free, any color only for a creature spell. */
+export function tapManaByUse(text: string): {
+  free: { produces: (ManaColor | 'any')[]; amount: number };
+  only: { produces: (ManaColor | 'any')[]; amount: number; words: string } | null;
+} {
+  const free: string[] = [];
+  const kept: string[] = [];
+  const words: string[] = [];
+  for (const line of text.replace(/"[^"]*"/g, '').split('\n')) {
+    const m = line.match(/\bSpend this mana only ([^.]+)/i);
+    if (!m || !/\badd\b/i.test(line)) {
+      free.push(line);
+      continue;
+    }
+    kept.push(line);
+    if (!words.includes(m[1])) words.push(m[1]);
+  }
+  const only = kept.length > 0 ? tapManaFromText(kept.join('\n')) : null;
+  return {
+    free: tapManaFromText(free.join('\n')),
+    only: only && only.amount > 0 ? { ...only, words: words.join(' or ') } : null,
+  };
+}
+
 /** Sacrificing is part of the mana ability — spending it destroys it. */
 export function isOneShotText(text: string): boolean {
   return /sacrifice[^.:]*:[^.]*add/i.test(text);

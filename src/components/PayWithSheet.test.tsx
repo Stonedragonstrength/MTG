@@ -245,3 +245,46 @@ test('a commander is paid for the same way, from its own sheet', async () => {
   const using = castCommander.mock.calls[0][2].using as Record<string, number>;
   expect(Object.values(using).reduce((a, b) => a + b, 0)).toBeGreaterThanOrEqual(4);
 });
+
+test('mana kept for creature spells is no help with a sorcery, and says what it is kept for', async () => {
+  RECORDS['c-zig'] = rec('c-zig', 'Ancient Ziggurat', 'Land', {
+    oracleText: '{T}: Add one mana of any color. Spend this mana only to cast a creature spell.',
+  });
+  RECORDS['c-cavern'] = rec('c-cavern', 'Cavern of Souls', 'Land', {
+    oracleText:
+      "{T}: Add {C}.\n{T}: Add one mana of any color. Spend this mana only to cast a creature spell of the chosen type, and that spell can't be countered.",
+  });
+  const g = table();
+  const seat = g.players[0].cards!;
+  useAppStore.setState({
+    game: {
+      ...g,
+      players: [
+        {
+          ...g.players[0],
+          cards: {
+            ...seat,
+            battlefield: [
+              { iid: 'z', cardId: 'c-zig', name: 'Ancient Ziggurat', row: 'lands' },
+              { iid: 'c', cardId: 'c-cavern', name: 'Cavern of Souls', row: 'lands' },
+              land('f1', 'forest'),
+            ],
+          },
+        },
+        g.players[1],
+      ],
+    },
+  });
+  render(<PayWithSheet playerIdx={0} iid="h-cult" from="hand" onClose={() => {}} />);
+  await screen.findByRole('button', { name: 'pay with Ancient Ziggurat' });
+  expect(tile('Ancient Ziggurat').className).toContain('pay-tile--kept');
+  expect(within(tile('Ancient Ziggurat')).getByText('only to cast a creature spell')).toBeTruthy();
+  // The Cavern still makes {C} for it.
+  expect(tile('Cavern of Souls').className).not.toContain('pay-tile--kept');
+  expect(within(tile('Cavern of Souls')).getByText('any color only to cast a creature spell of the chosen type')).toBeTruthy();
+  // Cultivate {2}{G}: the table cannot pay it; lighting all three pays two of the three.
+  expect(paid()).toMatch(/^0 of 3 paid/);
+  const user = userEvent.setup();
+  for (const name of ['Forest', 'Cavern of Souls', 'Ancient Ziggurat']) await user.click(screen.getByRole('button', { name: `pay with ${name}` }));
+  expect(paid()).toMatch(/^2 of 3 paid/);
+});

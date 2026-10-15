@@ -1,6 +1,7 @@
 import { isEquipment } from './attach';
 import { isCommander, type Host } from './cards';
 import { parseCost, type PayCost } from './pay';
+import { spendOnCard } from './spendOnly';
 import type { CardRecord, GameState } from './types';
 
 /** What it costs to put an Equipment on a creature, as the card prints it:
@@ -8,7 +9,7 @@ import type { CardRecord, GameState } from './types';
  * machinery that pays for a spell); taking an Equipment off costs nothing,
  * and an Aura is paid for when it is cast, not when it is attached. */
 
-type Read = Pick<CardRecord, 'typeLine' | 'oracleText'> | null | undefined;
+type Read = (Pick<CardRecord, 'typeLine' | 'oracleText'> & Partial<Pick<CardRecord, 'manaCost' | 'colors'>>) | null | undefined;
 
 /** One equip ability of a card. */
 export interface EquipWay {
@@ -37,7 +38,9 @@ export function equipWays(record: Read): EquipWay[] {
     if (!m) continue;
     const cost = parseCost(m[2]);
     if (cost.x) continue; // nobody has said what X is
-    out.push({ printed: m[2], cost, only: m[1]?.trim() || null });
+    // Its mana may be kept for it: "Spend this mana only to … activate an equip ability".
+    const on = spendOnCard({ ...record, manaCost: record.manaCost ?? '' }, 'ability', 0, { equip: true });
+    out.push({ printed: m[2], cost: { ...cost, on }, only: m[1]?.trim() || null });
   }
   return out;
 }

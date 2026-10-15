@@ -1,5 +1,5 @@
 import { COLOR_NAMES, type ManaColor } from './mana';
-import { canPay, planPayment, type ManaSource, type PayCost, type PaymentPlan } from './pay';
+import { canPay, planPayment, sourcesFor, type ManaSource, type PayCost, type PaymentPlan } from './pay';
 
 // "Pay with…": the player says which lands pay, instead of the table.
 // What the sheet shows and what the store taps are both worked out here,
@@ -128,16 +128,19 @@ function matchPips(cost: PayCost, sources: ManaSource[]): { matched: number; mis
 
 export function tally(cost: PayCost, chosen: ManaSource[]): Tally {
   const of = cost.generic + cost.pips.length;
-  const units = chosen.reduce((sum, s) => sum + s.amount, 0);
+  // Mana kept for other spells ("Spend this mana only…") does not count toward this one.
+  const usable = sourcesFor(chosen, cost.on);
+  const units = usable.reduce((sum, s) => sum + s.amount, 0);
   const plan = planPayment(cost, chosen);
   if (!plan) {
-    const { matched, missing } = matchPips(cost, chosen);
+    const { matched, missing } = matchPips(cost, usable);
     const paid = matched + Math.min(cost.generic, units - matched);
     return { of, paid, missing, idle: 0, spare: 0, plan: null };
   }
   let idle = 0;
   let spare = 0;
   const copies: Record<string, number> = {};
+  const makes = new Map(usable.map((s) => [s.key, s.amount]));
   for (const s of chosen) {
     if (s.kind === 'board') {
       copies[s.key] = (copies[s.key] ?? 0) + 1;
@@ -145,7 +148,7 @@ export function tally(cost: PayCost, chosen: ManaSource[]): Tally {
     }
     const spent = plan.spend[s.key] ?? 0;
     if (spent === 0) idle += 1;
-    else spare += s.amount - spent;
+    else spare += (makes.get(s.key) ?? s.amount) - spent;
   }
   for (const [key, n] of Object.entries(copies)) idle += n - (plan.boardTaps[key] ?? 0);
   return { of, paid: of, missing: [], idle, spare, plan };

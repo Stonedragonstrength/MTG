@@ -4,6 +4,7 @@ import type { Host } from './cards';
 import { counterName, countersWords } from './entering';
 import { keywordList } from './keywords';
 import { parseCost, type PayCost } from './pay';
+import { spendOnCard } from './spendOnly';
 import type { CardRecord, GameState } from './types';
 
 /** The abilities a permanent activates, as far as the table can carry them
@@ -61,7 +62,10 @@ export interface Ability {
   effect: AbilityEffect;
 }
 
-type Read = (Pick<CardRecord, 'name' | 'oracleText'> & { typeLine?: string | null }) | null | undefined;
+type Read =
+  | (Pick<CardRecord, 'name' | 'oracleText'> & { typeLine?: string | null } & Partial<Pick<CardRecord, 'manaCost' | 'colors'>>)
+  | null
+  | undefined;
 
 const MANA = /^(?:\{[^}]+\})+$/;
 const RESTRICTION = /\s*Activate only (?:once each turn|as a sorcery|during your turn)\.?/gi;
@@ -256,7 +260,9 @@ export function abilitiesOf(record: Read, level = 0): Ability[] {
       const line = plain(raw, name);
       readLine(itself ? line.replace(itself, '~') : line, (ability, kind) => out.push({ key: `${i}:${kind}`, ...ability }), loyal, short ?? name);
     });
-  return out;
+  // What its mana pays for: "Spend this mana only to activate abilities of artifacts".
+  const on = spendOnCard({ typeLine: record.typeLine ?? '', manaCost: record.manaCost ?? '', oracleText: record.oracleText, colors: record.colors }, 'ability');
+  return out.map((ability) => ({ ...ability, cost: { ...ability.cost, on } }));
 }
 
 // "Equipped creature has reach, "{2}, {T}: Tap target…," and "{8}, {T}: Discover 10."".

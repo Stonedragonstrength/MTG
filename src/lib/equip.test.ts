@@ -4,11 +4,11 @@ import { comesAttached, equipWay, equipWays } from './equip';
 const eq = (oracleText: string, typeLine = 'Artifact — Equipment', name = 'Thing') => ({ name, typeLine, oracleText });
 
 test('the equip cost is read off the card as it prints it', () => {
-  expect(equipWays(eq('Equipped creature gets +2/+0.\nEquip {1}'))).toEqual([
+  expect(equipWays(eq('Equipped creature gets +2/+0.\nEquip {1}'))).toMatchObject([
     { printed: '{1}', cost: { generic: 1, pips: [] }, only: null },
   ]);
-  expect(equipWays(eq('Equipped creature has haste and shroud.\nEquip {0}'))[0].cost).toEqual({ generic: 0, pips: [] });
-  expect(equipWays(eq('Equip {1}{W}'))[0].cost).toEqual({ generic: 1, pips: [['W']] });
+  expect(equipWays(eq('Equipped creature has haste and shroud.\nEquip {0}'))[0].cost).toMatchObject({ generic: 0, pips: [] });
+  expect(equipWays(eq('Equip {1}{W}'))[0].cost).toMatchObject({ generic: 1, pips: [['W']] });
 });
 
 test('reminder text after the cost is not part of it', () => {
@@ -44,7 +44,7 @@ test('only an Equipment has an equip cost — and only on the face that is up', 
 
 test('Reconfigure is paid the same way', () => {
   const ways = equipWays(eq('Equipped creature gets +2/+2.\nReconfigure {2}', 'Artifact Creature — Equipment Fox'));
-  expect(ways[0].cost).toEqual({ generic: 2, pips: [] });
+  expect(ways[0].cost).toMatchObject({ generic: 2, pips: [] });
 });
 
 test('the way a host pays is the cheapest one it may use', () => {
