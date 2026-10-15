@@ -4,6 +4,7 @@ import { levelChange } from '../lib/abilities';
 import { sizeAround } from '../lib/anthems';
 import { boostOf, plusSize, withBoost } from '../lib/boost';
 import { commanderTax, owesDraw } from '../lib/cards';
+import { seatIdentity } from '../lib/commanders';
 import { isSummoningSick, permanentTexts } from '../lib/keywords';
 import { affordable, castCosts, sourcesFrom } from '../lib/pay';
 import { shelfOf } from '../lib/shelf';
@@ -134,7 +135,7 @@ export default function BattlefieldRow({ playerIdx, picks = true, corner = null 
   // One pedestal per commander still at home (a partner pair has two), each
   // behind the mana gate with its own tax. An unread record never blocks.
   const player = game.players[playerIdx];
-  const sources = sourcesFrom(seat.battlefield, records, player.board);
+  const sources = sourcesFrom(seat.battlefield, records, player.board, seatIdentity(game, playerIdx));
   const pedestals = seat.command.map((card) => {
     const record = records[card.cardId];
     const tax = commanderTax(player, card.iid);

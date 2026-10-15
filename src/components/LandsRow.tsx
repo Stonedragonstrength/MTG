@@ -7,6 +7,7 @@ import { attachedTo } from '../lib/attach';
 import { draftSize, draftWords, tappedToAttack } from '../lib/attackDraft';
 import { liveCombat } from '../lib/combat';
 import { readUnits } from '../lib/combatEngine';
+import { seatIdentity } from '../lib/commanders';
 import { COLOR_NAMES, isOneShotSource, landSummary, MANA_COLORS, type ManaColor } from '../lib/mana';
 import { availableMana, sourcesFrom } from '../lib/pay';
 import { shelfOf } from '../lib/shelf';
@@ -246,6 +247,7 @@ export default function LandsRow({ playerIdx, attackButton = true, part }: Props
     game.players[playerIdx].board,
     // A rock adds to the color pips, never to the land count.
     vLands.map((c) => ({ oracleText: records[c.cardId]?.oracleText ?? null, land: isLand(c) })),
+    seatIdentity(game, playerIdx),
   );
   // Untap-all readies the whole board now, so any tapped permanent surfaces it.
   const anyTapped =
@@ -253,7 +255,7 @@ export default function LandsRow({ playerIdx, attackButton = true, part }: Props
     (seat?.battlefield.some((c) => c.tapped) ?? false);
   // What the cast gate sees: untapped sources plus mana still floating.
   const ready = seat
-    ? availableMana(sourcesFrom(seat.battlefield, records, game.players[playerIdx].board))
+    ? availableMana(sourcesFrom(seat.battlefield, records, game.players[playerIdx].board, seatIdentity(game, playerIdx)))
     : null;
   // The land drop, for the deck seat whose turn it is: how many lands it
   // has played from hand against how many it may (the hand's gate reads

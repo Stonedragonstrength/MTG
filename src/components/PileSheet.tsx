@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { abilitiesOf, type Ability } from '../lib/abilities';
 import { isCommander } from '../lib/cards';
 import { reboundTurn } from '../lib/cascade';
+import { seatIdentity } from '../lib/commanders';
 import { castCosts, hasX, sourcesFrom } from '../lib/pay';
 import type { CardInstance, CardZone } from '../lib/types';
 import { useAppStore } from '../state/store';
@@ -44,7 +45,7 @@ export default function PileSheet({ playerIdx, zone, short = NONE, onClose }: Pr
   const graveAbilities = (c: CardInstance) => (zone === 'graveyard' ? abilitiesOf(records[c.cardId]).filter((a) => a.graveyard) : []);
   const sources =
     zone === 'graveyard' && seat && game && shown.some((c) => graveAbilities(c).length > 0)
-      ? sourcesFrom(seat.battlefield, tableRecords, game.players[playerIdx].board)
+      ? sourcesFrom(seat.battlefield, tableRecords, game.players[playerIdx].board, seatIdentity(game, playerIdx))
       : [];
   // CR 903.9: a commander stranded here can go home — and only a
   // commander. Seats dealt before commanders were tracked keep the old

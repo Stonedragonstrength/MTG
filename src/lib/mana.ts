@@ -142,20 +142,27 @@ export interface VirtualManaSource {
 export function landSummary(
   items: BoardItem[],
   virtualLands: VirtualManaSource[] = [],
+  /** The seat's commander's color identity, where known: Command Tower and
+   * its kind count toward those colors instead of "any". */
+  identity: ManaColor[] | null = null,
 ): LandSummary {
   const colors: Record<ManaColor, number> = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
   let total = 0;
   let any = 0;
+  const own = (text: string, produced: (ManaColor | 'any')[]) =>
+    identity && /commander['’]s colou?r identity/i.test(text)
+      ? [...produced.filter((p) => p !== 'any'), ...identity.filter((c) => !produced.includes(c))]
+      : produced;
   for (const item of items) {
     if (item.zone === 'lands') total += item.count;
-    const produced = effectiveManaColors(item);
+    const produced = item.manaMode ? effectiveManaColors(item) : own(item.oracleText, effectiveManaColors(item));
     if (produced[0] === 'any') any += item.count;
     else for (const color of produced) colors[color as ManaColor] += item.count;
   }
   for (const v of virtualLands) {
     if (v.land !== false) total += 1;
     if (v.oracleText === null) continue;
-    const produced = manaColorsFromText(v.oracleText);
+    const produced = own(v.oracleText, manaColorsFromText(v.oracleText));
     if (produced[0] === 'any') any += 1;
     else for (const color of produced) colors[color as ManaColor] += 1;
   }

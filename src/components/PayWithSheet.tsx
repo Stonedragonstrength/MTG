@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { commanderTax } from '../lib/cards';
+import { seatIdentity } from '../lib/commanders';
 import { COLOR_NAMES, type ManaColor } from '../lib/mana';
 import {
   affordable,
@@ -96,7 +97,8 @@ export default function PayWithSheet({ playerIdx, iid, from, x, extras, onBack, 
   const kinds = from === 'hand' ? extraCosts(record) : [];
   const times = extraTimes(kinds, extras);
   const priced = priceExtras(priceX(faces, asksX ? (x ?? 0) : 0), kinds, times);
-  const sources = sourcesFrom(seat.battlefield, records, player.board);
+  const identity = seatIdentity(game, playerIdx);
+  const sources = sourcesFrom(seat.battlefield, records, player.board, identity);
   // The face the table would pay: the first it can afford, like the store.
   const cost: PayCost = priced.find((face) => affordable(face, sources)) ?? priced[0] ?? { generic: 0, pips: [] };
 
@@ -126,6 +128,7 @@ export default function PayWithSheet({ playerIdx, iid, from, x, extras, onBack, 
     seat.battlefield.map(({ tapped: _t, spent: _s, ...c }) => c),
     records,
     player.board.map((it) => (it.tapped ? { ...it, tapped: 0 } : it)),
+    identity,
   );
   const live: Record<string, number> = {};
   for (const s of sources) live[s.key] = (live[s.key] ?? 0) + 1;

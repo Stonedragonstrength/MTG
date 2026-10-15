@@ -1,3 +1,4 @@
+import type { ManaColor } from './mana';
 import type { CombatUnit, GameState, SeatCards } from './types';
 
 /** One source of commander damage. The rules count 21 from the SAME
@@ -97,6 +98,15 @@ function pairNames(game: GameState, seatIdx: number): string[] | null {
     return [profile.commanderName, profile.partnerName];
   }
   return null;
+}
+
+/** A seat's commander's color identity, as the game was started with it
+ * (the deck's colors): what "any color in your commander's color identity"
+ * makes. null in a game without commanders, or where it is not known. */
+export function seatIdentity(game: GameState, seat: number): ManaColor[] | null {
+  if (game.config.format !== 'commander') return null;
+  const colors = game.config.profiles[seat]?.commanderColors;
+  return colors ? (colors.filter((c) => /^[WUBRG]$/.test(c)) as ManaColor[]) : null;
 }
 
 /** The name behind a commander-damage key, for the log. */

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { commanderTax } from '../lib/cards';
+import { seatIdentity } from '../lib/commanders';
 import { affordable, castCosts, hasX, sourcesFrom } from '../lib/pay';
 import { useAppStore } from '../state/store';
 import { PrintedCost } from './ManaSymbol';
@@ -57,7 +58,7 @@ export default function CommanderSheet({ playerIdx, iid, onClose }: Props) {
   // The same reading of the cost and of the mana as the store's payment.
   // An unread record never blocks.
   const costs = record ? castCosts(record, 'command', tax) : null;
-  const sources = sourcesFrom(seat.battlefield, records, player.board);
+  const sources = sourcesFrom(seat.battlefield, records, player.board, seatIdentity(game, playerIdx));
   const poor = !!costs && !costs.some((cost) => affordable(cost, sources));
 
   function cast() {

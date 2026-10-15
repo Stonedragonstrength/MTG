@@ -3,6 +3,7 @@ import { abilitiesOf, abilitiesWorn, type Ability } from '../lib/abilities';
 import { attachedTo, attaches, hostName, hostOf, isAura, isEquipment } from '../lib/attach';
 import { sourcesFrom } from '../lib/pay';
 import { isCommander } from '../lib/cards';
+import { seatIdentity } from '../lib/commanders';
 import { faceNames, isBackId, turnsOver } from '../lib/faces';
 import { searchAsk, type SearchAsk } from '../lib/search';
 import { shelfOf, type Shelf } from '../lib/shelf';
@@ -151,7 +152,10 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose, picks = 
     ...abilitiesOf(record, card.counters?.level ?? 0).filter((a) => !a.graveyard),
     ...abilitiesWorn(game, { seat: playerIdx, kind: 'card', id: iid }, tableRecords),
   ];
-  const sources = abilities.length > 0 ? sourcesFrom(seat.battlefield, tableRecords, game.players[playerIdx].board) : [];
+  const sources =
+    abilities.length > 0
+      ? sourcesFrom(seat.battlefield, tableRecords, game.players[playerIdx].board, seatIdentity(game, playerIdx))
+      : [];
 
   return (
     <Sheet title={card.name} onClose={onClose}>

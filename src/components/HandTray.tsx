@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { isAura } from '../lib/attach';
 import { boardSeat } from '../lib/combat';
+import { seatIdentity } from '../lib/commanders';
 import { shareInSight } from '../lib/fit';
 import { affordable, asksAtCast, parseCosts, sourcesFrom } from '../lib/pay';
+import { landEntry, type LandContext } from '../lib/lands';
 import { searchAsk, type SearchAsk } from '../lib/search';
 import { canPlayLand, isLandCard } from '../lib/turnRules';
 import type { CardInstance } from '../lib/types';
@@ -10,10 +12,14 @@ import { useAppStore } from '../state/store';
 import AttachSheet from './AttachSheet';
 import HandCardSheet from './HandCardSheet';
 import LibrarySearchSheet from './LibrarySearchSheet';
+import Sheet from './Sheet';
 import { useCardRecords } from './useCardRecords';
 import { useLongPress } from './useLongPress';
 import { useSeatTexts } from './useSeatTexts';
 import XCostSheet from './XCostSheet';
+
+/** A shock land asks whatever the table looks like: no need to read it. */
+const NO_TABLE: LandContext = { mine: [], hand: [], opponents: 0, lives: [], opponentLands: 0 };
 
 /** How much of a hand card has to be in sight for a tap to play it: with
  * less showing, the first tap brings the card to the front instead. */
@@ -102,6 +108,7 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
   const [selected, setSelected] = useState<string[]>([]);
   const [showHeld, setShowHeld] = useState(false); // dead-phone escape hatch
   const [xFor, setXFor] = useState<string | null>(null); // the card the X sheet is asking about
+  const [shockFor, setShockFor] = useState<CardInstance | null>(null); // a shock land being played
   const [attachFor, setAttachFor] = useState<string | null>(null); // the Aura just played, asking where it goes
   // The permanent just played sends its player through their library as it enters.
   const [searchFor, setSearchFor] = useState<{ ask: SearchAsk; source: string } | null>(null);
@@ -140,7 +147,7 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
   // a land only while the seat has a land drop left on its own turn. An
   // unread record never blocks; "Play anyway" lives in the hold sheet for
   // cost-reducers, treasure math and every rule the gates can't see.
-  const sources = sourcesFrom(seat.battlefield, bfRecords, game.players[playerIdx]?.board ?? []);
+  const sources = sourcesFrom(seat.battlefield, bfRecords, game.players[playerIdx]?.board ?? [], seatIdentity(game, playerIdx));
   /** Why a tap will not play this card right now — null when it will. */
   const refusal = (c: CardInstance): string | null => {
     const r = records[c.cardId];
@@ -160,6 +167,8 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
    * to pay or not, asks first. */
   const play = (c: CardInstance) => {
     if (asksAtCast(records[c.cardId], 'hand')) setXFor(c.iid);
+    // A shock land: pay 2 life for it to come in untapped, or let it come in tapped.
+    else if (isLandCard(records[c.cardId]?.typeLine ?? '') && landEntry(records[c.cardId], NO_TABLE) === 'life') setShockFor(c);
     // An Aura comes into play ON something: once it has landed, the list of
     // what it can go on comes up. (An Equipment arrives unattached; equipping
     // is on its own sheet.) If the play did not land, that sheet finds no
@@ -331,6 +340,30 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
       )}
       {xFor && (
         <XCostSheet playerIdx={playerIdx} iid={xFor} from="hand" onClose={() => setXFor(null)} />
+      )}
+      {shockFor && (
+        <Sheet title={shockFor.name.split(' // ')[0]} onClose={() => setShockFor(null)}>
+          <p className="hint">Pay 2 life for it to come in untapped, or let it come in tapped.</p>
+          <div className="chip-row shock-choice">
+            <button
+              className="primary"
+              onClick={() => {
+                void playCard(playerIdx, shockFor.iid, { landEntry: 'life' });
+                setShockFor(null);
+              }}
+            >
+              Pay 2 life · untapped
+            </button>
+            <button
+              onClick={() => {
+                void playCard(playerIdx, shockFor.iid, { landEntry: 'tapped' });
+                setShockFor(null);
+              }}
+            >
+              Tapped
+            </button>
+          </div>
+        </Sheet>
       )}
       {attachFor && (
         <AttachSheet playerIdx={playerIdx} iid={attachFor} onClose={() => setAttachFor(null)} />

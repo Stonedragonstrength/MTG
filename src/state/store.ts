@@ -8,7 +8,7 @@ import * as cardsLib from '../lib/cards';
 import * as combatLib from '../lib/combat';
 import type { CombatOutcome } from '../lib/combat';
 import { hasKeyword, readSeat, readUnit } from '../lib/combatEngine';
-import { attackerLabel } from '../lib/commanders';
+import { attackerLabel, seatIdentity } from '../lib/commanders';
 import { isValidGame, migrateGame } from '../lib/migrate';
 import { DEFAULT_SETTINGS, getSettings, saveSettings, type Settings } from '../data/settings';
 import { hostName, hostOf } from '../lib/attach';
@@ -27,6 +27,7 @@ import * as payWithLib from '../lib/payWith';
 import { planEffect, type SpellEffect } from '../lib/spellEffects';
 import { happeningsBetween, unitThing, type Happening } from '../lib/triggers';
 import { dayNightNeeds, turnedDayNight, withCasts } from '../lib/dayNight';
+import { landEntry, type LandEntry } from '../lib/lands';
 import { recordOf } from '../lib/history';
 import { beginStory, decided, withStory } from '../lib/story';
 import { isLandCard } from '../lib/turnRules';
@@ -112,10 +113,13 @@ export interface AppStore {
    * the order `pay.extraCosts` reads them (kicker, multikicker, buyback…). */
   /** `using`: the mana sources the player chose to pay with ("Pay with…"),
    * source key → how many (lib/payWith.ts). Left out, the table chooses. */
+  /** `landEntry`: a shock land's answer — 'life' pays 2 life for it to come
+   * in untapped; anything else, it comes in tapped. Other lands come in as
+   * their own words say (lib/lands.ts). */
   playCard(
     seat: number,
     iid: string,
-    opts?: { x?: number; asLand?: true; extras?: number[]; using?: Record<string, number> },
+    opts?: { x?: number; asLand?: true; extras?: number[]; using?: Record<string, number>; landEntry?: 'tapped' | 'life' },
   ): Promise<void>;
   tapVirtualCard(seat: number, iid: string, wantTapped?: boolean): void;
   /** Turns a double-faced card on the battlefield over, onto whichever
@@ -357,6 +361,46 @@ export async function tableRecords(g: GameState): Promise<SeatRecords> {
   return records;
 }
 
+/** How a land being played comes in, judged on the table it lands on
+ * (lib/lands.ts): its player's other permanents, their hand for a land that
+ * asks for a reveal, the other players. A land that never comes in tapped
+ * is not looked at further. */
+async function landEntryHere(
+  g: GameState,
+  seat: number,
+  iid: string,
+  record: CardRecord | undefined,
+): Promise<LandEntry> {
+  if (!record || !/\benters\b[^.]*\btapped\b/i.test(record.oracleText)) return 'untapped';
+  const all = await tableRecords(g);
+  const typeOf = (c: CardInstance) => all[c.cardId]?.typeLine ?? '';
+  const me = g.players[seat];
+  const mine = [...(me?.cards?.battlefield ?? []).map(typeOf), ...(me?.board ?? []).map((it) => it.typeLine)].filter(Boolean);
+  let hand: string[] = [];
+  if (/\breveal/i.test(record.oracleText)) {
+    const m = await import('../data/scryfall');
+    const others = (me?.cards?.hand ?? []).filter((c) => c.iid !== iid);
+    hand = await Promise.all(others.map(async (c) => (await m.getCardById(c.cardId).catch(() => undefined))?.typeLine ?? ''));
+  }
+  const living = g.players.filter((p) => !p.eliminated);
+  const opponentLands = g.players.reduce(
+    (n, p, s) =>
+      s === seat
+        ? n
+        : n +
+          (p.cards?.battlefield.filter((c) => /\bLand\b/.test(typeOf(c))).length ?? 0) +
+          p.board.filter((it) => it.zone === 'lands').reduce((k, it) => k + it.count, 0),
+    0,
+  );
+  return landEntry(record, {
+    mine,
+    hand,
+    opponents: living.length - (me && !me.eliminated ? 1 : 0),
+    lives: living.map((p) => p.life),
+    opponentLands,
+  });
+}
+
 /** The turn an action was made in. A replay that lands in another one
  * (a rebase past a Pass turn) must not charge that later turn for it. */
 interface TurnStamp {
@@ -392,7 +436,7 @@ function payFrom(
   const sameTurn = isTurn(base, castIn);
   const player = base.players[seat];
   const sources = sameTurn
-    ? payLib.sourcesFrom(player?.cards?.battlefield ?? [], records, player?.board ?? [])
+    ? payLib.sourcesFrom(player?.cards?.battlefield ?? [], records, player?.board ?? [], seatIdentity(base, seat))
     : [];
   if (using) {
     const chosen = payWithLib.payWith(costs, payWithLib.sourcesUsing(sources, using));
@@ -1061,6 +1105,11 @@ export function createAppStore() {
         const brings = isSpell ? {} : entryCounters(record);
         const records = await seatRecords(g, seat);
         const castIn = { turn: g.turnNumber, active: g.activePlayerIndex };
+        // How a land comes in: tapped (a guildgate, a temple), untapped (a
+        // check land with its type out), or — a shock land — as its player answered.
+        const entry = isLand ? await landEntryHere(g, seat, iid, opts?.asLand && record ? backView(record) : record) : 'untapped';
+        const comesTapped = entry === 'tapped' || (entry === 'life' && opts?.landEntry !== 'life');
+        const paysLife = entry === 'life' && opts?.landEntry === 'life';
         // Rebound (its own, or given by a permanent like Cast Through Time):
         // the spell goes to exile instead, marked with this turn, and comes up
         // again as its player's next turn begins (lib/triggers.ts).
@@ -1096,6 +1145,9 @@ export function createAppStore() {
             if (rebound) moved = cardsLib.markRebound(moved, seat, iid, castIn);
             // The land on the back of a spell lands back face up: it reads as the land it is.
             if (opts?.asLand && turnsOver(record)) moved = cardsLib.flipCard(moved, seat, iid, true);
+            // Tapped as it comes in: nothing to float from it this turn.
+            if (comesTapped) moved = cardsLib.tapSpent(moved, seat, iid);
+            if (paysLife) moved = gameLib.adjustLife(moved, seat, -2);
             if (shown) moved = cardsLib.setReveal(moved, shown);
             // The land drop is counted in the same op as the move, so undo
             // and a rebase take both or neither — and only for the turn it
@@ -1107,7 +1159,7 @@ export function createAppStore() {
             if (!boughtBack) moved = cardsLib.addCardCounters(moved, seat, iid, brings);
             return pay(moved);
           },
-          `${seatName(g, seat)} ${verb} ${card.name}${asksX ? ` (X=${x})` : ''}${payLib.extrasWords(extras, times)}${rebound ? ' — exiled with rebound' : ''}`,
+          `${seatName(g, seat)} ${verb} ${card.name}${asksX ? ` (X=${x})` : ''}${payLib.extrasWords(extras, times)}${rebound ? ' — exiled with rebound' : ''}${comesTapped ? ' (tapped)' : paysLife ? ' (paying 2 life)' : ''}`,
           (base) => !!base.players[seat]?.cards?.hand.some((c) => c.iid === iid),
           undefined,
           // Cast, not played: cards waiting for a spell are set off by it.
