@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { registerBack } from '../lib/backstack';
 import { boardSeat, liveCombat } from '../lib/combat';
+import { decided } from '../lib/story';
 import { useAppStore } from '../state/store';
 import HandScreen from './HandScreen';
 import LandBackground from './LandBackground';
@@ -9,6 +10,7 @@ import RevealBanner from './RevealBanner';
 import TriggerBanner from './TriggerBanner';
 import { shieldBoard } from './Sheet';
 import TablePill from './TablePill';
+import VictoryScreen from './VictoryScreen';
 import '../styles/zones.css';
 
 // Seats run clockwise from the near edge; 3+ players wrap the table's sides.
@@ -43,8 +45,11 @@ export default function GameScreen() {
   const online = useAppStore((s) => s.online);
   const hubPinned = useAppStore((s) => s.settings.hubPinned);
   const exitToHome = useAppStore((s) => s.exitToHome);
+  const seatFlips = useAppStore((s) => s.seatFlips);
   // auto = phones land on their hand, tablets on the table.
   const [view, setView] = useState<'auto' | 'table' | 'hand'>('auto');
+  // "Look at the board" puts this game's victory screen away (on this device).
+  const [boardFor, setBoardFor] = useState<string | null>(null);
   const narrow = useNarrow();
   // Tablet back = leave to home (game stays saved), not close the app.
   // (A fight is shared table state, not a layer: it never touches the back
@@ -86,6 +91,23 @@ export default function GameScreen() {
       : null;
   const handView = phoneSeat !== null && (view === 'hand' || (view === 'auto' && narrow));
 
+  // The game is over: the victory screen, turned to face the winner.
+  const result = decided(game);
+  const resultKey = game.story?.id ?? 'game';
+  const winnerName = typeof result === 'number' ? game.config.profiles[result]?.name : null;
+  const ending =
+    result === null ? null : boardFor === resultKey ? (
+      <button className="victory-pill" onClick={() => setBoardFor(null)}>
+        🏆 {winnerName ? `${winnerName} wins` : 'Draw'} · See the results
+      </button>
+    ) : (
+      <VictoryScreen
+        edge={handView || typeof result !== 'number' ? 'bottom' : edges[(result - shift + n) % n]}
+        flipped={!handView && typeof result === 'number' && seatFlips[result] === true}
+        onHide={() => setBoardFor(resultKey)}
+      />
+    );
+
   if (handView) {
     return (
       <div className={`game-screen players-${n} hand-mode`}>
@@ -93,6 +115,7 @@ export default function GameScreen() {
         {online && <TablePill />}
         <RevealBanner />
         <TriggerBanner />
+        {ending}
       </div>
     );
   }
@@ -117,6 +140,7 @@ export default function GameScreen() {
       )}
       <RevealBanner />
       <TriggerBanner />
+      {ending}
     </div>
   );
 }

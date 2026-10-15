@@ -52,6 +52,16 @@ export function playDefeat(): void {
   vibrate([60, 60, 120]);
 }
 
+export function playVictory(): void {
+  // A rising fanfare: C–E–G, then the octave held over a low root.
+  tone(523, 0.16, 'triangle', 0.05);
+  tone(659, 0.16, 'triangle', 0.05, 0.14);
+  tone(784, 0.18, 'triangle', 0.05, 0.28);
+  tone(1047, 0.9, 'triangle', 0.055, 0.44);
+  tone(262, 1.0, 'sine', 0.04, 0.44);
+  vibrate([30, 60, 30, 60, 120]);
+}
+
 export function playSlash(): void {
   // A quick metallic "shink": bright attack, short low thud behind it.
   tone(1800, 0.06, 'sawtooth', 0.025);

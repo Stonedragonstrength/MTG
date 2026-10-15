@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { registerBack } from '../lib/backstack';
 import { createDeck, deckSize, setCommander } from '../lib/deck';
 import { isCommanderLegal } from '../lib/game';
+import { deckTally } from '../lib/history';
 import { COLOR_HEX } from '../lib/mana';
 import type { Deck } from '../lib/types';
 import { useAppStore } from '../state/store';
@@ -10,6 +11,18 @@ import DeckEditor from './DeckEditor';
 
 function deckAccent(deck: Deck): string {
   return deck.colors.length === 1 ? COLOR_HEX[deck.colors[0]] : 'var(--accent)';
+}
+
+/** "5–2": games this deck won and lost, from the history (nothing before its first game). */
+function DeckRecord({ deckId }: { deckId: string }) {
+  const games = useAppStore((s) => s.games);
+  const { games: played, wins } = deckTally(games, deckId);
+  if (played === 0) return null;
+  return (
+    <span className="deck-tile-record" aria-label={`${wins} won, ${played - wins} lost`}>
+      {wins}–{played - wins}
+    </span>
+  );
 }
 
 function timeAgo(t: number): string {
@@ -111,6 +124,7 @@ export default function DecksScreen({ onBack, initialOpenId }: Props) {
             </span>
             <span className="profile-name">{deck.name}</span>
             <span className="deck-tile-count">{deckSize(deck)} cards</span>
+            <DeckRecord deckId={deck.id} />
             {deck.colors.length > 0 && (
               <span className="profile-pips">
                 {deck.colors.map((c) => (

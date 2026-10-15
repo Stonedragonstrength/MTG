@@ -1,0 +1,873 @@
+/* ---- the victory screen (VictoryScreen) ---- */
+
+.victory {
+  position: fixed;
+  inset: 0;
+  /* Over the board (40), under the tap shield (49) and every sheet (50). */
+  z-index: 45;
+  background: #07070a;
+  overflow: hidden;
+  animation: victory-in 700ms ease-out both;
+}
+
+/* Faces the winner's edge of the table, as the big board faces the active player. */
+.victory-panel {
+  --turn: 0deg;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 100vw;
+  height: 100dvh;
+  transform: translate(-50%, -50%) rotate(calc(var(--turn) + var(--flip, 0deg)));
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  overflow: hidden;
+  container-type: size;
+}
+
+.victory-panel--top {
+  --turn: 180deg;
+}
+
+.victory-panel--left,
+.victory-panel--right {
+  width: 100dvh;
+  height: 100vw;
+}
+
+.victory-panel--left {
+  --turn: 90deg;
+}
+
+.victory-panel--right {
+  --turn: -90deg;
+}
+
+.victory-art {
+  position: absolute;
+  inset: -4%;
+  background-size: cover;
+  background-position: center 30%;
+  filter: saturate(1.15);
+  animation: victory-drift 30s ease-in-out infinite alternate;
+}
+
+.victory-art--soft {
+  filter: blur(18px) saturate(1.2);
+  opacity: 0.7;
+}
+
+.victory-shade {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 28% 40%, rgba(16, 16, 20, 0.1), rgba(16, 16, 20, 0.72) 58%, rgba(10, 10, 13, 0.94)),
+    linear-gradient(to bottom, rgba(10, 10, 13, 0.15), rgba(10, 10, 13, 0.85) 80%);
+}
+
+.victory-sparks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.victory-sparks i {
+  position: absolute;
+  top: 102%;
+  left: calc(var(--i) * 7% + 2%);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff6d0, #c8a84b 55%, transparent 70%);
+  opacity: 0;
+  animation: victory-spark 6s ease-in infinite;
+  animation-delay: calc(var(--i) * -0.43s);
+}
+
+.victory-sparks i:nth-child(3n) {
+  width: 4px;
+  height: 4px;
+  animation-duration: 7.5s;
+}
+
+.victory-body {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: clamp(16px, 3cqw, 44px);
+  align-items: center;
+  padding: clamp(16px, 4cqh, 48px) clamp(16px, 4cqw, 56px) 8px;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.victory-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(10px, 2.4cqh, 22px);
+  text-align: center;
+}
+
+.victory-card-wrap {
+  position: relative;
+  width: clamp(140px, min(22cqw, 36cqh), 270px);
+  aspect-ratio: 488 / 680;
+  display: grid;
+  place-items: center;
+}
+
+.victory-rays {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 280%;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  background: repeating-conic-gradient(from 0deg, rgba(232, 200, 110, 0.2) 0deg 5deg, transparent 5deg 15deg);
+  -webkit-mask: radial-gradient(circle, #000 14%, transparent 60%);
+  mask: radial-gradient(circle, #000 14%, transparent 60%);
+  animation: victory-spin 50s linear infinite;
+  pointer-events: none;
+}
+
+.victory-card {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 4.75% / 3.5%;
+  box-shadow:
+    0 0 0 2px rgba(200, 168, 75, 0.65),
+    0 18px 60px rgba(0, 0, 0, 0.7),
+    0 0 80px rgba(200, 168, 75, 0.35);
+  animation:
+    victory-card-in 900ms cubic-bezier(0.2, 0.9, 0.25, 1.15) 150ms both,
+    victory-glow 3.2s ease-in-out 1.2s infinite;
+}
+
+.victory-avatar {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  object-fit: cover;
+  box-shadow:
+    0 0 0 3px rgba(200, 168, 75, 0.7),
+    0 0 80px rgba(200, 168, 75, 0.35);
+  animation: victory-card-in 900ms cubic-bezier(0.2, 0.9, 0.25, 1.15) 150ms both;
+}
+
+.victory-title {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.victory-kicker {
+  padding-left: 0.6em; /* the tracking's own trailing space, put back on the left */
+  font-size: clamp(14px, 1.7cqw, 21px);
+  letter-spacing: 0.6em;
+  text-transform: uppercase;
+  color: var(--accent);
+  text-shadow: 0 0 18px rgba(200, 168, 75, 0.6);
+  animation: victory-kicker 1.1s ease-out 300ms both;
+}
+
+.victory-name {
+  margin: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-size: clamp(38px, min(6.4cqw, 10cqh), 88px);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 1.05;
+  text-transform: uppercase;
+  background: linear-gradient(100deg, #f6e7b0 0%, #c8a84b 35%, #fff4cf 50%, #c8a84b 65%, #8a6d22 100%);
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 4px 18px rgba(0, 0, 0, 0.65));
+  animation:
+    victory-name-in 900ms ease-out 450ms both,
+    victory-sheen 5s ease-in-out 1.6s infinite;
+}
+
+.victory-sub {
+  margin: 6px 0 0;
+  font-size: clamp(15px, 1.6cqw, 20px);
+  color: var(--fg);
+  opacity: 0.88;
+}
+
+.victory-with {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: 15px;
+  color: #c3c2b7;
+}
+
+.victory-deck {
+  color: #898781;
+}
+
+.victory-recap {
+  --recap-surface: #15151b;
+  align-self: center;
+  max-height: 100%;
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding: 14px 16px 12px;
+  border: 1px solid rgba(200, 168, 75, 0.28);
+  border-radius: 16px;
+  background: var(--recap-surface);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+  animation: victory-recap-in 800ms ease-out 700ms both;
+}
+
+.victory-actions {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  padding: 12px 16px calc(18px + env(safe-area-inset-bottom));
+  opacity: 0;
+  transition: opacity 450ms ease-out;
+}
+
+.victory-actions--ready {
+  opacity: 1;
+}
+
+.victory-actions button {
+  min-width: 150px;
+  padding: 14px 22px;
+  font-size: 17px;
+}
+
+.victory-actions button.ghost {
+  background: rgba(16, 16, 20, 0.55);
+}
+
+.victory-undo {
+  min-width: 0 !important;
+}
+
+/* Taller than wide (a tablet upright, or the screen turned to a side seat):
+   the winner above, the recap under it. */
+@container (max-aspect-ratio: 1 / 1) {
+  .victory-body {
+    grid-template-columns: minmax(0, 1fr);
+    align-content: start;
+  }
+
+  .victory-card-wrap {
+    width: clamp(120px, min(34cqw, 26cqh), 240px);
+  }
+}
+
+/* Shown after "Look at the board": the way back to the results. */
+.victory-pill {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  z-index: 44;
+  transform: translateX(-50%);
+  padding: 10px 20px;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(100deg, #e9d48f, #c8a84b 60%, #a8862f);
+  color: #141410;
+  font-weight: 700;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55), 0 0 30px rgba(200, 168, 75, 0.35);
+}
+
+/* "Who won?" in the End sheet, and Concede in the player sheet. */
+.end-winner {
+  margin-top: 14px;
+}
+
+.end-winner-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 8px;
+}
+
+.end-winner-ask small {
+  color: #8c8c99;
+}
+
+.end-winner-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.concede-row .badge-btn {
+  white-space: nowrap;
+}
+
+.concede-row .badge-btn.armed {
+  border-color: var(--danger);
+  color: #ff8a7a;
+}
+
+/* ---- the recap (GameRecap): the victory screen and the history ---- */
+
+.recap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+}
+
+.recap-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recap-row {
+  display: grid;
+  grid-template-columns: 2.6em 14px auto minmax(0, 1fr);
+  column-gap: 10px;
+  align-items: baseline;
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.recap-row--winner {
+  background: rgba(200, 168, 75, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(200, 168, 75, 0.38);
+}
+
+.recap-place {
+  grid-row: span 2;
+  align-self: center;
+  font-size: 13px;
+  text-align: center;
+  color: #c3c2b7;
+}
+
+.recap-row--winner .recap-place {
+  font-size: 20px;
+}
+
+.recap-key {
+  grid-row: span 2;
+  align-self: center;
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+.recap-name {
+  font-size: 17px;
+  color: #fff;
+}
+
+.recap-what {
+  justify-self: end;
+  text-align: right;
+  font-family: var(--font-body);
+  font-size: 14px;
+  color: var(--fg);
+}
+
+.recap-when {
+  grid-column: 3 / -1;
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: #898781;
+}
+
+.recap-hit {
+  margin: 2px 0 0;
+  font-family: var(--font-body);
+  font-size: 14px;
+  color: var(--fg);
+}
+
+.recap-hit-label {
+  margin-right: 6px;
+  font-family: var(--font-display);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+/* ---- the history (HistoryScreen), and its marks on Home and Decks ---- */
+
+.screen.history {
+  justify-content: flex-start;
+  align-items: stretch;
+  width: 100%;
+  max-width: 980px;
+  margin: 0 auto;
+  text-align: left;
+}
+
+.history-count {
+  margin-left: auto;
+  font-size: 0.9rem;
+  color: #9a9aa5;
+}
+
+.history-empty {
+  margin: 40px auto;
+  max-width: 460px;
+  text-align: center;
+  font-family: var(--font-body);
+  line-height: 1.5;
+  color: #9a9aa5;
+}
+
+.history-boards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.history-card,
+.history-games {
+  padding: 14px 16px;
+  border: 1px solid #2a2a33;
+  border-radius: 16px;
+  background: #16161c;
+}
+
+.history-games {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.history-card-title {
+  margin: 0 0 10px;
+  font-size: 0.85rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.standings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.standing {
+  display: grid;
+  grid-template-columns: 1.4em 34px minmax(0, 1fr) auto;
+  grid-template-areas:
+    'rank avatar name score'
+    'rank avatar bar bar';
+  column-gap: 10px;
+  row-gap: 4px;
+  align-items: center;
+}
+
+.standing--commander {
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  grid-template-areas: 'avatar name score';
+}
+
+.standing-rank {
+  grid-area: rank;
+  text-align: center;
+  color: #9a9aa5;
+}
+
+.standing:first-child .standing-rank {
+  color: var(--accent);
+}
+
+.standing-avatar,
+.standing-card {
+  grid-area: avatar;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #26262e;
+}
+
+.standing-card {
+  height: 47px;
+  border-radius: 3px;
+}
+
+.standing-name {
+  grid-area: name;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: #fff;
+}
+
+.standing-score {
+  grid-area: score;
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  color: #c3c2b7;
+  white-space: nowrap;
+}
+
+.standing-score strong {
+  color: #fff;
+  font-size: 1rem;
+}
+
+.standing-bar {
+  grid-area: bar;
+  height: 4px;
+  border-radius: 2px;
+  background: #24242b;
+  overflow: hidden;
+}
+
+.standing-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.history-game {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 12px;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.03);
+  border-color: #2a2a33;
+}
+
+.history-game-card {
+  flex: 0 0 auto;
+  width: 48px;
+  height: 67px;
+  border-radius: 4px;
+  object-fit: cover;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+.history-game-card--empty {
+  display: grid;
+  place-items: center;
+  font-size: 24px;
+  background: #26262e;
+}
+
+.history-game-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.history-game-title {
+  font-size: 1.05rem;
+  color: #fff;
+}
+
+.history-game-meta,
+.history-game-players {
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  color: #9a9aa5;
+}
+
+.history-removed {
+  margin-top: 8px;
+  opacity: 0.85;
+}
+
+.profile-wins {
+  font-size: 0.75rem;
+  color: var(--accent);
+}
+
+.deck-tile-record {
+  font-family: var(--font-body);
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+/* ---- life over the game (LifeChart) ---- */
+
+.life-chart {
+  margin: 2px 0 0;
+}
+
+.life-chart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #c3c2b7;
+}
+
+.life-chart-toggle {
+  padding: 4px 10px;
+  border-color: #2c2c2a;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 12px;
+}
+
+.life-chart-plot {
+  position: relative;
+}
+
+.life-chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  font-family: var(--font-body);
+  touch-action: pan-y;
+}
+
+.life-chart-grid line {
+  stroke: #2c2c2a;
+  stroke-width: 1;
+}
+
+.life-chart-zero line {
+  stroke: #46463f;
+  stroke-width: 1;
+}
+
+.life-chart-grid text,
+.life-chart-zero text,
+.life-chart-x {
+  fill: #898781;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.life-chart-line {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.life-chart-dot {
+  stroke: #15151b;
+  stroke-width: 2;
+}
+
+.life-chart-label {
+  fill: #c3c2b7;
+  font-size: 12px;
+}
+
+.life-chart-cross {
+  stroke: #898781;
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+
+.life-chart-readout {
+  position: absolute;
+  top: 4px;
+  transform: translateX(10px);
+  padding: 6px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: #0d0d10;
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: #c3c2b7;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.life-chart-readout[data-side='left'] {
+  transform: translateX(calc(-100% - 10px));
+}
+
+.life-chart-readout-head {
+  margin-bottom: 2px;
+  color: #898781;
+}
+
+.life-chart-readout-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.life-chart-readout-row strong {
+  min-width: 2.2em;
+  text-align: right;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+
+.life-chart-readout-row i,
+.life-chart-legend i {
+  display: inline-block;
+  width: 12px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+.life-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 4px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: #c3c2b7;
+}
+
+.life-chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.life-table-wrap {
+  max-height: 190px;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.life-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: #c3c2b7;
+  font-variant-numeric: tabular-nums;
+}
+
+.life-table th,
+.life-table td {
+  padding: 3px 6px;
+  border-bottom: 1px solid #2c2c2a;
+  text-align: right;
+}
+
+.life-table th:first-child,
+.life-table td:first-child {
+  text-align: left;
+}
+
+@keyframes victory-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes victory-drift {
+  from {
+    transform: scale(1.04) translate(-1%, 0);
+  }
+  to {
+    transform: scale(1.1) translate(1%, -1%);
+  }
+}
+
+@keyframes victory-spin {
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+@keyframes victory-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(40px) rotate(-6deg) scale(0.85);
+  }
+}
+
+@keyframes victory-glow {
+  50% {
+    box-shadow:
+      0 0 0 2px rgba(232, 200, 110, 0.9),
+      0 18px 60px rgba(0, 0, 0, 0.7),
+      0 0 110px rgba(232, 200, 110, 0.5);
+  }
+}
+
+@keyframes victory-kicker {
+  from {
+    opacity: 0;
+    letter-spacing: 0.1em;
+  }
+}
+
+@keyframes victory-name-in {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+}
+
+@keyframes victory-sheen {
+  0%,
+  100% {
+    background-position: 100% 0;
+  }
+  50% {
+    background-position: 0% 0;
+  }
+}
+
+@keyframes victory-recap-in {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+}
+
+@keyframes victory-spark {
+  0% {
+    top: 102%;
+    opacity: 0;
+    transform: translateX(0) scale(0.6);
+  }
+  12% {
+    opacity: 0.95;
+  }
+  100% {
+    top: -4%;
+    opacity: 0;
+    transform: translateX(30px) scale(1.1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .victory,
+  .victory *,
+  .victory-pill {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .victory-sparks {
+    display: none;
+  }
+}

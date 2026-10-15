@@ -199,6 +199,96 @@ export interface GameState {
    * lib/combat.ts, never directly: a finished or stale one stays here
    * until the turn passes. */
   combat?: CombatState;
+  /** What the end-of-game recap tells. Written only by lib/story.ts (every
+   * local move passes through it), so it syncs with the game and an Undo
+   * takes it back with the move. Absent on games begun before it existed;
+   * builds that do not know it keep it as it is. */
+  story?: GameStory;
+}
+
+/** The story of one game, for the recap when it ends (lib/story.ts). */
+export interface GameStory {
+  /** Names this game in the history: a game is saved there under it. */
+  id: string;
+  /** ms epoch the game began; absent when the story began mid-game. */
+  startedAt?: number;
+  /** Every seat's life as each turn began, oldest first. */
+  turns: StoryTurn[];
+  /** The players who went out, in the order they did. */
+  outs: StoryOut[];
+  /** The biggest hit among the bursts that are over. */
+  best?: StoryHit;
+  /** Life changes still being added up: taps a moment apart are one hit. */
+  open?: StoryBurst[];
+  /** ms epoch the game was decided: one player left, or nobody. */
+  endedAt?: number;
+}
+
+export interface StoryTurn {
+  turn: number;
+  active: number;
+  life: number[];
+}
+
+export interface StoryOut {
+  seat: number;
+  turn: number;
+  /** Whose turn it was when they went out. */
+  active: number;
+  /** When (ms epoch): players who went out in the same move share it. */
+  t: number;
+  how: 'life' | 'commander' | 'poison' | 'conceded';
+  /** 'commander': the commander-damage key that reached the limit, and its total then. */
+  by?: string;
+  n?: number;
+}
+
+export interface StoryHit {
+  seat: number;
+  n: number;
+  turn: number;
+  active: number;
+}
+
+export interface StoryBurst {
+  seat: number;
+  net: number;
+  t: number;
+  turn: number;
+  active: number;
+}
+
+/** A finished game, kept on this device for the history. */
+export interface GameRecord {
+  id: string; // the game's story id
+  startedAt: number | null;
+  endedAt: number;
+  turns: number;
+  format: Format;
+  mode: 'tracker' | 'cards';
+  online: boolean;
+  /** The winner's seat; null = nobody won (everyone fell at once). */
+  winner: number | null;
+  players: GameRecordSeat[];
+  outs: StoryOut[];
+  hit: StoryHit | null;
+  /** Life as each turn began, and at the end: the life chart. */
+  lives: StoryTurn[];
+  /** Taken out of the history by hand: kept so it can come back, counted nowhere. */
+  removed?: boolean;
+}
+
+export interface GameRecordSeat {
+  profileId: string;
+  name: string;
+  avatarUrl: string | null;
+  commanderName: string | null;
+  partnerName: string | null;
+  commanderImage: string | null;
+  colors: string[];
+  deckId: string | null;
+  deckName: string | null;
+  life: number;
 }
 
 export interface DeckCard {

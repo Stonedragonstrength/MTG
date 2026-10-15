@@ -1,3 +1,4 @@
+import { validStory } from './story';
 import type { CardInstance, FeedEntry, GameState, Reveal, SeatCards } from './types';
 import type { CombatBlock, CombatState } from './types';
 
@@ -143,11 +144,12 @@ function soundCombat(saved: GameState): GameState {
 /** Fill in fields added after a save was written (or sent by an older build). */
 export function migrateGame(saved: GameState): GameState {
   saved = soundCombat(saved); // before the spread below copies it along
-  const { reveal, ...rest } = saved;
+  const { reveal, story, ...rest } = saved;
   return {
     ...rest,
     // Kept only when well-formed; otherwise the key is gone, not nulled.
     ...(validReveal(reveal, saved.players.length) ? { reveal } : {}),
+    ...(validStory(story, saved.players.length) ? { story } : {}),
     monarchIdx: saved.monarchIdx ?? null,
     initiativeIdx: saved.initiativeIdx ?? null,
     turnStartedAt: saved.turnStartedAt ?? Date.now(),

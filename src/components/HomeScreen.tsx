@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react';
 import { findCardByName } from '../data/scryfall';
 import { registerBack } from '../lib/backstack';
+import { playerStandings, winsOf } from '../lib/history';
 import { COLOR_HEX } from '../lib/mana';
+import { decided } from '../lib/story';
 import type { PlayerProfile } from '../lib/types';
 import { useAppStore } from '../state/store';
 import DecksScreen from './DecksScreen';
 import GarageScreen from './GarageScreen';
+import HistoryScreen from './HistoryScreen';
 import JoinTableSheet from './JoinTableSheet';
 import NewGameScreen from './NewGameScreen';
 import ProfileEditor from './ProfileEditor';
@@ -21,10 +24,11 @@ export default function HomeScreen() {
   const game = useAppStore((s) => s.game);
   const enterGame = useAppStore((s) => s.enterGame);
   const saveProfile = useAppStore((s) => s.saveProfile);
-  const [view, setView] = useState<'home' | 'newgame' | 'decks' | 'garage'>('home');
+  const [view, setView] = useState<'home' | 'newgame' | 'decks' | 'garage' | 'history'>('home');
   const [openDeck, setOpenDeck] = useState<string | null>(null);
   const decks = useAppStore((s) => s.decks);
   const garage = useAppStore((s) => s.garage);
+  const games = useAppStore((s) => s.games);
   const [editing, setEditing] = useState<PlayerProfile | null>(null);
   const [creating, setCreating] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -79,6 +83,7 @@ export default function HomeScreen() {
   }, [profiles, saveProfile]);
 
   if (view === 'newgame') return <NewGameScreen onBack={goHome} />;
+  if (view === 'history') return <HistoryScreen onBack={goHome} />;
   if (view === 'decks') return <DecksScreen initialOpenId={openDeck ?? undefined} onBack={goHome} />;
   if (view === 'garage')
     return (
@@ -93,6 +98,8 @@ export default function HomeScreen() {
     );
 
   const savedNames = game?.config.profiles.map((p) => p.name).join(' · ');
+  const leader = playerStandings(games)[0];
+  const over = game ? decided(game) : null;
 
   return (
     <div className="screen home">
@@ -113,7 +120,9 @@ export default function HomeScreen() {
           <button className="action-card action-card--resume" onClick={enterGame}>
             <span className="action-card-title">Pick up game</span>
             <span className="action-card-sub">
-              Turn {game.turnNumber} · {savedNames}
+              {over !== null
+                ? `${typeof over === 'number' ? `${game.config.profiles[over]?.name} won` : 'A draw'} · see the results`
+                : `Turn ${game.turnNumber} · ${savedNames}`}
             </span>
           </button>
         )}
@@ -149,6 +158,14 @@ export default function HomeScreen() {
               : 'Your collection'}
           </span>
         </button>
+        <button className="action-card" onClick={() => setView('history')}>
+          <span className="action-card-title">History</span>
+          <span className="action-card-sub">
+            {games.length === 0
+              ? 'Winners & recaps'
+              : `${games.length} ${games.length === 1 ? 'game' : 'games'}${leader && leader.wins > 0 ? ` · ${leader.name} leads` : ''}`}
+          </span>
+        </button>
       </div>
 
       <div className="profile-grid">
@@ -165,6 +182,11 @@ export default function HomeScreen() {
               <div className="avatar avatar--big avatar--empty" />
             )}
             <span className="profile-name">{p.name}</span>
+            {winsOf(games, p.id) > 0 && (
+              <span className="profile-wins">
+                🏆 {winsOf(games, p.id)} {winsOf(games, p.id) === 1 ? 'win' : 'wins'}
+              </span>
+            )}
             {p.commanderImage && (
               <img
                 className="profile-commander-card"

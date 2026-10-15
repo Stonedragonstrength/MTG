@@ -26,6 +26,8 @@ import * as payLib from '../lib/pay';
 import * as payWithLib from '../lib/payWith';
 import { planEffect, type SpellEffect } from '../lib/spellEffects';
 import { happeningsBetween, unitThing, type Happening } from '../lib/triggers';
+import { recordOf } from '../lib/history';
+import { beginStory, decided, withStory } from '../lib/story';
 import { isLandCard } from '../lib/turnRules';
 import { playDefeat, playLifeTick, playTurnChime } from '../lib/sound';
 import type {
@@ -38,6 +40,7 @@ import type {
   Deck,
   FeedEntry,
   GameConfig,
+  GameRecord,
   GameState,
   GarageCard,
   PlayerProfile,
@@ -71,7 +74,20 @@ export interface AppStore {
   startGame(config: GameConfig): void;
   enterGame(): void;
   exitToHome(): void;
-  endGame(): void;
+  /** `winner`: named by hand as the game ends (everyone else conceded) —
+   * the game goes into the history as theirs. null or left out: nobody. */
+  endGame(opts?: { winner?: number | null }): void;
+  /** The same players in the same seats with the same decks, dealt again. */
+  rematch(): void;
+  /** A player leaves the game: out, as if beaten. */
+  concede(playerIdx: number): void;
+  /** Finished games on this device, newest first (removed ones left out). */
+  games: GameRecord[];
+  /** Takes a game out of the history; it can be brought back. */
+  removeGame(id: string): Promise<void>;
+  restoreGame(id: string): Promise<void>;
+  /** Games taken out of the history, newest first. */
+  removedGames(): Promise<GameRecord[]>;
   online: { code: string; status: TableStatus; mySeat: number | null } | null;
   /** Both resolve to an error line or null. `stillWanted` is asked once the
    * table answers: false (the player backed out meanwhile) undoes it. */
@@ -469,10 +485,50 @@ function reread<T extends { id: string; updatedAt?: number }>(current: T[], fres
     : next;
 }
 
+const newestEnd = (a: GameRecord, b: GameRecord) => b.endedAt - a.endedAt;
+
 export function createAppStore() {
-  return create<AppStore>()((set, get) => {
+  return create<AppStore>()((set, get, api) => {
     let history: GameState[] = [];
     let happenedSeq = 0;
+
+    // ---- the history of finished games ----
+    // Writes go through the persistence chain one after another, so a win
+    // undone a moment after it was recorded can never be written back.
+    const deckNames = () => Object.fromEntries(get().decks.map((d) => [d.id, d.name]));
+    const keepRecord = (rec: GameRecord) => {
+      pending = pending
+        .then(async () => {
+          const db = getDb();
+          // Taken out by hand before (and seen decided again on a reload): it stays out.
+          const row = (await db.games.get(rec.id))?.removed ? { ...rec, removed: true } : rec;
+          await db.games.put(row);
+          const rest = get().games.filter((x) => x.id !== row.id);
+          set({ games: row.removed ? rest : [row, ...rest].sort(newestEnd) });
+        })
+        .catch((err) => console.error('Failed to save the finished game', err));
+    };
+    const dropRecord = (id: string) => {
+      pending = pending
+        .then(async () => {
+          await getDb().games.delete(id);
+          if (get().games.some((x) => x.id === id)) set({ games: get().games.filter((x) => x.id !== id) });
+        })
+        .catch((err) => console.error('Failed to take the game back out of the history', err));
+    };
+    // A game goes into the history the moment it is decided — here, on
+    // every device at the table, whoever made the move — and comes back
+    // out if an Undo takes the win away again. Ending it changes nothing.
+    api.subscribe((s, was) => {
+      const next = s.game;
+      if (next === was.game || !next) return;
+      const prev = was.game && was.game.story?.id === next.story?.id ? was.game : null;
+      const now = decided(next);
+      const before = prev ? decided(prev) : null;
+      if (now !== null && before === null)
+        keepRecord(recordOf(next, { now: Date.now(), online: !!s.online, deckNames: deckNames() }));
+      else if (now === null && before !== null && next.story) dropRecord(next.story.id);
+    });
 
     const playerName = (g: GameState, idx: number) => g.config.profiles[idx]?.name ?? '?';
 
@@ -515,7 +571,7 @@ export function createAppStore() {
     };
 
     const mutateGame = (
-      fn: (g: GameState) => GameState,
+      move: (g: GameState) => GameState,
       describe?: (prev: GameState, next: GameState) => string | null,
       sync?: SyncOpts,
       also: Happening[] = [],
@@ -523,6 +579,9 @@ export function createAppStore() {
       const game = get().game;
       if (!game) return;
       if (get().online?.status.kind === 'stale-build') return; // refresh first
+      // The game's story (lib/story.ts) rides inside every move, so a move
+      // replayed on another base retells its part of it too.
+      const fn = (g: GameState) => withStory(g, move(g));
       const next = fn(game);
       if (next === game) return;
       // Tripwire: the server refuses >512KB; refuse earlier and louder.
@@ -658,6 +717,7 @@ export function createAppStore() {
       profiles: [],
       decks: [],
       garage: [],
+      games: [],
       online: null,
       seatFlips: {},
       settings: DEFAULT_SETTINGS,
@@ -679,6 +739,8 @@ export function createAppStore() {
           .filter((g) => !g.deleted)
           .sort((a, b) => a.name.localeCompare(b.name));
         const settings = await getSettings();
+        const games = (await getDb().games.toArray()).filter((r) => !r.removed).sort(newestEnd);
+        set({ games });
         let game: GameState | null = null;
         try {
           const saved = await kvGet('activeGame');
@@ -743,7 +805,7 @@ export function createAppStore() {
       },
 
       startGame(config) {
-        const game = gameLib.createGame(config);
+        const game = beginStory(gameLib.createGame(config));
         history = [];
         resetSeatFlips();
         set({ game, inGame: true, log: [{ t: Date.now(), text: 'Game started' }] });
@@ -759,7 +821,7 @@ export function createAppStore() {
       },
 
       async hostOnlineGame(config, stillWanted = () => true) {
-        const game = gameLib.createGame(config);
+        const game = beginStory(gameLib.createGame(config));
         const r = await tableSync.hostTable(game);
         if ('error' in r) return r.error;
         if (!stillWanted()) {
@@ -1844,7 +1906,14 @@ export function createAppStore() {
         );
       },
 
-      endGame() {
+      endGame(opts = {}) {
+        const ending = get().game;
+        // A winner named as it ends: into the history as theirs (a game
+        // already decided is there since the moment it was).
+        if (ending && opts.winner != null && ending.players[opts.winner] && decided(ending) === null)
+          keepRecord(
+            recordOf(ending, { now: Date.now(), online: !!get().online, winner: opts.winner, deckNames: deckNames() }),
+          );
         // Online: ending on any device ends it for everyone (shared-tablet model).
         if (get().online) {
           void tableSync.endTableForEveryone();
@@ -1854,6 +1923,54 @@ export function createAppStore() {
         resetSeatFlips();
         set({ game: null, inGame: false, log: [] });
         persistGame(null);
+      },
+
+      rematch() {
+        const g = get().game;
+        if (!g || get().online) return;
+        const { config } = g;
+        get().startGame(config);
+        // Every seat that played a saved deck is dealt it again, shuffled.
+        if (config.mode === 'cards')
+          config.profiles.forEach((p, seat) => {
+            const deck = p.deckId ? get().decks.find((d) => d.id === p.deckId) : undefined;
+            if (deck) get().seedSeatFromDeck(seat, deck);
+          });
+      },
+
+      concede(playerIdx) {
+        const g = get().game;
+        if (!g?.players[playerIdx] || g.players[playerIdx].eliminated) return;
+        mutateGame(
+          (base) =>
+            base.players[playerIdx] && !base.players[playerIdx].eliminated
+              ? { ...base, players: base.players.map((p, i) => (i === playerIdx ? { ...p, eliminated: true } : p)) }
+              : base,
+          (prev) => `${playerName(prev, playerIdx)} concedes`,
+        );
+        // Their turn ends with them, unless that was the game.
+        const after = get().game;
+        if (after && after.activePlayerIndex === playerIdx && decided(after) === null) get().passTurn();
+      },
+
+      async removeGame(id) {
+        const db = getDb();
+        const row = await db.games.get(id);
+        if (row && !row.removed) await db.games.put({ ...row, removed: true });
+        if (get().games.some((x) => x.id === id)) set({ games: get().games.filter((x) => x.id !== id) });
+      },
+
+      async restoreGame(id) {
+        const db = getDb();
+        const row = await db.games.get(id);
+        if (!row?.removed) return;
+        const { removed: _removed, ...back } = row;
+        await db.games.put(back);
+        set({ games: [back, ...get().games.filter((x) => x.id !== id)].sort(newestEnd) });
+      },
+
+      async removedGames() {
+        return (await getDb().games.toArray()).filter((r) => r.removed).sort(newestEnd);
       },
 
       undo() {

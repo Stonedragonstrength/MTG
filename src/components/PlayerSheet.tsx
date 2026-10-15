@@ -1,6 +1,8 @@
 import { seatCommanders } from '../lib/commanders';
+import { decided } from '../lib/story';
 import { useAppStore } from '../state/store';
 import Sheet from './Sheet';
+import { useConfirmTap } from './useConfirmTap';
 
 const PLAYER_COUNTERS = [
   { key: 'poison', label: 'Poison', icon: '☠' },
@@ -24,6 +26,8 @@ export default function PlayerSheet({ playerIdx, onClose }: Props) {
   const claimInitiative = useAppStore((s) => s.claimInitiative);
   const flipped = useAppStore((s) => s.seatFlips[playerIdx] === true);
   const setSeatFlip = useAppStore((s) => s.setSeatFlip);
+  const concede = useAppStore((s) => s.concede);
+  const conceding = useConfirmTap();
 
   if (!game) return null;
   const player = game.players[playerIdx];
@@ -190,6 +194,28 @@ export default function PlayerSheet({ playerIdx, onClose }: Props) {
           </button>
         </div>
       </div>
+
+      {/* Leaving the game: out, as if beaten (and their turn passes on). */}
+      {!player.eliminated && decided(game) === null && (
+        <div className="detail-row concede-row">
+          <span className="settings-row-text">
+            <span>Concede</span>
+            <small>{profile.name} leaves the game. The others play on.</small>
+          </span>
+          <div className="stepper">
+            <button
+              className={conceding.armed ? 'badge-btn armed' : 'badge-btn'}
+              onClick={(e) => {
+                if (!conceding.confirms(e)) return;
+                concede(playerIdx);
+                onClose();
+              }}
+            >
+              {conceding.armed ? 'Really concede?' : '🏳 Concede'}
+            </button>
+          </div>
+        </div>
+      )}
     </Sheet>
   );
 }

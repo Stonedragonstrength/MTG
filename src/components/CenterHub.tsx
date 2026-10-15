@@ -65,6 +65,8 @@ export default function CenterHub({ variant = 'overlay', seat, compact = false }
   const turnTimerOn = useAppStore((s) => s.settings.turnTimerOn);
   const [sheet, setSheet] = useState<SheetName>(null);
   const [trayOpen, setTrayOpen] = useState(false);
+  // "Who won?" as the game is ended by hand (a concession): null = nobody.
+  const [endWinner, setEndWinner] = useState<number | null>(null);
   const passedAt = useRef<number | null>(null);
   const endPickedAt = useRef<number | null>(null);
   // A pinned hub stays mounted while its zone collapses and grows back with the
@@ -103,14 +105,20 @@ export default function CenterHub({ variant = 'overlay', seat, compact = false }
 
   function askToEnd(tap: { timeStamp: number }) {
     endPickedAt.current = sheet === 'more' ? tap.timeStamp : null;
+    setEndWinner(null);
     openSheet('end');
   }
 
   function confirmEnd(tap: { timeStamp: number }) {
     const picked = endPickedAt.current;
     if (picked !== null && tap.timeStamp - picked < STRAY_TAP_MS) return;
-    endGame();
+    if (endWinner !== null) endGame({ winner: endWinner });
+    else endGame();
   }
+
+  // Still in the game: who could be named the winner as it ends.
+  const stillIn = game.players.flatMap((p, i) => (p.eliminated ? [] : [i]));
+  const winnerName = endWinner !== null ? game.config.profiles[endWinner]?.name : null;
 
   const whose =
     seat !== undefined && seat !== game.activePlayerIndex
@@ -214,7 +222,7 @@ export default function CenterHub({ variant = 'overlay', seat, compact = false }
           footer={
             <>
               <button className="danger" onClick={confirmEnd}>
-                Yes, end it
+                {winnerName ? `End it — ${winnerName} won` : 'Yes, end it'}
               </button>
               <button className="ghost" onClick={() => setSheet(null)}>
                 Keep playing
@@ -223,6 +231,34 @@ export default function CenterHub({ variant = 'overlay', seat, compact = false }
           }
         >
           <p>The game ends for everyone. Player profiles are kept.</p>
+          {stillIn.length >= 2 && (
+            <div className="end-winner">
+              <p className="end-winner-ask">
+                Who won? <small>Picked here, the game goes into the history as theirs.</small>
+              </p>
+              <div className="end-winner-chips" role="radiogroup" aria-label="who won">
+                {stillIn.map((i) => (
+                  <button
+                    key={i}
+                    role="radio"
+                    aria-checked={endWinner === i}
+                    className={endWinner === i ? 'badge-btn active' : 'badge-btn'}
+                    onClick={() => setEndWinner(endWinner === i ? null : i)}
+                  >
+                    {game.config.profiles[i]?.name}
+                  </button>
+                ))}
+                <button
+                  role="radio"
+                  aria-checked={endWinner === null}
+                  className={endWinner === null ? 'badge-btn active' : 'badge-btn'}
+                  onClick={() => setEndWinner(null)}
+                >
+                  Nobody
+                </button>
+              </div>
+            </div>
+          )}
         </Sheet>
       )}
     </div>

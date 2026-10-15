@@ -1,6 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 import type { DeckRow, ProfileRow } from '../lib/sync';
-import type { CardRecord, GarageCard } from '../lib/types';
+import type { CardRecord, GameRecord, GarageCard } from '../lib/types';
 
 export interface KvEntry {
   key: string;
@@ -16,6 +16,8 @@ export class AppDb extends Dexie {
   kv!: Table<KvEntry, string>;
   decks!: Table<DeckRow, string>;
   garage!: Table<GarageCard, string>;
+  /** Finished games, kept on this device only (the history). */
+  games!: Table<GameRecord, string>;
 
   constructor(name = 'mtg-companion') {
     super(name);
@@ -31,6 +33,9 @@ export class AppDb extends Dexie {
     });
     this.version(3).stores({
       garage: 'cardId, dirty',
+    });
+    this.version(4).stores({
+      games: 'id',
     });
   }
 }
