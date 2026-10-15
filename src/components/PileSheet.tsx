@@ -2,12 +2,15 @@ import { useState } from 'react';
 import { abilitiesOf, type Ability } from '../lib/abilities';
 import { isCommander } from '../lib/cards';
 import { reboundTurn } from '../lib/cascade';
+import { asksLife, entryLife } from '../lib/lands';
 import { castCosts, hasX } from '../lib/pay';
 import { seatSources } from '../lib/seatMana';
+import { isLandCard } from '../lib/turnRules';
 import type { CardInstance, CardZone } from '../lib/types';
 import { useAppStore } from '../state/store';
 import AbilityRow, { type AbilityUse } from './AbilityRow';
 import DiscoverSheet from './DiscoverSheet';
+import LandLifeSheet from './LandLifeSheet';
 import Sheet from './Sheet';
 import { useCardRecords } from './useCardRecords';
 import { useTableRecords } from './useCombat';
@@ -36,6 +39,9 @@ export default function PileSheet({ playerIdx, zone, short = NONE, onClose }: Pr
   const [xFor, setXFor] = useState<string | null>(null); // the commander being cast for X
   // A Discover from a card's graveyard ability (Buried Treasure), in this sheet's place.
   const [discovering, setDiscovering] = useState<{ card: CardInstance; ability: Ability; use: AbilityUse } | null>(null);
+  // A land put onto the battlefield from here that asks for life as it comes in.
+  const [lifeFor, setLifeFor] = useState<CardInstance | null>(null);
+  const putLand = useAppStore((s) => s.putLand);
   const seat = game?.players[playerIdx]?.cards;
   const cards = seat?.[zone] ?? [];
   const shown = zone === 'graveyard' ? [...cards].reverse() : cards;
@@ -65,6 +71,18 @@ export default function PileSheet({ playerIdx, zone, short = NONE, onClose }: Pr
   // A commander with {X} in its cost: "Cast" asks how much, in this sheet's
   // place. Closing that question closes the lot, like a cast does.
   if (xFor) return <XCostSheet playerIdx={playerIdx} iid={xFor} from="command" onClose={onClose} />;
+  if (lifeFor && zone !== 'command')
+    return (
+      <LandLifeSheet
+        name={lifeFor.name}
+        life={entryLife(records[lifeFor.cardId])}
+        onAnswer={(pay) => {
+          void putLand(playerIdx, lifeFor.iid, zone, { life: pay });
+          setLifeFor(null);
+        }}
+        onClose={() => setLifeFor(null)}
+      />
+    );
   if (discovering) {
     const { card, ability, use } = discovering;
     const n = ability.effect.kind === 'discover' ? ability.effect.n : 0;
@@ -133,9 +151,14 @@ export default function PileSheet({ playerIdx, zone, short = NONE, onClose }: Pr
                       Hand
                     </button>
                     <button
-                      onClick={() =>
-                        moveVirtualCard(playerIdx, c.iid, zone, 'battlefield', { row: 'front' })
-                      }
+                      onClick={() => {
+                        // A land comes in as its own words say: a guildgate tapped, a shock land asks.
+                        const record = records[c.cardId];
+                        if (!isLandCard(record?.typeLine ?? ''))
+                          moveVirtualCard(playerIdx, c.iid, zone, 'battlefield', { row: 'front' });
+                        else if (asksLife(record)) setLifeFor(c);
+                        else void putLand(playerIdx, c.iid, zone);
+                      }}
                     >
                       Battlefield
                     </button>

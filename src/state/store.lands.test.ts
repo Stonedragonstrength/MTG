@@ -43,6 +43,7 @@ const LANDS = [
   rec('ld-pool', 'Breeding Pool', 'Land — Forest Island', '({T}: Add {G} or {U}.)\nAs Breeding Pool enters, you may pay 2 life. If you don’t, it enters tapped.'),
   rec('ld-glen', 'Hinterland Harbor', 'Land', 'This land enters tapped unless you control a Forest or an Island.\n{T}: Add {G} or {U}.'),
   rec('ld-forest', 'Forest', 'Basic Land — Forest', '({T}: Add {G}.)'),
+  rec('ld-gate-black', 'The Black Gate', 'Legendary Land', 'As The Black Gate enters, you may pay 3 life. If you don’t, it enters tapped.\n{T}: Add {B}.'),
 ];
 
 const config: GameConfig = {
@@ -114,4 +115,86 @@ test('a basic land comes in untapped as always', async () => {
   await store.getState().playCard(0, 'f');
   expect(placed(store, 'f').tapped).toBeUndefined();
   expect(store.getState().game!.feed!.at(-1)!.text).toBe('Nathan plays Forest');
+});
+
+test('The Black Gate asks 3 life, not 2', async () => {
+  const store = table([{ iid: 'b', cardId: 'ld-gate-black', name: 'The Black Gate' }]);
+  await store.getState().playCard(0, 'b', { landEntry: 'life' });
+  expect(placed(store, 'b').tapped).toBeUndefined();
+  expect(store.getState().game!.players[0].life).toBe(37);
+  expect(store.getState().game!.feed!.at(-1)!.text).toBe('Nathan plays The Black Gate (paying 3 life)');
+});
+
+/** A seat with these cards in its library and graveyard (and lands out). */
+function shelves(library: CardInstance[], battlefield: CardInstance[] = [], graveyard: CardInstance[] = []) {
+  const store = table([], battlefield);
+  const g = store.getState().game!;
+  store.setState({
+    game: { ...g, players: g.players.map((p, i) => (i === 0 ? { ...p, cards: { ...p.cards!, library, graveyard } } : p)) },
+  });
+  return store;
+}
+
+const filler = Array.from({ length: 5 }, (_, i): CardInstance => ({ iid: `x${i}`, cardId: 'ld-forest', name: 'Forest' }));
+
+test('a land a search puts onto the battlefield comes in as its own words say', async () => {
+  const store = shelves([
+    { iid: 'g', cardId: 'ld-gate', name: 'Simic Guildgate' },
+    { iid: 'f', cardId: 'ld-forest', name: 'Forest' },
+    ...filler,
+  ]);
+  await store.getState().searchLibrary(0, [
+    { iid: 'g', to: 'battlefield', row: 'lands' },
+    { iid: 'f', to: 'battlefield', row: 'lands' },
+  ], 'Three Visits');
+  expect(placed(store, 'g')).toMatchObject({ tapped: true, sick: true });
+  expect(placed(store, 'g').spent).toBeGreaterThan(0); // nothing to float
+  expect(placed(store, 'f').tapped).toBeUndefined();
+  expect(store.getState().game!.feed!.at(-1)!.text).toBe(
+    'Nathan searches their library (Three Visits), puts Simic Guildgate onto the battlefield tapped, puts Forest onto the battlefield and shuffles',
+  );
+});
+
+test('a fetched shock land comes in untapped for the life its player paid, else tapped', async () => {
+  const store = shelves([
+    { iid: 'a', cardId: 'ld-pool', name: 'Breeding Pool' },
+    { iid: 'b', cardId: 'ld-pool', name: 'Breeding Pool' },
+    ...filler,
+  ]);
+  await store.getState().searchLibrary(0, [{ iid: 'a', to: 'battlefield', row: 'lands', life: true }], 'Misty Rainforest');
+  expect(placed(store, 'a').tapped).toBeUndefined();
+  expect(store.getState().game!.players[0].life).toBe(38);
+  expect(store.getState().game!.feed!.at(-1)!.text).toBe(
+    'Nathan searches their library (Misty Rainforest), puts Breeding Pool (paying 2 life) onto the battlefield and shuffles',
+  );
+  await store.getState().searchLibrary(0, [{ iid: 'b', to: 'battlefield', row: 'lands' }], 'Misty Rainforest');
+  expect(placed(store, 'b').tapped).toBe(true);
+  expect(store.getState().game!.players[0].life).toBe(38);
+});
+
+test('a fetched check land looks at the lands already out; "onto the battlefield tapped" is always tapped', async () => {
+  const forest: CardInstance = { iid: 'out', cardId: 'ld-forest', name: 'Forest', row: 'lands' };
+  const store = shelves([{ iid: 'h', cardId: 'ld-glen', name: 'Hinterland Harbor' }, { iid: 'f', cardId: 'ld-forest', name: 'Forest' }, ...filler], [forest]);
+  await store.getState().searchLibrary(0, [{ iid: 'h', to: 'battlefield', row: 'lands' }], 'Crop Rotation');
+  expect(placed(store, 'h').tapped).toBeUndefined();
+  await store.getState().searchLibrary(0, [{ iid: 'f', to: 'tapped', row: 'lands' }], 'Evolving Wilds');
+  expect(placed(store, 'f')).toMatchObject({ tapped: true });
+  expect(placed(store, 'f').spent).toBeGreaterThan(0);
+});
+
+test('a land put onto the battlefield from the graveyard comes in as its own words say', async () => {
+  const store = shelves(filler, [], [
+    { iid: 'g', cardId: 'ld-gate', name: 'Simic Guildgate' },
+    { iid: 'p', cardId: 'ld-pool', name: 'Breeding Pool' },
+    { iid: 'f', cardId: 'ld-forest', name: 'Forest' },
+  ]);
+  await store.getState().putLand(0, 'g', 'graveyard');
+  expect(placed(store, 'g')).toMatchObject({ tapped: true, row: 'lands', sick: true });
+  expect(store.getState().game!.feed!.at(-1)!.text).toBe('Nathan: Simic Guildgate → battlefield (tapped)');
+  await store.getState().putLand(0, 'p', 'graveyard', { life: true });
+  expect(placed(store, 'p').tapped).toBeUndefined();
+  expect(store.getState().game!.players[0].life).toBe(38);
+  await store.getState().putLand(0, 'f', 'graveyard');
+  expect(placed(store, 'f').tapped).toBeUndefined();
+  expect(store.getState().game!.players[0].cards!.graveyard).toEqual([]);
 });

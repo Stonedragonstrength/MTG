@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
+import { backView, faceNames } from '../lib/faces';
+import { asksLife, entryLife } from '../lib/lands';
 import { asksAtCast } from '../lib/pay';
 import { hasLandBack, isLandCard } from '../lib/turnRules';
 import { useAppStore } from '../state/store';
+import LandLifeSheet from './LandLifeSheet';
 import PayWithSheet from './PayWithSheet';
 import Sheet from './Sheet';
 import { useCardRecords } from './useCardRecords';
@@ -26,6 +29,9 @@ export default function HandCardSheet({ playerIdx, iid, why = null, onClose }: P
   const playCard = useAppStore((s) => s.playCard);
   const [askX, setAskX] = useState(false);
   const [paying, setPaying] = useState(false);
+  // A land that asks for life as it comes in (a shock land; the land on the
+  // back of a Zendikar Rising spell): the question, in this sheet's place.
+  const [lifeFor, setLifeFor] = useState<{ asLand: boolean } | null>(null);
   const card = game?.players[playerIdx]?.cards?.hand.find((c) => c.iid === iid);
   const records = useCardRecords(card ? [card] : []);
   // The card left the hand (drawn away, discarded remotely): really close.
@@ -48,6 +54,20 @@ export default function HandCardSheet({ playerIdx, iid, why = null, onClose }: P
         onClose={onClose}
       />
     );
+  if (lifeFor) {
+    const land = lifeFor.asLand && record ? backView(record) : record;
+    return (
+      <LandLifeSheet
+        name={(lifeFor.asLand ? faceNames(record, card.name).back : null) ?? card.name}
+        life={entryLife(land)}
+        onAnswer={(pay) => {
+          void playCard(playerIdx, iid, { ...(lifeFor.asLand ? { asLand: true as const } : {}), landEntry: pay ? 'life' : 'tapped' });
+          onClose();
+        }}
+        onClose={onClose}
+      />
+    );
+  }
 
   const go = (to: 'graveyard' | 'exile', posTo?: never) => () => {
     void posTo;
@@ -69,6 +89,10 @@ export default function HandCardSheet({ playerIdx, iid, why = null, onClose }: P
             onClick={() => {
               if (asksAtCast(record, 'hand')) {
                 setAskX(true);
+                return;
+              }
+              if (isLandCard(record?.typeLine ?? '') && asksLife(record)) {
+                setLifeFor({ asLand: false });
                 return;
               }
               void playCard(playerIdx, iid); // free spells, reducers, treasure math, a land the rules do allow
@@ -95,6 +119,10 @@ export default function HandCardSheet({ playerIdx, iid, why = null, onClose }: P
           <button
             className="chip"
             onClick={() => {
+              if (record && asksLife(backView(record))) {
+                setLifeFor({ asLand: true });
+                return;
+              }
               void playCard(playerIdx, iid, { asLand: true });
               onClose();
             }}

@@ -42,6 +42,8 @@ const RECORDS: Record<string, CardRecord> = {
   'c-tower': rec('c-tower', 'Command Tower', 'Land'),
   'c-bear': rec('c-bear', 'Grizzly Bears', 'Creature — Bear'),
   'c-bolt': rec('c-bolt', 'Lightning Bolt', 'Instant'),
+  'c-pool': rec('c-pool', 'Breeding Pool', 'Land — Forest Island', 'As Breeding Pool enters, you may pay 2 life. If you don’t, it enters tapped.'),
+  'c-gate': rec('c-gate', 'Simic Guildgate', 'Land — Gate', 'This land enters tapped.\n{T}: Add {G} or {U}.'),
 };
 
 vi.mock('../data/scryfall', () => ({
@@ -179,4 +181,66 @@ test('a search that finds nothing still shuffles; closing the sheet does not', a
   await user.click(screen.getByRole('button', { name: 'Nothing found · shuffle' }));
   expect(searchLibrary).toHaveBeenCalledWith(0, [], undefined);
   expect(onClose).toHaveBeenCalledWith(true);
+});
+
+const FETCH = searchAsk({
+  name: 'Misty Rainforest',
+  typeLine: 'Land',
+  oracleText: '{T}, Pay 1 life, Sacrifice this land: Search your library for a Forest or Island card, put it onto the battlefield, then shuffle.',
+});
+
+/** The library holds a shock land and a guildgate (and a Forest). */
+function landsInLibrary() {
+  const g = useAppStore.getState().game!;
+  const library = [card('p1', 'c-pool'), card('p2', 'c-pool'), card('g1', 'c-gate'), card('f1', 'c-forest')];
+  useAppStore.setState({
+    game: { ...g, players: g.players.map((p, i) => (i === 0 ? { ...p, cards: { ...p.cards!, library } } : p)) },
+  });
+}
+
+test('a guildgate sent onto the battlefield says it comes in tapped', async () => {
+  landsInLibrary();
+  render(<LibrarySearchSheet playerIdx={0} ask={FETCH} source="Misty Rainforest" onClose={() => {}} />);
+  await new Promise((r) => setTimeout(r, 400));
+  await userEvent.setup().click(await screen.findByRole('button', { name: 'All cards' }));
+  tap(await screen.findByRole('button', { name: 'take Simic Guildgate' }));
+  expect(await screen.findByText('comes in tapped')).toBeInTheDocument();
+  await userEvent.setup().click(screen.getByRole('button', { name: 'Hand' }));
+  expect(screen.queryByText('comes in tapped')).not.toBeInTheDocument();
+});
+
+test('a fetched shock land asks at Done: pay 2 life for it untapped, or tapped', async () => {
+  landsInLibrary();
+  const user = userEvent.setup();
+  const onClose = vi.fn();
+  render(<LibrarySearchSheet playerIdx={0} ask={FETCH} source="Misty Rainforest" onClose={onClose} />);
+  tap(await screen.findByRole('button', { name: 'take Breeding Pool' }));
+  expect(screen.getByText('pay 2 life or tapped')).toBeInTheDocument();
+  await new Promise((r) => setTimeout(r, 400));
+  await user.click(screen.getByRole('button', { name: 'Done · shuffle the rest' }));
+  expect(searchLibrary).not.toHaveBeenCalled();
+  await user.click(await screen.findByRole('button', { name: 'Pay 2 life · untapped' }));
+  expect(searchLibrary).toHaveBeenCalledWith(0, [{ iid: 'p1', to: 'battlefield', row: 'lands', life: true }], 'Misty Rainforest');
+  expect(onClose).toHaveBeenCalledWith(true);
+});
+
+test('a fetched shock land let in tapped goes in tapped; one sent tapped by hand is not asked about', async () => {
+  landsInLibrary();
+  const user = userEvent.setup();
+  render(<LibrarySearchSheet playerIdx={0} ask={FETCH} source="Misty Rainforest" onClose={() => {}} />);
+  tap(await screen.findByRole('button', { name: 'take Breeding Pool' }));
+  tap(screen.getByRole('button', { name: 'take Breeding Pool' }));
+  await new Promise((r) => setTimeout(r, 400));
+  const second = within(screen.getAllByRole('group', { name: 'where Breeding Pool goes' })[1]);
+  await user.click(second.getByRole('button', { name: 'Battlefield, tapped' }));
+  await user.click(screen.getByRole('button', { name: 'Done · shuffle the rest' }));
+  await user.click(await screen.findByRole('button', { name: 'Tapped' }));
+  expect(searchLibrary).toHaveBeenCalledWith(
+    0,
+    [
+      { iid: 'p1', to: 'tapped', row: 'lands' },
+      { iid: 'p2', to: 'tapped', row: 'lands' },
+    ],
+    'Misty Rainforest',
+  );
 });

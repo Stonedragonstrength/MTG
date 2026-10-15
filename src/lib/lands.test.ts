@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { landEntry, type LandContext } from './lands';
+import { asksLife, entryLife, landEntry, type LandContext } from './lands';
 
 const ctx = (over: Partial<LandContext> = {}): LandContext => ({
   mine: [],
@@ -79,5 +79,27 @@ describe('landEntry', () => {
 
   test('a condition the app cannot judge leaves it untapped', () => {
     expect(landEntry(land('Odd Land', 'This land enters tapped unless you cast a spell this turn.'), ctx())).toBe('untapped');
+  });
+});
+
+describe('lands that ask for life', () => {
+  const pool = { name: 'Breeding Pool', oracleText: '({T}: Add {G} or {U}.)\nAs Breeding Pool enters, you may pay 2 life. If you don’t, it enters tapped.' };
+  const blackGate = { name: 'The Black Gate', oracleText: 'As The Black Gate enters, you may pay 3 life. If you don’t, it enters tapped.\n{T}: Add {B}.' };
+  // The land on the back of a Zendikar Rising spell, as the back face reads.
+  const agadeem = {
+    name: "Agadeem's Awakening // Agadeem, the Undercrypt",
+    oracleText: 'As Agadeem, the Undercrypt enters, you may pay 3 life. If you don’t, it enters tapped.\n{T}: Add {B}.',
+  };
+  const gate = { name: 'Simic Guildgate', oracleText: 'This land enters tapped.\n{T}: Add {G} or {U}.' };
+
+  test('a shock land asks 2; The Black Gate and the Zendikar Rising lands ask 3', () => {
+    expect([pool, blackGate, agadeem].map(asksLife)).toEqual([true, true, true]);
+    expect([pool, blackGate, agadeem].map(entryLife)).toEqual([2, 3, 3]);
+  });
+
+  test('a land that never asks', () => {
+    expect(asksLife(gate)).toBe(false);
+    expect(asksLife(null)).toBe(false);
+    expect(entryLife(gate)).toBe(2);
   });
 });

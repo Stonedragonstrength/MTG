@@ -1,8 +1,9 @@
 import { counterName } from './entering';
-import type { CardRecord } from './types';
+import type { CardInstance, CardRecord, GameState } from './types';
 
 /** How a land comes in: tapped, untapped, or its player is asked whether to
- * pay 2 life to have it untapped (a shock land). */
+ * pay life to have it untapped (a shock land: 2; The Black Gate and the
+ * Zendikar Rising lands on the back of a spell: 3 — see `entryLife`). */
 export type LandEntry = 'tapped' | 'untapped' | 'life';
 
 /** What a card's "if you control…" / "unless…" looks at. Only `mine` is
@@ -139,7 +140,7 @@ export function landEntry(record: Pick<CardRecord, 'name' | 'oracleText'> | null
     // "As this land enters, you may pay 2 life. If you don't, it enters tapped."
     if (/^if you don['’]t\b/i.test(s)) {
       const before = sentences[i - 1] ?? '';
-      if (/you may pay 2 life/i.test(before)) return 'life';
+      if (/you may pay \d+ life/i.test(before)) return 'life';
       const reveal = before.match(/you may reveal an? (.+?) card from your hand/i);
       if (reveal) {
         const options = reveal[1].split(/\s+or\s+|,\s*/).map((o) => o.replace(/^an?\s+/i, '').trim());
@@ -162,4 +163,52 @@ export function landEntry(record: Pick<CardRecord, 'name' | 'oracleText'> | null
     if (/^(?:this land|~|it) enters (?:the battlefield )?tapped\b/i.test(s)) return 'tapped';
   }
   return 'untapped';
+}
+
+const NO_TABLE: LandContext = { mine: [], hand: [], opponents: 0, lives: [], opponentLands: 0 };
+
+/** A land whose player is asked, as it comes in, whether to pay life for it
+ * to be untapped (a shock land) — whatever the table looks like. */
+export const asksLife = (record: Pick<CardRecord, 'name' | 'oracleText'> | null | undefined): boolean =>
+  !!record && landEntry(record, NO_TABLE) === 'life';
+
+/** The life a land that asks for it (`landEntry` 'life') costs to come in
+ * untapped: "As this land enters, you may pay 3 life. If you don't, it
+ * enters tapped." A shock land's 2 when the words cannot be read. */
+export function entryLife(record: Pick<CardRecord, 'oracleText'> | null | undefined): number {
+  const m = record?.oracleText.split('\n//\n')[0].match(/you may pay (\d+) life\.\s*If you don['’]t\b/i);
+  return m ? Number(m[1]) : 2;
+}
+
+/** What a land coming in on `seat`'s side looks at (`landEntry`), read off
+ * the table: that seat's permanents (the land itself is not among them
+ * yet), the type lines of the cards in its hand (`hand`, for a land that
+ * asks for a reveal), the other players. `records` = the battlefields'
+ * cards, as far as they are known. */
+export function landContext(
+  g: GameState,
+  seat: number,
+  records: Record<string, Pick<CardRecord, 'typeLine'> | null | undefined>,
+  hand: string[] = [],
+): LandContext {
+  const typeOf = (c: CardInstance) => records[c.cardId]?.typeLine ?? '';
+  const me = g.players[seat];
+  const mine = [...(me?.cards?.battlefield ?? []).map(typeOf), ...(me?.board ?? []).map((it) => it.typeLine)].filter(Boolean);
+  const living = g.players.filter((p) => !p.eliminated);
+  const opponentLands = g.players.reduce(
+    (n, p, s) =>
+      s === seat
+        ? n
+        : n +
+          (p.cards?.battlefield.filter((c) => /\bLand\b/.test(typeOf(c))).length ?? 0) +
+          p.board.filter((it) => it.zone === 'lands').reduce((k, it) => k + it.count, 0),
+    0,
+  );
+  return {
+    mine,
+    hand,
+    opponents: living.length - (me && !me.eliminated ? 1 : 0),
+    lives: living.map((p) => p.life),
+    opponentLands,
+  };
 }

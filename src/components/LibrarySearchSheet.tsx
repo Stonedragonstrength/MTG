@@ -1,16 +1,21 @@
 import { useState } from 'react';
 import type { Found, FoundTo } from '../lib/cards';
 import { normalize } from '../lib/fuzzy';
+import { asksLife, entryLife, landContext, landEntry } from '../lib/lands';
 import { FOUND_TO, fitsSearch, type SearchAsk } from '../lib/search';
 import { isCreatureCard } from '../lib/shelf';
 import { isLandCard } from '../lib/turnRules';
 import type { CardInstance, CardRecord } from '../lib/types';
 import { useAppStore } from '../state/store';
 import CardZoomSheet from './CardZoomSheet';
+import LandLifeSheet from './LandLifeSheet';
 import Sheet from './Sheet';
 import { useCardRecords } from './useCardRecords';
+import { useTableRecords } from './useCombat';
 import { useLongPress } from './useLongPress';
 import { useSettleTaps } from './useSettleTaps';
+
+const NO_CARDS: CardInstance[] = [];
 
 interface Props {
   playerIdx: number;
@@ -81,9 +86,15 @@ export default function LibrarySearchSheet({ playerIdx, ask = null, source, onCl
   // Only the cards sent somewhere BY HAND are in here: the rest go where the card says.
   const [sent, setSent] = useState<Record<string, FoundTo>>({});
   const [zoom, setZoom] = useState<string | null>(null);
+  // Shock lands sent onto the battlefield: whether their player pays the life (asked at Done).
+  const [paid, setPaid] = useState<Record<string, boolean>>({});
+  const [lifeFor, setLifeFor] = useState<CardInstance | null>(null);
+  const game = useAppStore((s) => s.game);
 
   const cards: CardInstance[] = library ?? [];
   const records = useCardRecords(cards);
+  const tableRecords = useTableRecords();
+  const handRecords = useCardRecords(game?.players[playerIdx]?.cards?.hand ?? NO_CARDS);
 
   const piles: Pile[] = [];
   for (const c of [...cards].sort((a, b) => a.name.localeCompare(b.name))) {
@@ -112,16 +123,45 @@ export default function LibrarySearchSheet({ playerIdx, ask = null, source, onCl
     if (next) setTaken([...taken, next]);
   };
 
-  function done() {
+  const isLand = (c: CardInstance) => isLandCard(records[c.cardId]?.typeLine ?? '');
+  /** A land on its way onto the battlefield untapped that asks for life as it comes in (a shock land). */
+  const asksFor = (c: CardInstance, at: number) => toOf(c.iid, at) === 'battlefield' && isLand(c) && asksLife(records[c.cardId]);
+  // How a land sent onto the battlefield untapped comes in after all, by its own words on this table.
+  const context = game ? landContext(game, playerIdx, tableRecords, (game.players[playerIdx]?.cards?.hand ?? []).map((c) => handRecords[c.cardId]?.typeLine ?? '')) : null;
+  const comesTapped = (c: CardInstance, at: number) =>
+    toOf(c.iid, at) === 'battlefield' && isLand(c) && !!context && landEntry(records[c.cardId], context) === 'tapped';
+
+  /** Done: each shock land going in untapped asks first, one at a time. */
+  function done(answers = paid) {
+    const asking = picks.find((c, at) => asksFor(c, at) && !(c.iid in answers));
+    if (asking) {
+      setLifeFor(asking);
+      return;
+    }
     const found: Found[] = picks.map((c, at) => {
       const to = toOf(c.iid, at);
-      const record = records[c.cardId];
-      const row = record && isLandCard(record.typeLine) ? 'lands' : 'front';
+      const row = isLand(c) ? 'lands' : 'front';
+      if (asksFor(c, at)) return answers[c.iid] ? { iid: c.iid, to, row, life: true } : { iid: c.iid, to: 'tapped', row };
       return to === 'tapped' || to === 'battlefield' ? { iid: c.iid, to, row } : { iid: c.iid, to };
     });
-    searchLibrary(playerIdx, found, source);
+    void searchLibrary(playerIdx, found, source);
     onClose(true);
   }
+
+  if (lifeFor)
+    return (
+      <LandLifeSheet
+        name={lifeFor.name}
+        life={entryLife(records[lifeFor.cardId])}
+        onAnswer={(pay) => {
+          const answers = { ...paid, [lifeFor.iid]: pay };
+          setPaid(answers);
+          setLifeFor(null);
+          done(answers);
+        }}
+        onClose={() => setLifeFor(null)}
+      />
+    );
 
   const chips: { key: Show; label: string }[] = [
     ...(ask?.fits ? [{ key: 'asked' as const, label: capital(ask.what.replace(/^up to /i, '').replace(/^(?:an?|one|two|three|four|five|six|seven|x) /i, '')) }] : []),
@@ -139,7 +179,7 @@ export default function LibrarySearchSheet({ playerIdx, ask = null, source, onCl
       onClose={() => onClose(false)}
       size="wide"
       footer={
-        <button className="primary find-done" onClick={done}>
+        <button className="primary find-done" onClick={() => done()}>
           {picks.length === 0 ? 'Nothing found · shuffle' : `Done · shuffle the rest`}
         </button>
       }
@@ -157,7 +197,11 @@ export default function LibrarySearchSheet({ playerIdx, ask = null, source, onCl
             return (
               <li key={c.iid} className="find-pick">
                 <span className="find-pick-face">{art ? <img src={art} alt="" /> : null}</span>
-                <span className="find-pick-name">{c.name}</span>
+                <span className="find-pick-name">
+                  {c.name}
+                  {comesTapped(c, at) && <small className="find-pick-note">comes in tapped</small>}
+                  {asksFor(c, at) && <small className="find-pick-note">pay {entryLife(records[c.cardId])} life or tapped</small>}
+                </span>
                 <div className="find-dests" role="group" aria-label={`where ${c.name} goes`}>
                   {FOUND_TO.map((d) => (
                     <button

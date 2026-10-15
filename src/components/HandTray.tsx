@@ -3,7 +3,7 @@ import { isAura } from '../lib/attach';
 import { boardSeat } from '../lib/combat';
 import { shareInSight } from '../lib/fit';
 import { affordable, asksAtCast, parseCosts } from '../lib/pay';
-import { landEntry, type LandContext } from '../lib/lands';
+import { asksLife, entryLife } from '../lib/lands';
 import { searchAsk, type SearchAsk } from '../lib/search';
 import { seatSources } from '../lib/seatMana';
 import { canPlayLand, isLandCard } from '../lib/turnRules';
@@ -11,15 +11,12 @@ import type { CardInstance } from '../lib/types';
 import { useAppStore } from '../state/store';
 import AttachSheet from './AttachSheet';
 import HandCardSheet from './HandCardSheet';
+import LandLifeSheet from './LandLifeSheet';
 import LibrarySearchSheet from './LibrarySearchSheet';
-import Sheet from './Sheet';
 import { useCardRecords } from './useCardRecords';
 import { useLongPress } from './useLongPress';
 import { useSeatTexts } from './useSeatTexts';
 import XCostSheet from './XCostSheet';
-
-/** A shock land asks whatever the table looks like: no need to read it. */
-const NO_TABLE: LandContext = { mine: [], hand: [], opponents: 0, lives: [], opponentLands: 0 };
 
 /** How much of a hand card has to be in sight for a tap to play it: with
  * less showing, the first tap brings the card to the front instead. */
@@ -168,7 +165,7 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
   const play = (c: CardInstance) => {
     if (asksAtCast(records[c.cardId], 'hand')) setXFor(c.iid);
     // A shock land: pay 2 life for it to come in untapped, or let it come in tapped.
-    else if (isLandCard(records[c.cardId]?.typeLine ?? '') && landEntry(records[c.cardId], NO_TABLE) === 'life') setShockFor(c);
+    else if (isLandCard(records[c.cardId]?.typeLine ?? '') && asksLife(records[c.cardId])) setShockFor(c);
     // An Aura comes into play ON something: once it has landed, the list of
     // what it can go on comes up. (An Equipment arrives unattached; equipping
     // is on its own sheet.) If the play did not land, that sheet finds no
@@ -342,28 +339,15 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
         <XCostSheet playerIdx={playerIdx} iid={xFor} from="hand" onClose={() => setXFor(null)} />
       )}
       {shockFor && (
-        <Sheet title={shockFor.name.split(' // ')[0]} onClose={() => setShockFor(null)}>
-          <p className="hint">Pay 2 life for it to come in untapped, or let it come in tapped.</p>
-          <div className="chip-row shock-choice">
-            <button
-              className="primary"
-              onClick={() => {
-                void playCard(playerIdx, shockFor.iid, { landEntry: 'life' });
-                setShockFor(null);
-              }}
-            >
-              Pay 2 life · untapped
-            </button>
-            <button
-              onClick={() => {
-                void playCard(playerIdx, shockFor.iid, { landEntry: 'tapped' });
-                setShockFor(null);
-              }}
-            >
-              Tapped
-            </button>
-          </div>
-        </Sheet>
+        <LandLifeSheet
+          name={shockFor.name}
+          life={entryLife(records[shockFor.cardId])}
+          onAnswer={(pay) => {
+            void playCard(playerIdx, shockFor.iid, { landEntry: pay ? 'life' : 'tapped' });
+            setShockFor(null);
+          }}
+          onClose={() => setShockFor(null)}
+        />
       )}
       {attachFor && (
         <AttachSheet playerIdx={playerIdx} iid={attachFor} onClose={() => setAttachFor(null)} />

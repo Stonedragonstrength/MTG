@@ -28,7 +28,7 @@ import { seatSources } from '../lib/seatMana';
 import { planEffect, type SpellEffect } from '../lib/spellEffects';
 import { happeningsBetween, unitThing, type Happening } from '../lib/triggers';
 import { dayNightNeeds, turnedDayNight, withCasts } from '../lib/dayNight';
-import { landEntry, type LandEntry } from '../lib/lands';
+import { entryLife, landContext, landEntry, type LandEntry } from '../lib/lands';
 import { recordOf } from '../lib/history';
 import { beginStory, decided, withStory } from '../lib/story';
 import { isLandCard } from '../lib/turnRules';
@@ -114,9 +114,9 @@ export interface AppStore {
    * the order `pay.extraCosts` reads them (kicker, multikicker, buyback…). */
   /** `using`: the mana sources the player chose to pay with ("Pay with…"),
    * source key → how many (lib/payWith.ts). Left out, the table chooses. */
-  /** `landEntry`: a shock land's answer — 'life' pays 2 life for it to come
-   * in untapped; anything else, it comes in tapped. Other lands come in as
-   * their own words say (lib/lands.ts). */
+  /** `landEntry`: a shock land's answer — 'life' pays the life it asks for
+   * (2, or 3: lands.entryLife) for it to come in untapped; anything else, it
+   * comes in tapped. Other lands come in as their own words say (lib/lands.ts). */
   playCard(
     seat: number,
     iid: string,
@@ -203,8 +203,15 @@ export interface AppStore {
   shuffleSeat(seat: number): void;
   /** A search of the seat's library, carried out: the cards found go where
    * they are sent and the rest is shuffled — one move at the table. `why`
-   * is the card that asked for it, for the feed. */
-  searchLibrary(seat: number, found: cardsLib.Found[], why?: string): void;
+   * is the card that asked for it, for the feed. A land sent onto the
+   * battlefield untapped still comes in as its own words say (a guildgate
+   * tapped; a shock land untapped only with `life`, its player having
+   * paid). */
+  searchLibrary(seat: number, found: cardsLib.Found[], why?: string): Promise<void>;
+  /** A land put onto the battlefield from a graveyard or exile by an effect
+   * (no land drop is used), coming in as its own words say: a shock land
+   * untapped only for the life it asks (`life`: paid). */
+  putLand(seat: number, iid: string, from: 'graveyard' | 'exile', opts?: { life?: boolean }): Promise<void>;
   mulliganSeat(seat: number): void;
   keepHand(seat: number, bottomIids: string[]): void;
   castCommander(
@@ -374,32 +381,38 @@ async function landEntryHere(
 ): Promise<LandEntry> {
   if (!record || !/\benters\b[^.]*\btapped\b/i.test(record.oracleText)) return 'untapped';
   const all = await tableRecords(g);
-  const typeOf = (c: CardInstance) => all[c.cardId]?.typeLine ?? '';
-  const me = g.players[seat];
-  const mine = [...(me?.cards?.battlefield ?? []).map(typeOf), ...(me?.board ?? []).map((it) => it.typeLine)].filter(Boolean);
   let hand: string[] = [];
   if (/\breveal/i.test(record.oracleText)) {
     const m = await import('../data/scryfall');
-    const others = (me?.cards?.hand ?? []).filter((c) => c.iid !== iid);
+    const others = (g.players[seat]?.cards?.hand ?? []).filter((c) => c.iid !== iid);
     hand = await Promise.all(others.map(async (c) => (await m.getCardById(c.cardId).catch(() => undefined))?.typeLine ?? ''));
   }
-  const living = g.players.filter((p) => !p.eliminated);
-  const opponentLands = g.players.reduce(
-    (n, p, s) =>
-      s === seat
-        ? n
-        : n +
-          (p.cards?.battlefield.filter((c) => /\bLand\b/.test(typeOf(c))).length ?? 0) +
-          p.board.filter((it) => it.zone === 'lands').reduce((k, it) => k + it.count, 0),
-    0,
-  );
-  return landEntry(record, {
-    mine,
-    hand,
-    opponents: living.length - (me && !me.eliminated ? 1 : 0),
-    lives: living.map((p) => p.life),
-    opponentLands,
-  });
+  return landEntry(record, landContext(g, seat, all, hand));
+}
+
+/** A card's record by the id chain the UI uses: printing drift falls back to its name. */
+async function readRecord(card: CardInstance): Promise<CardRecord | undefined> {
+  const m = await import('../data/scryfall');
+  const byId = await m.getCardById(card.cardId).catch(() => undefined);
+  return byId ?? m.findCardByName(card.name).catch(() => undefined);
+}
+
+/** How a land that an effect puts onto the battlefield untapped comes in
+ * after all, by its own words (landEntryHere): tapped (a guildgate, a
+ * temple, a check land without its type out), or untapped — a land that
+ * asks for life only if its player paid it (`paid`), and then `life` is
+ * what it costs. Anything that is not a land comes in as it was put. */
+async function arrivingLand(
+  g: GameState,
+  seat: number,
+  card: CardInstance,
+  paid: boolean,
+): Promise<{ tapped: boolean; life: number }> {
+  const record = await readRecord(card);
+  if (!record || !isLandCard(record.typeLine)) return { tapped: false, life: 0 };
+  const entry = await landEntryHere(g, seat, card.iid, record);
+  if (entry === 'untapped') return { tapped: false, life: 0 };
+  return entry === 'life' && paid ? { tapped: false, life: entryLife(record) } : { tapped: true, life: 0 };
 }
 
 /** The turn an action was made in. A replay that lands in another one
@@ -1107,7 +1120,7 @@ export function createAppStore() {
         // check land with its type out), or — a shock land — as its player answered.
         const entry = isLand ? await landEntryHere(g, seat, iid, opts?.asLand && record ? backView(record) : record) : 'untapped';
         const comesTapped = entry === 'tapped' || (entry === 'life' && opts?.landEntry !== 'life');
-        const paysLife = entry === 'life' && opts?.landEntry === 'life';
+        const paysLife = entry === 'life' && opts?.landEntry === 'life' ? entryLife(opts?.asLand && record ? backView(record) : record) : 0;
         // Rebound (its own, or given by a permanent like Cast Through Time):
         // the spell goes to exile instead, marked with this turn, and comes up
         // again as its player's next turn begins (lib/triggers.ts).
@@ -1145,7 +1158,7 @@ export function createAppStore() {
             if (opts?.asLand && turnsOver(record)) moved = cardsLib.flipCard(moved, seat, iid, true);
             // Tapped as it comes in: nothing to float from it this turn.
             if (comesTapped) moved = cardsLib.tapSpent(moved, seat, iid);
-            if (paysLife) moved = gameLib.adjustLife(moved, seat, -2);
+            if (paysLife) moved = gameLib.adjustLife(moved, seat, -paysLife);
             if (shown) moved = cardsLib.setReveal(moved, shown);
             // The land drop is counted in the same op as the move, so undo
             // and a rebase take both or neither — and only for the turn it
@@ -1157,7 +1170,7 @@ export function createAppStore() {
             if (!boughtBack) moved = cardsLib.addCardCounters(moved, seat, iid, brings);
             return pay(moved);
           },
-          `${seatName(g, seat)} ${verb} ${card.name}${asksX ? ` (X=${x})` : ''}${payLib.extrasWords(extras, times)}${rebound ? ' — exiled with rebound' : ''}${comesTapped ? ' (tapped)' : paysLife ? ' (paying 2 life)' : ''}`,
+          `${seatName(g, seat)} ${verb} ${card.name}${asksX ? ` (X=${x})` : ''}${payLib.extrasWords(extras, times)}${rebound ? ' — exiled with rebound' : ''}${comesTapped ? ' (tapped)' : paysLife ? ` (paying ${paysLife} life)` : ''}`,
           (base) => !!base.players[seat]?.cards?.hand.some((c) => c.iid === iid),
           undefined,
           // Cast, not played: cards waiting for a spell are set off by it.
@@ -1672,16 +1685,35 @@ export function createAppStore() {
         );
       },
 
-      searchLibrary(seat, found, why) {
+      async searchLibrary(seat, found, why) {
         const g = get().game;
         const library = g?.players[seat]?.cards?.library;
         if (!g || !library) return;
-        const here = found.filter((f) => library.some((c) => c.iid === f.iid));
         const seed = Math.floor(Math.random() * 2 ** 31);
+        // A land put onto the battlefield untapped follows its own words: a
+        // guildgate comes in tapped after all, a shock land as its player answered.
+        // (Nothing to judge, nothing is waited for: the search is carried out at once.)
+        const life: Record<string, number> = {};
+        const judged = found.flatMap((f): (cardsLib.Found | Promise<cardsLib.Found>)[] => {
+          const card = library.find((c) => c.iid === f.iid);
+          if (!card) return [];
+          if (f.to !== 'battlefield') return [f];
+          return [
+            arrivingLand(g, seat, card, f.life === true).then((land): cardsLib.Found => {
+              if (land.life > 0) life[f.iid] = land.life;
+              return land.tapped ? { ...f, to: 'tapped' } : f;
+            }),
+          ];
+        });
+        const here = judged.some((f) => f instanceof Promise) ? await Promise.all(judged) : (judged as cardsLib.Found[]);
+        const paid = Object.values(life).reduce((sum, n) => sum + n, 0);
         // Where a card went is public. Which card it was, only where it now
         // lies in plain sight: the battlefield and the graveyard.
-        const names = (to: cardsLib.FoundTo) =>
-          here.filter((f) => f.to === to).map((f) => library.find((c) => c.iid === f.iid)!.name);
+        const named = (f: cardsLib.Found) => {
+          const name = library.find((c) => c.iid === f.iid)!.name;
+          return life[f.iid] ? `${name} (paying ${life[f.iid]} life)` : name;
+        };
+        const names = (to: cardsLib.FoundTo) => here.filter((f) => f.to === to).map(named);
         const cards = (n: number) => (n === 1 ? 'a card' : `${n} cards`);
         const moves = [
           names('tapped').length > 0 && `puts ${names('tapped').join(', ')} onto the battlefield tapped`,
@@ -1696,13 +1728,33 @@ export function createAppStore() {
         // As a shuffle: a stale one must not scramble a library someone has
         // since stacked. And every card found has to be there still.
         cardMutate(
-          (base) => cardsLib.searchLibrary(base, seat, here, seed),
+          (base) => {
+            const searched = cardsLib.searchLibrary(base, seat, here, seed);
+            return paid > 0 ? gameLib.adjustLife(searched, seat, -paid) : searched;
+          },
           text,
           (base) => {
             const now = base.players[seat]?.cards?.library;
             return !!now && here.every((f) => now.some((c) => c.iid === f.iid));
           },
           120_000,
+        );
+      },
+
+      async putLand(seat, iid, from, opts) {
+        const g = get().game;
+        const card = g?.players[seat]?.cards?.[from].find((c) => c.iid === iid);
+        if (!g || !card) return;
+        const land = await arrivingLand(g, seat, card, opts?.life === true);
+        cardMutate(
+          (base) => {
+            let moved = cardsLib.moveCard(base, seat, iid, from, 'battlefield', { row: 'lands' });
+            if (moved === base) return base;
+            if (land.tapped) moved = cardsLib.tapSpent(moved, seat, iid);
+            return land.life > 0 ? gameLib.adjustLife(moved, seat, -land.life) : moved;
+          },
+          `${seatName(g, seat)}: ${card.name} → battlefield${land.tapped ? ' (tapped)' : land.life > 0 ? ` (paying ${land.life} life)` : ''}`,
+          (base) => !!base.players[seat]?.cards?.[from].some((c) => c.iid === iid),
         );
       },
 

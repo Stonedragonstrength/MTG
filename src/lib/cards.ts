@@ -688,6 +688,9 @@ export interface Found {
   to: FoundTo;
   /** The shelf a card that lands on the battlefield is put on. */
   row?: CardInstance['row'];
+  /** Sent onto the battlefield untapped, a land that asks for life to come
+   * in untapped (a shock land) had it paid by its player. */
+  life?: true;
 }
 
 /** "Search your library for…, then shuffle", in one move: the cards found
@@ -714,7 +717,8 @@ export function searchLibrary(g: GameState, seat: number, found: Found[], seed: 
           ({ f, card }): CardInstance => ({
             ...card,
             ...(f.row ? { row: f.row } : {}),
-            ...(f.to === 'tapped' ? { tapped: true } : {}),
+            // Tapped as it comes in: nothing to float from it this turn.
+            ...(f.to === 'tapped' ? { tapped: true, spent: USED_UP } : {}),
             sick: true, // it has only just arrived, like anything else that lands there
           }),
         ),

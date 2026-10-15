@@ -945,7 +945,8 @@ describe('searchLibrary', () => {
       7,
     );
     const cards = after.players[0].cards!;
-    expect(cards.battlefield).toEqual([{ ...a, row: 'lands', tapped: true, sick: true }]);
+    // Tapped as it arrives: a land found this way has no mana to float this turn.
+    expect(cards.battlefield).toEqual([{ ...a, row: 'lands', tapped: true, spent: 999, sick: true }]);
     expect(cards.hand).toEqual([...hand, b]);
     expect(cards.graveyard).toEqual([d]);
     expect(cards.library[0]).toEqual(c);
