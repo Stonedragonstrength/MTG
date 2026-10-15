@@ -191,6 +191,10 @@ export default function PlayerZone({
                 : undefined
             }
             onAdjust={(delta) => (stake ? stake.nudge(delta) : adjustLife(playerIdx, delta))}
+            gauges={player.commanderDamage}
+            faces={Object.fromEntries(
+              game.config.profiles.map((p) => [p.id, p.avatarUrl ?? p.commanderImage ?? null]),
+            )}
           />
           {game.config.format === 'commander' && <CommanderDamage playerIdx={playerIdx} />}
         </span>

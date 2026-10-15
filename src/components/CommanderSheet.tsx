@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { commanderTax } from '../lib/cards';
 import { affordable, castCosts, hasX, sourcesFrom } from '../lib/pay';
 import { useAppStore } from '../state/store';
+import { PrintedCost } from './ManaSymbol';
 import PayWithSheet from './PayWithSheet';
 import Sheet from './Sheet';
 import { useCardRecords } from './useCardRecords';
@@ -101,7 +102,12 @@ export default function CommanderSheet({ playerIdx, iid, onClose }: Props) {
                 {record.power}/{record.toughness}
               </strong>
             )}
-            {record.manaCost && <span className="zoom-cost"> {record.manaCost}</span>}
+            {record.manaCost && (
+              <span className="zoom-cost">
+                {' '}
+                <PrintedCost cost={record.manaCost} />
+              </span>
+            )}
           </p>
         )}
         {record?.oracleText && <p className="oracle-text">{record.oracleText}</p>}

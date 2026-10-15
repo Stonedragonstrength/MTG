@@ -62,6 +62,15 @@ export function playVictory(): void {
   vibrate([30, 60, 30, 60, 120]);
 }
 
+export function playEntrance(): void {
+  // A low boom with a shimmer over it: a commander takes the stage.
+  tone(98, 0.7, 'sine', 0.07);
+  tone(147, 0.55, 'triangle', 0.035, 0.04);
+  tone(880, 0.3, 'sine', 0.018, 0.18);
+  tone(1319, 0.45, 'sine', 0.014, 0.3);
+  vibrate([40, 30, 90]);
+}
+
 export function playSlash(): void {
   // A quick metallic "shink": bright attack, short low thud behind it.
   tone(1800, 0.06, 'sawtooth', 0.025);

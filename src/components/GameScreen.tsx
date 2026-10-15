@@ -3,6 +3,7 @@ import { registerBack } from '../lib/backstack';
 import { boardSeat, liveCombat } from '../lib/combat';
 import { decided } from '../lib/story';
 import { useAppStore } from '../state/store';
+import CommanderEntrance from './CommanderEntrance';
 import HandScreen from './HandScreen';
 import LandBackground from './LandBackground';
 import PlayerZone from './PlayerZone';
@@ -140,6 +141,10 @@ export default function GameScreen() {
       )}
       <RevealBanner />
       <TriggerBanner />
+      <CommanderEntrance
+        edgeOf={(seat) => edges[(seat - shift + n) % n]}
+        flipped={(seat) => seatFlips[seat] === true}
+      />
       {ending}
     </div>
   );

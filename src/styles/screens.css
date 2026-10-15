@@ -429,6 +429,21 @@ label {
   opacity: 0.75;
   border-radius: 3px 3px 0 0;
   min-height: 1px;
+  /* Its colors, stacked from the bottom, a hairline of the page between. */
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.deck-curve-bar:has(> i) {
+  background: transparent;
+  opacity: 0.9;
+}
+
+.deck-curve-bar > i {
+  flex-basis: 0;
+  min-height: 2px;
 }
 
 .deck-curve-label {
@@ -438,6 +453,79 @@ label {
 
 .deck-add-btn {
   align-self: stretch;
+}
+
+.deck-add-row {
+  display: flex;
+  gap: 8px;
+  align-self: stretch;
+}
+
+.deck-add-row .deck-add-btn {
+  flex: 1;
+}
+
+.deck-sample-btn {
+  white-space: nowrap;
+}
+
+/* ---- sample hand (SampleHandSheet) ---- */
+.sample-line {
+  margin: 0 0 12px;
+  font-family: var(--font-body);
+  color: #c3c2b7;
+}
+
+.sample-line strong {
+  color: #fff;
+}
+
+.sample-left {
+  color: #898781;
+}
+
+.sample-hand {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.sample-card {
+  /* Seven to a row, the opening hand on one line; draws wrap below. */
+  width: calc((100% - 60px) / 7);
+  min-width: 88px;
+  max-width: 170px;
+  aspect-ratio: 488 / 680;
+  border-radius: 4.75% / 3.5%;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+  animation: spawn-pop 260ms ease-out;
+}
+
+.sample-card--drawn {
+  box-shadow:
+    0 0 0 2px var(--accent),
+    0 4px 14px rgba(0, 0, 0, 0.5);
+}
+
+.sample-card--text {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px;
+  text-align: center;
+  background: #26262e;
+}
+
+.sample-card--text small {
+  color: #9a9aa5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sample-card {
+    animation: none;
+  }
 }
 
 .deck-group {

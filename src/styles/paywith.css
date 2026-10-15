@@ -14,6 +14,56 @@ img.mana-sym {
   display: block;
 }
 
+/* A printed cost in the cards' own symbols (PrintedCost): deck rows, card views. */
+.printed-cost,
+.printed-cost-face {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  vertical-align: middle;
+}
+
+.printed-cost {
+  gap: 6px;
+}
+
+.printed-cost .mana-sym {
+  width: 17px;
+  height: 17px;
+  min-width: 17px;
+  font-size: 10px;
+}
+
+.printed-cost-sep {
+  margin: 0 2px;
+  color: #6f6f7a;
+  font-size: 0.8em;
+}
+
+.zoom-cost .printed-cost .mana-sym {
+  width: 19px;
+  height: 19px;
+  min-width: 19px;
+}
+
+/* The Curation's color filter: the symbols themselves, dim until picked. */
+.mana-pick-pip--sym {
+  display: grid;
+  place-items: center;
+  background: transparent;
+  opacity: 0.45;
+}
+
+.mana-pick-pip--sym .mana-sym {
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+}
+
+.mana-pick-pip--sym.mana-pick-pip--on {
+  opacity: 1;
+}
+
 .pay-head {
   display: flex;
   flex-wrap: wrap;

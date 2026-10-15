@@ -40,6 +40,27 @@ export default function ManaSymbol({ symbol, label }: Props) {
   );
 }
 
+/** A printed mana cost ("{5}{G}{G}", "{2}{R} // {1}{R}", "{X}{G/W}") drawn
+ * with the cards' own symbols, each face's cost apart. */
+export function PrintedCost({ cost }: { cost: string }) {
+  return (
+    <span className="printed-cost" aria-label={`mana cost ${cost}`}>
+      {cost.split(' // ').map((face, f) => (
+        <span key={f} className="printed-cost-face">
+          {f > 0 && (
+            <span className="printed-cost-sep" aria-hidden="true">
+              //
+            </span>
+          )}
+          {[...face.matchAll(/\{([^}]+)\}/g)].map((m, i) => (
+            <ManaSymbol key={i} symbol={m[1].replace(/\//g, '')} label={m[1]} />
+          ))}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 /** A cost as the card prints it: the generic amount, then one symbol a pip. */
 export function CostSymbols({ cost }: { cost: PayCost }) {
   return (

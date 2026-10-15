@@ -7,6 +7,7 @@ import type { GarageCard } from '../lib/types';
 import { useAppStore } from '../state/store';
 import CurationBuildSheet from './CurationBuildSheet';
 import DeckCardSheet from './DeckCardSheet';
+import ManaSymbol from './ManaSymbol';
 import Sheet from './Sheet';
 import { useLongPress } from './useLongPress';
 
@@ -313,11 +314,13 @@ export default function GarageScreen({ onBack, onOpenDeck }: Props) {
           {MANA_COLORS.map((c) => (
             <button
               key={c}
-              className={`mana-pip mana-${c} mana-pick-pip${colorSel === c ? ' mana-pick-pip--on' : ''}`}
+              className={`mana-pick-pip mana-pick-pip--sym${colorSel === c ? ' mana-pick-pip--on' : ''}`}
               aria-label={`only ${c === 'C' ? 'colorless' : COLOR_NAMES[c]} cards`}
               aria-pressed={colorSel === c}
               onClick={() => setColorSel((prev) => (prev === c ? null : c))}
-            />
+            >
+              <ManaSymbol symbol={c} label="" />
+            </button>
           ))}
         </div>
       </div>

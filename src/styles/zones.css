@@ -1340,6 +1340,89 @@ input[type='range'] {
   }
 }
 
+/* Every change of life floats up off the number (LifeCounter): red for a
+   loss, green for a gain; taps a moment apart add up in one number, and a
+   commander's hit carries its player's face. */
+.life-counter {
+  position: relative;
+}
+
+.life-float {
+  position: absolute;
+  left: 50%;
+  bottom: 62%;
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 1.35rem;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  text-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.9),
+    0 0 14px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+  animation: life-float 1.6s ease-out forwards;
+}
+
+.life-float--down {
+  color: #ff6b5b;
+}
+
+.life-float--up {
+  color: #62e38e;
+}
+
+.life-float img {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+  box-shadow:
+    0 0 0 2px #ff6b5b,
+    0 2px 8px rgba(0, 0, 0, 0.7);
+}
+
+@keyframes life-float {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 10px) scale(0.6);
+  }
+  12% {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1.25);
+  }
+  24% {
+    transform: translate(-50%, -2px) scale(1);
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -22px) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .life-float {
+    animation: life-float-still 1.6s linear forwards;
+  }
+
+  @keyframes life-float-still {
+    0%,
+    80% {
+      opacity: 1;
+      transform: translate(-50%, 0);
+    }
+    100% {
+      opacity: 0;
+      transform: translate(-50%, 0);
+    }
+  }
+}
+
 /* The turn's draw is waiting: the library breathes and lifts until the
    card is drawn. The first thing a turn asks for should be the loudest
    thing on the board. */

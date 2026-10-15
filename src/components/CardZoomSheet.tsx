@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { CardRecord } from '../lib/types';
+import { PrintedCost } from './ManaSymbol';
 import Sheet, { shieldBoard } from './Sheet';
 
 interface Props {
@@ -45,7 +46,12 @@ export default function CardZoomSheet({ name, record, onClose }: Props) {
                 {record.power}/{record.toughness}
               </strong>
             )}
-            {record.manaCost && <span className="zoom-cost"> {record.manaCost}</span>}
+            {record.manaCost && (
+              <span className="zoom-cost">
+                {' '}
+                <PrintedCost cost={record.manaCost} />
+              </span>
+            )}
           </p>
         )}
         {record?.oracleText && <p className="oracle-text">{record.oracleText}</p>}

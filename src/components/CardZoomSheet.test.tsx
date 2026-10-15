@@ -44,7 +44,12 @@ test('shows the whole card: its image, name, type line with power and cost, and 
   expect(screen.getByRole('img', { name: 'Grizzly Bears' })).toHaveAttribute('src', BEARS.imageNormal);
   const type = screen.getByText('Creature — Bear', { exact: false });
   expect(type).toHaveTextContent('2/2');
-  expect(type).toHaveTextContent('{1}{G}');
+  // The cost in the cards' own symbols.
+  expect(type.querySelector('.printed-cost')).toHaveAttribute('aria-label', 'mana cost {1}{G}');
+  expect([...type.querySelectorAll('img.mana-sym')].map((i) => i.getAttribute('src'))).toEqual([
+    'https://svgs.scryfall.io/card-symbols/1.svg',
+    'https://svgs.scryfall.io/card-symbols/G.svg',
+  ]);
   expect(screen.getByText(/Trample\s+When Grizzly Bears enters, draw a card\./)).toBeInTheDocument();
 });
 

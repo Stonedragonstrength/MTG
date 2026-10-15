@@ -344,6 +344,24 @@ export function starRatings(
   return stars;
 }
 
+/** What a curve bar is made of: W U B R G one color each, M several, C
+ * none, '?' a card saved before its colors were kept. */
+export type CurveColor = 'W' | 'U' | 'B' | 'R' | 'G' | 'M' | 'C' | '?';
+export const CURVE_COLORS: CurveColor[] = ['W', 'U', 'B', 'R', 'G', 'M', 'C', '?'];
+
+/** manaCurve, each bucket split by the cards' colors. */
+export function manaCurveByColor(cards: DeckCard[]): Partial<Record<CurveColor, number>>[] {
+  const curve = Array.from({ length: 8 }, () => ({}) as Partial<Record<CurveColor, number>>);
+  for (const card of cards) {
+    if (bucketOf(card.typeLine) === 'Lands') continue;
+    const ci = card.colorIdentity;
+    const color: CurveColor = !ci ? '?' : ci.length === 0 ? 'C' : ci.length > 1 ? 'M' : (ci[0] as CurveColor);
+    const bucket = curve[Math.min(7, manaValue(card.manaCost))];
+    bucket[color] = (bucket[color] ?? 0) + card.count;
+  }
+  return curve;
+}
+
 /** Buckets 0–6 and 7+, nonland cards only, weighted by copy count. */
 export function manaCurve(cards: DeckCard[]): number[] {
   const curve = new Array<number>(8).fill(0);

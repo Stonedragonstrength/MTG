@@ -10,17 +10,20 @@ import {
   deckStats,
   frontType,
   groupCards,
+  CURVE_COLORS,
   LEGENDARIES,
   manaCurve,
+  manaCurveByColor,
   offColorCards,
   sectionCards,
   setPartner,
   shortType,
   starRatings,
+  type CurveColor,
   type DeckStats,
 } from '../lib/deck';
 import { isCommanderLegal } from '../lib/game';
-import { COLOR_NAMES, MANA_COLORS } from '../lib/mana';
+import { COLOR_HEX, COLOR_NAMES, MANA_COLORS } from '../lib/mana';
 import { canPartner, partnerKinds, partnerOffer } from '../lib/partner';
 import type { CardRecord, DeckCard } from '../lib/types';
 import { useAppStore } from '../state/store';
@@ -28,6 +31,8 @@ import AvatarPicker from './AvatarPicker';
 import CommanderAlignSheet from './CommanderAlignSheet';
 import DeckCardSheet from './DeckCardSheet';
 import DeckEntrySheet from './DeckEntrySheet';
+import { PrintedCost } from './ManaSymbol';
+import SampleHandSheet from './SampleHandSheet';
 import SynergySheet from './SynergySheet';
 import { useConfirmTap } from './useConfirmTap';
 
@@ -39,24 +44,38 @@ const HEALTH_TARGETS: { key: keyof DeckStats; label: string; target: number }[] 
   { key: 'removal', label: 'Removal', target: 8 },
 ];
 
+/** A curve segment's color: the cards' own colors, gold for several. */
+const CURVE_HEX: Record<CurveColor, string> = {
+  ...(COLOR_HEX as Record<'W' | 'U' | 'B' | 'R' | 'G' | 'C', string>),
+  M: '#c8a84b',
+  '?': '#6f6f7a',
+};
+const CURVE_NAMES: Record<CurveColor, string> = { ...COLOR_NAMES, M: 'multicolored', '?': 'unknown color' };
+
 /** The bars read relative to the deck's own tallest bucket; each wears
- * its card count so the curve is numbers, not just a shape. */
-function CurveBar({ curve }: { curve: number[] }) {
+ * its card count so the curve is numbers, not just a shape — and is made
+ * of the cards' colors, stacked in WUBRG order. */
+function CurveBar({ curve, colors }: { curve: number[]; colors: Partial<Record<CurveColor, number>>[] }) {
   const max = Math.max(1, ...curve);
   return (
     <div className="deck-curve" aria-label="mana curve">
-      {curve.map((n, mv) => (
-        <div key={mv} className="deck-curve-col" title={`${mv === 7 ? '7+' : mv} mana: ${n}`}>
-          {n > 0 && <span className="deck-curve-count">{n}</span>}
-          <div className="deck-curve-track">
-            <div
-              className="deck-curve-bar"
-              style={{ height: `${Math.round((n / max) * 100)}%` }}
-            />
+      {curve.map((n, mv) => {
+        const parts = CURVE_COLORS.flatMap((c) => (colors[mv]?.[c] ? [[c, colors[mv][c]!] as const] : []));
+        const words = parts.map(([c, k]) => `${k} ${CURVE_NAMES[c]}`).join(', ');
+        return (
+          <div key={mv} className="deck-curve-col" title={`${mv === 7 ? '7+' : mv} mana: ${n}${words ? ` (${words})` : ''}`}>
+            {n > 0 && <span className="deck-curve-count">{n}</span>}
+            <div className="deck-curve-track">
+              <div className="deck-curve-bar" style={{ height: `${Math.round((n / max) * 100)}%` }}>
+                {parts.map(([c, k]) => (
+                  <i key={c} style={{ flexGrow: k, background: CURVE_HEX[c] }} />
+                ))}
+              </div>
+            </div>
+            <span className="deck-curve-label">{mv === 7 ? '7+' : mv}</span>
           </div>
-          <span className="deck-curve-label">{mv === 7 ? '7+' : mv}</span>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -81,6 +100,7 @@ export default function DeckEditor({ deckId, onBack }: Props) {
   const updateSettings = useAppStore((s) => s.updateSettings);
   const [finding, setFinding] = useState('');
   const [adding, setAdding] = useState(false);
+  const [sampling, setSampling] = useState(false);
   const [viewing, setViewing] = useState<DeckCard | null>(null);
   const addToGarage = useAppStore((s) => s.addToGarage);
   const [synergyOpen, setSynergyOpen] = useState(false);
@@ -297,7 +317,7 @@ export default function DeckEditor({ deckId, onBack }: Props) {
               </button>
             )}
           </span>
-          <CurveBar curve={manaCurve(deck.cards)} />
+          <CurveBar curve={manaCurve(deck.cards)} colors={manaCurveByColor(deck.cards)} />
         </div>
       </div>
 
@@ -346,9 +366,14 @@ export default function DeckEditor({ deckId, onBack }: Props) {
         </div>
       )}
 
-      <button className="primary deck-add-btn" onClick={() => setAdding(true)}>
-        + Add cards
-      </button>
+      <div className="deck-add-row">
+        <button className="primary deck-add-btn" onClick={() => setAdding(true)}>
+          + Add cards
+        </button>
+        <button className="deck-sample-btn" disabled={deck.cards.length === 0} onClick={() => setSampling(true)}>
+          🂠 Sample hand
+        </button>
+      </div>
 
       <div className="deck-tools">
         <input
@@ -427,7 +452,7 @@ export default function DeckEditor({ deckId, onBack }: Props) {
                   ⚠
                 </span>
               )}
-              <span className="deck-row-cost">{card.manaCost}</span>
+              <span className="deck-row-cost">{card.manaCost && <PrintedCost cost={card.manaCost} />}</span>
               <div className="stepper stepper--tight">
                 <button
                   aria-label={`one fewer ${card.name}`}
@@ -497,6 +522,7 @@ export default function DeckEditor({ deckId, onBack }: Props) {
       {curationMsg && <p className="entry-last deck-curation-msg">{curationMsg}</p>}
 
       {adding && <DeckEntrySheet deckId={deck.id} onClose={() => setAdding(false)} />}
+      {sampling && <SampleHandSheet deck={deck} onClose={() => setSampling(false)} />}
       {viewing && <DeckCardSheet card={viewing} onClose={() => setViewing(null)} />}
       {synergyOpen && deck.commander && (
         <SynergySheet

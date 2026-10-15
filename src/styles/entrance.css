@@ -1,0 +1,209 @@
+/* ---- a commander's entrance (CommanderEntrance) ---- */
+
+.cmd-entrance {
+  position: fixed;
+  inset: 0;
+  /* Over the board (40), under the victory screen (45) and the tap shield (49). */
+  z-index: 43;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* Faces the caster's edge of the table, as the big board does. */
+.cmd-entrance-panel {
+  --turn: 0deg;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 100vw;
+  height: 100dvh;
+  display: grid;
+  place-items: center;
+  transform: translate(-50%, -50%) rotate(calc(var(--turn) + var(--flip, 0deg)));
+  container-type: size;
+}
+
+.cmd-entrance-panel--top {
+  --turn: 180deg;
+}
+
+.cmd-entrance-panel--left,
+.cmd-entrance-panel--right {
+  width: 100dvh;
+  height: 100vw;
+}
+
+.cmd-entrance-panel--left {
+  --turn: 90deg;
+}
+
+.cmd-entrance-panel--right {
+  --turn: -90deg;
+}
+
+.cmd-entrance-dim {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 46%, rgba(255, 232, 160, 0.28), rgba(6, 6, 9, 0.6) 50%, rgba(6, 6, 9, 0.78));
+  opacity: 0;
+  animation: cmd-dim 2.6s ease-in-out forwards;
+}
+
+.cmd-entrance-rays {
+  position: absolute;
+  width: 170cqmax;
+  aspect-ratio: 1;
+  background: repeating-conic-gradient(rgba(255, 226, 140, 0.2) 0deg 4deg, transparent 4deg 14deg);
+  -webkit-mask: radial-gradient(circle, #000 8%, transparent 52%);
+  mask: radial-gradient(circle, #000 8%, transparent 52%);
+  opacity: 0;
+  animation: cmd-rays 2.6s linear forwards;
+}
+
+.cmd-entrance-ring {
+  position: absolute;
+  width: 24cqmin;
+  aspect-ratio: 1;
+  border: 3px solid rgba(255, 226, 140, 0.85);
+  border-radius: 50%;
+  box-shadow: 0 0 30px rgba(255, 226, 140, 0.6);
+  opacity: 0;
+  animation: cmd-ring 1.2s ease-out 0.3s forwards;
+}
+
+.cmd-entrance-card {
+  position: relative;
+  height: min(60cqh, 76cqw * 680 / 488);
+  aspect-ratio: 488 / 680;
+  margin-bottom: 8cqh;
+  border-radius: 4.75% / 3.5%;
+  box-shadow:
+    0 0 0 2px rgba(232, 200, 110, 0.85),
+    0 30px 80px rgba(0, 0, 0, 0.8),
+    0 0 120px rgba(232, 200, 110, 0.45);
+  opacity: 0;
+  animation: cmd-card 2.6s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+.cmd-entrance-name {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 9cqh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+  opacity: 0;
+  animation: cmd-name 2.6s ease-out forwards;
+}
+
+.cmd-entrance-kicker {
+  padding-left: 0.5em;
+  font-size: clamp(12px, 1.6cqmin, 18px);
+  letter-spacing: 0.5em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.cmd-entrance-title {
+  padding: 0 16px;
+  font-size: clamp(22px, 4.2cqmin, 46px);
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #f6e7b0;
+  text-shadow:
+    0 2px 14px rgba(0, 0, 0, 0.9),
+    0 0 30px rgba(200, 168, 75, 0.5);
+}
+
+@keyframes cmd-dim {
+  0% {
+    opacity: 0;
+  }
+  14%,
+  78% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes cmd-rays {
+  0% {
+    opacity: 0;
+    transform: rotate(0deg) scale(0.6);
+  }
+  18% {
+    opacity: 1;
+  }
+  78% {
+    opacity: 0.8;
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(40deg) scale(1.1);
+  }
+}
+
+@keyframes cmd-ring {
+  0% {
+    opacity: 0.95;
+    transform: scale(0.3);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(6);
+  }
+}
+
+@keyframes cmd-card {
+  0% {
+    opacity: 0;
+    transform: translateY(30cqh) scale(0.4) rotate(-8deg);
+  }
+  22% {
+    opacity: 1;
+    transform: translateY(0) scale(1.06) rotate(1deg);
+  }
+  32%,
+  76% {
+    opacity: 1;
+    transform: translateY(0) scale(1) rotate(0deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(22cqh) scale(0.3);
+  }
+}
+
+@keyframes cmd-name {
+  0%,
+  18% {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  30%,
+  76% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cmd-entrance-rays,
+  .cmd-entrance-ring {
+    display: none;
+  }
+
+  .cmd-entrance-card,
+  .cmd-entrance-name {
+    animation: cmd-dim 2.6s linear forwards;
+  }
+}
