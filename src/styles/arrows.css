@@ -1,0 +1,50 @@
+/* ---- attack arrows (AttackArrows) ---- */
+
+.attack-arrows {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100dvh;
+  /* Over the board (40), under the commander's entrance (43) and every sheet. */
+  z-index: 42;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.attack-arrow-glow {
+  fill: none;
+  stroke: rgba(255, 96, 64, 0.35);
+  stroke-width: 14;
+  stroke-linecap: round;
+  filter: blur(4px);
+}
+
+.attack-arrow-line {
+  fill: none;
+  stroke: #ff7a5c;
+  stroke-width: 5;
+  stroke-linecap: round;
+  stroke-dasharray: 16 10;
+  animation: arrow-flow 0.9s linear infinite;
+}
+
+.attack-arrow--blocked .attack-arrow-glow {
+  stroke: rgba(232, 200, 106, 0.35);
+}
+
+.attack-arrow--blocked .attack-arrow-line {
+  stroke: #e8c86a;
+}
+
+@keyframes arrow-flow {
+  to {
+    stroke-dashoffset: -26;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .attack-arrow-line {
+    animation: none;
+    stroke-dasharray: none;
+  }
+}

@@ -34,6 +34,7 @@ function inSight(slot: HTMLElement | null): number {
 }
 
 function HandCard({
+  iid,
   name,
   art,
   selected,
@@ -42,6 +43,8 @@ function HandCard({
   onTap,
   onDetail,
 }: {
+  /** The card's instance: what flies in and out of the hand is found by it. */
+  iid: string;
   name: string;
   art: string | null;
   selected: boolean;
@@ -61,6 +64,7 @@ function HandCard({
     <span ref={slot} className={`hand-slot${front ? ' hand-slot--front' : ''}`}>
       <button
         className={`hand-card${selected ? ' hand-card--selected' : ''}${why ? ' hand-card--poor' : ''}`}
+        data-iid={iid}
         aria-label={`play ${name}`}
         title={why ? `${why.replace(/\.$/, '')} · hold for options` : 'Tap to play · hold for options'}
         {...press}
@@ -239,6 +243,7 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
             {seat.hand.map((c) => (
               <HandCard
                 key={c.iid}
+                iid={c.iid}
                 name={c.name}
                 art={records[c.cardId]?.imageNormal ?? null}
                 selected={selected.includes(c.iid)}

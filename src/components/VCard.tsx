@@ -75,6 +75,7 @@ export default function VCard({ card, art, sick, look, names, attached = 0, worn
   return (
     <button
       className={`vcard${card.tapped ? ' vcard--tapped' : ''}${combatClasses('vcard', look)}`}
+      data-iid={card.iid}
       aria-label={label}
       aria-pressed={picks ? look.picked > 0 : undefined}
       title={

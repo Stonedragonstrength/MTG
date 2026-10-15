@@ -3,6 +3,8 @@ import { registerBack } from '../lib/backstack';
 import { boardSeat, liveCombat } from '../lib/combat';
 import { decided } from '../lib/story';
 import { useAppStore } from '../state/store';
+import AttackArrows from './AttackArrows';
+import CardFlights from './CardFlights';
 import CommanderEntrance from './CommanderEntrance';
 import HandScreen from './HandScreen';
 import LandBackground from './LandBackground';
@@ -141,6 +143,8 @@ export default function GameScreen() {
       )}
       <RevealBanner />
       <TriggerBanner />
+      <AttackArrows />
+      <CardFlights />
       <CommanderEntrance
         edgeOf={(seat) => edges[(seat - shift + n) % n]}
         flipped={(seat) => seatFlips[seat] === true}

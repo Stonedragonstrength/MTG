@@ -1,0 +1,35 @@
+/* ---- cards that travel (CardFlights) ---- */
+
+.card-flights {
+  position: fixed;
+  inset: 0;
+  /* Over the board (40) and the attack arrows (42); under the victory screen (45). */
+  z-index: 44;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.flight-card {
+  position: absolute;
+  border-radius: 6% / 4.3%;
+  overflow: hidden;
+  box-shadow:
+    0 14px 32px rgba(0, 0, 0, 0.55),
+    0 0 18px rgba(200, 168, 75, 0.35);
+  will-change: transform, opacity;
+}
+
+.flight-card img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* A card face down: the library's own stripes and gold band. */
+.flight-card--back {
+  border: 2px solid var(--accent);
+  background:
+    linear-gradient(to bottom, transparent 42%, rgba(200, 168, 75, 0.85) 42% 58%, transparent 58%),
+    repeating-linear-gradient(135deg, #24242c 0 8px, #1a1a20 8px 16px);
+}

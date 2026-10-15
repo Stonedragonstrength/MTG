@@ -173,6 +173,7 @@ function VirtualLandStack({
       ]
         .filter(Boolean)
         .join(' ')}
+      data-iids={stack.cards.map((c) => c.iid).join(' ')}
     >
       <button
         className="land-face"

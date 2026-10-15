@@ -222,7 +222,7 @@ export default function BoardStrip({ playerIdx, cornerRef }: Props) {
         const look = live ? (combat?.look({ kind: 'stack', id: item.id }) ?? null) : null;
         const job = jobOf(look);
         return live ? (
-          <div className="board-item" key={item.id}>
+          <div className="board-item" key={item.id} data-stack={item.id}>
             <TokenCard
               item={item}
               seatTexts={seatTexts}
