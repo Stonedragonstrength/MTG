@@ -6,6 +6,7 @@ import {
   mergeProfiles,
   mergePulled,
   type DeckRow,
+  type GameRow,
   type ProfileRow,
   type RowHead,
 } from '../lib/sync';
@@ -403,7 +404,55 @@ async function profilesSync(): Promise<Outcome> {
   return { kind: 'synced', count: await db.profiles.filter((p) => !p.deleted).count() };
 }
 
+// ---- the history of finished games ----
+// One table, own rows only: (user_id, game_id, data jsonb, deleted,
+// updated_at) — HISTORY_SQL below. A game recorded on two devices of the
+// same account (an online table) is one row: the game's own id. Pulled in
+// two steps, like decks: the history only grows.
+
+const soundGame = (d: Wire) =>
+  Array.isArray(d.players) && typeof d.endedAt === 'number' && Array.isArray(d.outs) && Array.isArray(d.lives);
+const GAMES_PER_PUSH = 25;
+
+async function gamesSync(): Promise<Outcome> {
+  const db = getDb();
+  const index = await deps.select('game_records', 'game_id,updated_at,deleted');
+  if ('error' in index) return refused('Sync', index.error);
+  const heads = index.rows.flatMap((row) => toHead(row, 'game_id'));
+  const local = (await db.games.toArray()).map(waiting);
+
+  const pulled: GameRow[] = [];
+  for (const keys of chunks(keysToPull(local, heads, (g) => g.id), KEYS_PER_PULL)) {
+    const reply = await deps.select('game_records', '*', { column: 'game_id', keys });
+    if ('error' in reply) return refused('Sync', reply.error);
+    pulled.push(...reply.rows.flatMap((row) => fromWire<GameRow>(row, 'game_id', soundGame) ?? []));
+  }
+
+  const { merged, toPush } = mergePulled(local, heads, pulled, (g) => g.id);
+  await applyMerged(db.games, local, merged);
+  const pushError = await pushRows(db.games, 'game_records', 'game_id', toPush, GAMES_PER_PUSH);
+  if (pushError) return refused('Push', pushError);
+  return { kind: 'synced', count: await db.games.filter((g) => !g.deleted && !g.removed).count() };
+}
+
 // ---- status ----
+
+const HISTORY_SETUP_KEY = 'cloudHistorySetupPending';
+
+/** True while the last sync found the history's table missing: the owner
+ * still has HISTORY_SQL to paste. Settings shows the step. */
+export async function historySetupPending(): Promise<boolean> {
+  return (await kvGet<boolean>(HISTORY_SETUP_KEY)) === true;
+}
+
+async function noteHistorySetup(games: Outcome): Promise<void> {
+  try {
+    if (games.kind === 'setup') await kvSet(HISTORY_SETUP_KEY, true);
+    else if (games.kind === 'synced') await kvDelete(HISTORY_SETUP_KEY);
+  } catch {
+    // Only a hint for the Settings screen.
+  }
+}
 
 const SETUP_KEY = 'cloudSetupPending';
 const SETUP_LINE = 'need one more setup step';
@@ -432,12 +481,17 @@ function oneLine(outcome: Outcome, one: string, many: string): string {
   return outcome.line;
 }
 
-/** "Synced 412 cards · 9 decks · 5 players", and what did not go as planned. */
-function statusLine(cards: Outcome, decks: Outcome, players: Outcome): string {
+/** "Synced 412 cards · 9 decks · 5 players · 12 games", and what did not go
+ * as planned. The history says nothing until it holds a game, and its
+ * missing table is a step in Settings, not a line here. */
+function statusLine(cards: Outcome, decks: Outcome, players: Outcome, games?: Outcome): string {
   const all: [Outcome, string, string, string][] = [
     [cards, 'card', 'cards', 'Curation'],
     [decks, 'deck', 'decks', 'decks'],
     [players, 'player', 'players', 'players'],
+    ...(games && !(games.kind === 'synced' && games.count === 0) && games.kind !== 'setup'
+      ? [[games, 'game', 'games', 'History'] as [Outcome, string, string, string]]
+      : []),
   ];
   const done = all.flatMap(([o, one, many]) =>
     o.kind === 'synced' ? counted(o.count, one, many) : [],
@@ -486,8 +540,10 @@ async function runAll(): Promise<string> {
   const cards = await attempt(garageSync);
   const decks = await attempt(decksSync);
   const players = await attempt(profilesSync);
+  const games = await attempt(gamesSync);
   await noteSetup(decks, players);
-  return statusLine(cards, decks, players);
+  await noteHistorySetup(games);
+  return statusLine(cards, decks, players, games);
 }
 
 let running: Promise<string> | null = null;
@@ -605,4 +661,19 @@ create table if not exists player_profiles (
 alter table player_profiles enable row level security;
 drop policy if exists "own rows" on player_profiles;
 create policy "own rows" on player_profiles for all
+  using (auth.uid() = user_id) with check (auth.uid() = user_id);`;
+
+/** The third paste: the history of finished games. Kept at the repo root
+ * as history-setup.sql too. Safe to run twice (the drop-policy line warns). */
+export const HISTORY_SQL = `create table if not exists game_records (
+  user_id uuid not null default auth.uid(),
+  game_id text not null,
+  data jsonb not null,
+  deleted boolean not null default false,
+  updated_at timestamptz not null default now(),
+  primary key (user_id, game_id)
+);
+alter table game_records enable row level security;
+drop policy if exists "own rows" on game_records;
+create policy "own rows" on game_records for all
   using (auth.uid() = user_id) with check (auth.uid() = user_id);`;

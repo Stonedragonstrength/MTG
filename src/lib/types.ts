@@ -294,6 +294,10 @@ export interface GameRecord {
   lives: StoryTurn[];
   /** Taken out of the history by hand: kept so it can come back, counted nowhere. */
   removed?: boolean;
+  /** ms epoch of the last change here (recorded, taken out, brought back):
+   * last-write-wins across devices. Absent on records kept before History
+   * synced: those count as the oldest, and go up at the first sync. */
+  updatedAt?: number;
 }
 
 export interface GameRecordSeat {

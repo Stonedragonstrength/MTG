@@ -1,6 +1,6 @@
 import Dexie, { type Table } from 'dexie';
-import type { DeckRow, ProfileRow } from '../lib/sync';
-import type { CardRecord, GameRecord, GarageCard } from '../lib/types';
+import type { DeckRow, GameRow, ProfileRow } from '../lib/sync';
+import type { CardRecord, GarageCard } from '../lib/types';
 
 export interface KvEntry {
   key: string;
@@ -16,8 +16,8 @@ export class AppDb extends Dexie {
   kv!: Table<KvEntry, string>;
   decks!: Table<DeckRow, string>;
   garage!: Table<GarageCard, string>;
-  /** Finished games, kept on this device only (the history). */
-  games!: Table<GameRecord, string>;
+  /** Finished games (the history), with their sync bookkeeping. */
+  games!: Table<GameRow, string>;
 
   constructor(name = 'mtg-companion') {
     super(name);

@@ -8,6 +8,7 @@ import {
   DECKS_PLAYERS_SQL,
   _resetForTests,
   deps,
+  historySetupPending,
   pokeOnResume,
   pokeSync,
   setCloudConfig,
@@ -35,6 +36,7 @@ const KEY: Record<string, string> = {
   garage_cards: 'card_id',
   decks: 'deck_id',
   player_profiles: 'profile_id',
+  game_records: 'game_id',
 };
 
 /** A timestamptz as PostgREST prints it: an offset, and no trailing zeros. */
@@ -1063,5 +1065,108 @@ describe('the setup SQL', () => {
     }
     expect(DECKS_PLAYERS_SQL).toContain('primary key (user_id, deck_id)');
     expect(DECKS_PLAYERS_SQL).toContain('primary key (user_id, profile_id)');
+  });
+});
+
+// ---- the history of finished games, between devices ----
+
+describe('the history syncs', () => {
+  const HISTORY_TABLES = ['garage_cards', 'decks', 'player_profiles', 'game_records'];
+  const duel = {
+    format: 'commander' as const,
+    startingLife: 40,
+    commanderDamageThreshold: 21,
+    profiles: [
+      { id: 'nathan', name: 'Nathan', avatarUrl: null, commanderName: 'Ashaya, Soul of the Wild' },
+      { id: 'sam', name: 'Sam', avatarUrl: null, commanderName: 'Vilis, Broker of Blood' },
+    ],
+  };
+  /** A fresh device for this test only, with an empty history. */
+  async function blank(name: string) {
+    const d = await device(name);
+    await getDb().games.clear();
+    await d.store.getState().init();
+    return d;
+  }
+  /** Nathan beats Sam on that device. */
+  async function win(d: Device) {
+    const s = await on(d);
+    s.startGame(duel);
+    s.adjustLife(1, -40);
+    await flushPersistence();
+    return d.store.getState().game!.story!.id;
+  }
+
+  test('a game won on the tablet is in the phone’s history after both sync', async () => {
+    project(HISTORY_TABLES);
+    const tablet = await blank('h1-tablet');
+    const phone = await blank('h1-phone');
+    const id = await win(tablet);
+    expect(await sync(tablet)).toBe('Synced 0 cards · 0 decks · 0 players · 1 game');
+    await sync(phone);
+    expect(phone.store.getState().games.map((g) => [g.id, g.winner])).toEqual([[id, 0]]);
+  });
+
+  test('taken out on one device, it is out on the other; brought back, it is back everywhere', async () => {
+    project(HISTORY_TABLES);
+    const tablet = await blank('h2-tablet');
+    const phone = await blank('h2-phone');
+    const id = await win(tablet);
+    await sync(tablet);
+    await sync(phone);
+    await (await on(phone)).removeGame(id);
+    await flushPersistence();
+    await sync(phone);
+    await sync(tablet);
+    expect(tablet.store.getState().games).toEqual([]);
+    expect((await (await on(tablet)).removedGames()).map((g) => g.id)).toEqual([id]);
+    await (await on(tablet)).restoreGame(id);
+    await sync(tablet);
+    await sync(phone);
+    expect(phone.store.getState().games.map((g) => g.id)).toEqual([id]);
+  });
+
+  test('a win an Undo took back leaves the other device’s history too', async () => {
+    project(HISTORY_TABLES);
+    const tablet = await blank('h3-tablet');
+    const phone = await blank('h3-phone');
+    await win(tablet);
+    await sync(tablet);
+    await sync(phone);
+    expect(phone.store.getState().games).toHaveLength(1);
+    (await on(tablet)).undo();
+    await flushPersistence();
+    await sync(tablet);
+    await sync(phone);
+    expect(phone.store.getState().games).toEqual([]);
+  });
+
+  test('the same game recorded on two devices of one account is one game', async () => {
+    const cloud = project(HISTORY_TABLES);
+    const tablet = await blank('h4-tablet');
+    const phone = await blank('h4-phone');
+    const id = await win(tablet);
+    // The phone was at the same online table: the same game, the same id.
+    const game = tablet.store.getState().game!;
+    const p = await on(phone);
+    phone.store.setState({ game: { ...game, players: game.players.map((pl) => ({ ...pl, eliminated: false, life: 40 })) } });
+    p.adjustLife(1, -40);
+    await flushPersistence();
+    expect(phone.store.getState().game!.story!.id).toBe(id);
+    await sync(tablet);
+    await sync(phone);
+    await sync(tablet);
+    expect(cloud.rows('game_records')).toHaveLength(1);
+    expect(tablet.store.getState().games).toHaveLength(1);
+    expect(phone.store.getState().games).toHaveLength(1);
+  });
+
+  test('a project without the history’s table: the step waits in Settings, and nothing else fails', async () => {
+    project();
+    const tablet = await blank('h5-tablet');
+    await win(tablet);
+    expect(await sync(tablet)).toBe('Synced 0 cards · 0 decks · 0 players');
+    expect(await historySetupPending()).toBe(true);
+    expect(tablet.store.getState().games).toHaveLength(1); // kept here all the same
   });
 });

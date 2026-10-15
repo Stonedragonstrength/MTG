@@ -1,4 +1,4 @@
-import type { CommanderEntry, Deck, PlayerProfile } from './types';
+import type { CommanderEntry, Deck, GameRecord, PlayerProfile } from './types';
 
 /** A row as a device stores it: the content (its `updatedAt` stamp included)
  * plus what two devices need in order to agree on it. The store hands the
@@ -18,6 +18,9 @@ export type Synced<T> = T & {
 
 export type DeckRow = Synced<Deck>;
 export type ProfileRow = Synced<PlayerProfile>;
+/** A finished game as a device stores it. Its tombstone (`deleted`) is a
+ * win an Undo took back; `removed` (taken out by hand) is content. */
+export type GameRow = Synced<GameRecord>;
 
 /** The content of a stored row, without the bookkeeping. */
 export function bare<T>(row: Synced<T>): T {

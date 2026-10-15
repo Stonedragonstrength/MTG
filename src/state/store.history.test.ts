@@ -59,7 +59,8 @@ describe('a decided game goes into the history', () => {
     store.getState().undo();
     await flushPersistence();
     expect(store.getState().games).toEqual([]);
-    expect(await getDb().games.count()).toBe(0);
+    // Kept as a tombstone, so the devices that already have it hear it never ended that way.
+    expect(await getDb().games.get(rec.id)).toMatchObject({ deleted: true, dirty: 1 });
   });
 
   test('nothing is recorded while two players are still in', async () => {

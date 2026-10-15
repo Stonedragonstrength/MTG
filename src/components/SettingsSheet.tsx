@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   DECKS_PLAYERS_SQL,
+  HISTORY_SQL,
   getCloudConfig,
+  historySetupPending,
   sendMagicLink,
   setCloudConfig,
   setupPending,
@@ -45,6 +47,10 @@ export default function SettingsSheet({ onClose }: Props) {
   const [setupStep, setSetupStep] = useState(false);
   const [copyMsg, setCopyMsg] = useState('');
   const sqlBox = useRef<HTMLTextAreaElement>(null);
+  // The same for the history of finished games: its own table, its own paste.
+  const [historyStep, setHistoryStep] = useState(false);
+  const [historyCopyMsg, setHistoryCopyMsg] = useState('');
+  const historySqlBox = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     getCloudConfig().then((cfg) => {
@@ -55,6 +61,7 @@ export default function SettingsSheet({ onClose }: Props) {
     });
     signedInEmail().then(setCloudUser);
     void setupPending().then(setSetupStep);
+    void historySetupPending().then(setHistoryStep);
   }, []);
 
   async function saveCloud() {
@@ -77,7 +84,19 @@ export default function SettingsSheet({ onClose }: Props) {
     const status = await syncAll();
     await refreshSynced();
     setSetupStep(await setupPending());
+    setHistoryStep(await historySetupPending());
     setCloudMsg(status);
+  }
+
+  async function copyHistorySql() {
+    try {
+      await navigator.clipboard.writeText(HISTORY_SQL);
+      setHistoryCopyMsg('Copied');
+    } catch {
+      historySqlBox.current?.focus();
+      historySqlBox.current?.select();
+      setHistoryCopyMsg('Selected — copy it');
+    }
   }
 
   async function copySql() {
@@ -242,7 +261,7 @@ export default function SettingsSheet({ onClose }: Props) {
 
       <div className="settings-section-label">Cloud sync</div>
       <p className="hint">
-        Syncs your Curation, decks and players across devices through your own Supabase project.
+        Syncs your Curation, decks, players and History across devices through your own Supabase project.
         {cloudUser ? ` Signed in as ${cloudUser}.` : ' Not signed in on this device yet.'}
       </p>
       <div className="settings-row">
@@ -299,6 +318,25 @@ export default function SettingsSheet({ onClose }: Props) {
             value={DECKS_PLAYERS_SQL}
           />
           <button onClick={() => void copySql()}>{copyMsg || 'Copy'}</button>
+        </div>
+      )}
+      {historyStep && (
+        <div className="cloud-setup">
+          <p className="hint">
+            One step before the History syncs between your devices. In Supabase, open the SQL
+            editor, paste this and press Run (the warning about the drop-policy line is expected —
+            run it). Then tap Sync now.
+          </p>
+          <textarea
+            ref={historySqlBox}
+            className="paste-box paste-box--sql"
+            aria-label="setup SQL for the history"
+            readOnly
+            rows={8}
+            spellCheck={false}
+            value={HISTORY_SQL}
+          />
+          <button onClick={() => void copyHistorySql()}>{historyCopyMsg || 'Copy'}</button>
         </div>
       )}
     </Sheet>

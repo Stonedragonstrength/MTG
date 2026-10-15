@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import { DECKS_PLAYERS_SQL, _resetForTests, deps } from '../data/cloud';
+import { DECKS_PLAYERS_SQL, HISTORY_SQL, _resetForTests, deps } from '../data/cloud';
 import { getDb } from '../data/db';
 import { DEFAULT_SETTINGS, getSettings } from '../data/settings';
 import { flushPersistence, useAppStore } from '../state/store';
@@ -66,12 +66,12 @@ test('the section is "Cloud sync", and says it covers the Curation, decks and pl
   expect(screen.getByText('Cloud sync')).toBeInTheDocument();
   expect(screen.queryByText(/curation cloud sync/i)).not.toBeInTheDocument();
   expect(
-    screen.getByText(/Syncs your Curation, decks and players across devices through your own Supabase project\./),
+    screen.getByText(/Syncs your Curation, decks, players and History across devices through your own Supabase project\./),
   ).toBeInTheDocument();
 });
 
 test('"Sync now" syncs all three, shows one status line and re-reads the lists', async () => {
-  const cloud = project(['garage_cards', 'decks', 'player_profiles']);
+  const cloud = project(['garage_cards', 'decks', 'player_profiles', 'game_records']);
   const store = useAppStore.getState();
   await store.saveDeck({ id: 'd1', name: 'Stompy', commander: null, colors: [], cards: [], updatedAt: 1 });
   await store.saveProfile({ id: 'p1', name: 'Sam', avatarUrl: null, commanderName: null });
@@ -89,7 +89,7 @@ test('"Sync now" syncs all three, shows one status line and re-reads the lists',
 });
 
 test('while the tables are missing the one-time step shows: the words, the SQL, and a Copy that works', async () => {
-  const cloud = project(['garage_cards']);
+  const cloud = project(['garage_cards', 'game_records']);
   const user = userEvent.setup(); // brings a clipboard to copy into
   render(<SettingsSheet onClose={() => {}} />);
   expect(screen.queryByLabelText(/setup sql/i)).not.toBeInTheDocument(); // nothing is known to be missing yet
@@ -134,4 +134,22 @@ test('where there is no clipboard to write to, Copy selects the SQL for a copy b
   expect(await screen.findByRole('button', { name: /selected/i })).toBeInTheDocument();
   expect(sql.selectionStart).toBe(0);
   expect(sql.selectionEnd).toBe(DECKS_PLAYERS_SQL.length);
+});
+
+test('while the history’s table is missing, its own step shows with its SQL; once made, the step goes', async () => {
+  const cloud = project(['garage_cards', 'decks', 'player_profiles']);
+  const user = userEvent.setup();
+  render(<SettingsSheet onClose={() => {}} />);
+  await user.click(screen.getByRole('button', { name: 'Sync now' }));
+  expect(await screen.findByText('Synced 0 cards · 0 decks · 0 players')).toBeInTheDocument();
+  const sql = (await screen.findByLabelText('setup SQL for the history')) as HTMLTextAreaElement;
+  expect(sql.value).toBe(HISTORY_SQL);
+  expect(screen.queryByLabelText('setup SQL for decks and players')).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Copy' }));
+  expect(await navigator.clipboard.readText()).toBe(HISTORY_SQL);
+
+  cloud.create('game_records');
+  await user.click(screen.getByRole('button', { name: 'Sync now' }));
+  await screen.findByText('Synced 0 cards · 0 decks · 0 players');
+  expect(screen.queryByLabelText('setup SQL for the history')).not.toBeInTheDocument();
 });

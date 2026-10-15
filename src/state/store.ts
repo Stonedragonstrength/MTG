@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { pokeOnResume, pokeSync } from '../data/cloud';
 import { getDb, kvDelete, kvGet, kvSet } from '../data/db';
-import { bare, type DeckRow, type ProfileRow, type Synced } from '../lib/sync';
+import { bare, type DeckRow, type GameRow, type ProfileRow, type Synced } from '../lib/sync';
 import * as tableSync from '../data/onlineTable';
 import type { SyncOpts, TableStatus } from '../data/onlineTable';
 import * as cardsLib from '../lib/cards';
@@ -494,6 +494,14 @@ function reread<T extends { id: string; updatedAt?: number }>(current: T[], fres
 
 const newestEnd = (a: GameRecord, b: GameRecord) => b.endedAt - a.endedAt;
 
+/** The history as the app shows it: neither taken out nor undone, newest first. */
+async function liveGames(): Promise<GameRecord[]> {
+  return (await getDb().games.toArray())
+    .filter((r) => !r.removed && !r.deleted)
+    .map((r) => bare<GameRecord>(r))
+    .sort(newestEnd);
+}
+
 export function createAppStore() {
   return create<AppStore>()((set, get, api) => {
     let history: GameState[] = [];
@@ -501,24 +509,47 @@ export function createAppStore() {
 
     // ---- the history of finished games ----
     // Writes go through the persistence chain one after another, so a win
-    // undone a moment after it was recorded can never be written back.
+    // undone a moment after it was recorded can never be written back. Every
+    // change is stamped and waits for the cloud (data/cloud.ts gamesSync),
+    // like a deck: one History on every device signed in to the same account.
     const deckNames = () => Object.fromEntries(get().decks.map((d) => [d.id, d.name]));
+    // The same finished game seen again (a reload of a decided game, the
+    // copy another device sent): nothing worth a new stamp.
+    const sameGame = (a: GameRecord, b: GameRecord) =>
+      a.winner === b.winner &&
+      a.endedAt === b.endedAt &&
+      a.turns === b.turns &&
+      a.players.length === b.players.length &&
+      a.outs.length === b.outs.length &&
+      a.lives.length === b.lives.length;
     const keepRecord = (rec: GameRecord) => {
       pending = pending
         .then(async () => {
           const db = getDb();
+          const had = await db.games.get(rec.id);
+          const live = had && !had.deleted ? had : undefined;
           // Taken out by hand before (and seen decided again on a reload): it stays out.
-          const row = (await db.games.get(rec.id))?.removed ? { ...rec, removed: true } : rec;
+          const content: GameRecord = live?.removed ? { ...rec, removed: true } : rec;
+          if (live && sameGame(bare(live), content)) return;
+          const row: GameRow = { ...content, updatedAt: freshStamp(had), dirty: 1 };
           await db.games.put(row);
           const rest = get().games.filter((x) => x.id !== row.id);
-          set({ games: row.removed ? rest : [row, ...rest].sort(newestEnd) });
+          set({ games: row.removed ? rest : [bare<GameRecord>(row), ...rest].sort(newestEnd) });
+          pokeSync(() => void get().refreshSynced());
         })
         .catch((err) => console.error('Failed to save the finished game', err));
     };
+    // A win an Undo took back: a tombstone, so the devices that already
+    // have the game hear that it never ended that way.
     const dropRecord = (id: string) => {
       pending = pending
         .then(async () => {
-          await getDb().games.delete(id);
+          const db = getDb();
+          const had = await db.games.get(id);
+          if (had && !had.deleted) {
+            await db.games.put({ ...had, deleted: true, updatedAt: freshStamp(had), dirty: 1 });
+            pokeSync(() => void get().refreshSynced());
+          }
           if (get().games.some((x) => x.id === id)) set({ games: get().games.filter((x) => x.id !== id) });
         })
         .catch((err) => console.error('Failed to take the game back out of the history', err));
@@ -806,8 +837,7 @@ export function createAppStore() {
           .filter((g) => !g.deleted)
           .sort((a, b) => a.name.localeCompare(b.name));
         const settings = await getSettings();
-        const games = (await getDb().games.toArray()).filter((r) => !r.removed).sort(newestEnd);
-        set({ games });
+        set({ games: await liveGames() });
         let game: GameState | null = null;
         try {
           const saved = await kvGet('activeGame');
@@ -2049,21 +2079,29 @@ export function createAppStore() {
       async removeGame(id) {
         const db = getDb();
         const row = await db.games.get(id);
-        if (row && !row.removed) await db.games.put({ ...row, removed: true });
+        if (row && !row.removed && !row.deleted) {
+          await db.games.put({ ...row, removed: true, updatedAt: freshStamp(row), dirty: 1 });
+          pokeSync(() => void get().refreshSynced());
+        }
         if (get().games.some((x) => x.id === id)) set({ games: get().games.filter((x) => x.id !== id) });
       },
 
       async restoreGame(id) {
         const db = getDb();
         const row = await db.games.get(id);
-        if (!row?.removed) return;
-        const { removed: _removed, ...back } = row;
+        if (!row?.removed || row.deleted) return;
+        const { removed: _removed, ...rest } = row;
+        const back: GameRow = { ...rest, updatedAt: freshStamp(row), dirty: 1 };
         await db.games.put(back);
-        set({ games: [back, ...get().games.filter((x) => x.id !== id)].sort(newestEnd) });
+        set({ games: [bare<GameRecord>(back), ...get().games.filter((x) => x.id !== id)].sort(newestEnd) });
+        pokeSync(() => void get().refreshSynced());
       },
 
       async removedGames() {
-        return (await getDb().games.toArray()).filter((r) => r.removed).sort(newestEnd);
+        return (await getDb().games.toArray())
+          .filter((r) => r.removed && !r.deleted)
+          .map((r) => bare<GameRecord>(r))
+          .sort(newestEnd);
       },
 
       undo() {
@@ -2446,6 +2484,9 @@ export function createAppStore() {
         const decks = reread(was.decks, liveContent(deckRows).sort(newestFirst));
         const profiles = reread(was.profiles, keepPlaces(was.profiles, liveContent(profileRows)));
         if (decks !== was.decks || profiles !== was.profiles) set({ decks, profiles });
+        // The history another device added to, or took a game out of.
+        const games = reread(get().games, await liveGames());
+        if (games !== get().games) set({ games });
         await get().refreshGarage();
       },
 
