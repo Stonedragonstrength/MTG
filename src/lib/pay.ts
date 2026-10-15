@@ -1,6 +1,7 @@
 import { keywordsGiven } from './attach';
 import { isSummoningSick, permanentTexts, sickCopies, tapsAsThoughHasty } from './keywords';
 import { tapManaFromText, type ManaColor } from './mana';
+import { manaTable, manaTextHere } from './manaHere';
 import { isLandCard } from './turnRules';
 import type { BoardItem, CardInstance, CardRecord } from './types';
 
@@ -459,6 +460,8 @@ export function sourcesFrom(
   const widen = (produces: Colors, extra: Colors) => {
     for (const g of extra) if (!produces.includes(g)) produces.push(g);
   };
+  // What Urza's Tower, Nykthos and "Activate only if…" look at.
+  const table = manaTable(battlefield, records, board);
 
   // Haste from what a creature wears: an Equipment of this seat on it.
   const wears = (iid: string) =>
@@ -473,10 +476,11 @@ export function sourcesFrom(
     // Tapping it by hand stays legal (crew, convoke) — it just floats nothing.
     if (!tapsAtOnce && isSummoningSick(c, record, texts, wears(c.iid))) continue;
     const creature = /Creature/.test(record.typeLine);
-    const own = tapManaFromText(record.oracleText);
-    const produces = inIdentity([...own.produces], record.oracleText, identity);
+    const text = manaTextHere(record.oracleText, table, c);
+    const own = tapManaFromText(text);
+    const produces = inIdentity([...own.produces], text, identity);
     // Gaea's Cradle, Cabal Coffers, Tolarian Academy: one mana for each.
-    const counted = forEachMana(record.oracleText, battlefield, records, board);
+    const counted = forEachMana(text, battlefield, records, board);
     if (counted) {
       for (const color of counted.produces) if (!produces.includes(color)) produces.push(color);
       own.amount = Math.max(own.amount, counted.amount);
