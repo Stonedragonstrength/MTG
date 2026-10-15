@@ -311,16 +311,16 @@ export function tapsAsThoughHasty(texts: string[]): boolean {
 }
 
 /** The rules text of everything a seat has on the battlefield: its cards
- * whose records are read, and its board stacks. This is what
- * grantedKeywords and the land rules read. An unread card is simply not
- * there yet — it can never block anything. */
+ * whose records are read (the face that is up), and its board stacks.
+ * This is what grantedKeywords and the land rules read. An unread card is
+ * simply not there yet — it can never block anything. */
 export function permanentTexts(
   battlefield: Pick<CardInstance, 'cardId'>[],
   records: Record<string, Pick<CardRecord, 'oracleText'> | null | undefined>,
   board: Pick<BoardItem, 'oracleText'>[],
 ): string[] {
   return [
-    ...battlefield.map((c) => records[c.cardId]?.oracleText ?? ''),
+    ...battlefield.map((c) => (records[c.cardId]?.oracleText ?? '').split('\n//\n')[0]),
     ...board.map((item) => item.oracleText),
   ].filter((text) => text !== '');
 }

@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'vitest';
+import { backView } from './faces';
+import { permanentTexts } from './keywords';
 import { landSummary } from './mana';
 import { availableMana, sourcesFrom } from './pay';
 import type { BoardItem, CardInstance, CardRecord } from './types';
@@ -101,5 +103,49 @@ describe('lands that count your board', () => {
       produces: ['U'],
       amount: 2,
     });
+  });
+});
+
+describe('a double-faced card: only the face that is up', () => {
+  const pathway: CardRecord = {
+    ...rec('pathway', 'Branchloft Pathway // Boulderloft Pathway', 'Land // Land', '{T}: Add {G}.\n//\n{T}: Add {W}.'),
+    back: {
+      name: 'Boulderloft Pathway',
+      typeLine: 'Land',
+      oracleText: '{T}: Add {W}.',
+      manaCost: '',
+      power: null,
+      toughness: null,
+      colors: [],
+      imageNormal: null,
+      imageArtCrop: null,
+    },
+  };
+  const mammoth = rec(
+    'mammoth',
+    'Kazandu Mammoth // Kazandu Valley',
+    'Creature — Elephant // Land',
+    'Landfall — Whenever a land you control enters, this creature gets +2/+2 until end of turn.\n//\nKazandu Valley enters tapped.\n{T}: Add {G}.',
+  );
+  const records = { pathway, mammoth, [backView(pathway).id]: backView(pathway) };
+
+  test('a Pathway makes the color of the face it was played as', () => {
+    expect(sourcesFrom([{ iid: 'p', cardId: 'pathway', name: pathway.name }], records, [])[0].produces).toEqual(['G']);
+    expect(sourcesFrom([{ iid: 'p', cardId: backView(pathway).id, name: pathway.name }], records, [])[0].produces).toEqual(['W']);
+  });
+
+  test('a creature whose back is a land makes no mana while the creature is up', () => {
+    expect(sourcesFrom([{ iid: 'm', cardId: 'mammoth', name: mammoth.name }], records, [])).toEqual([]);
+  });
+
+  test('the lands line counts a Pathway as its one color', () => {
+    const summary = landSummary([], [{ oracleText: pathway.oracleText }]);
+    expect(summary.colors.G).toBe(1);
+    expect(summary.colors.W).toBe(0);
+  });
+
+  test("what a card's back face says is not on the table while its front is up", () => {
+    const wolf = rec('wolf', 'Village Messenger // Moonrise Intruder', 'Creature // Creature', 'Haste\n//\nMenace\nCreatures you control have haste.');
+    expect(permanentTexts([{ cardId: 'wolf' }], { wolf }, [])).toEqual(['Haste']);
   });
 });

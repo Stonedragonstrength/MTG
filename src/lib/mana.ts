@@ -163,7 +163,9 @@ export function landSummary(
   for (const v of virtualLands) {
     if (v.land !== false) total += 1;
     if (v.oracleText === null) continue;
-    const produced = own(v.oracleText, manaColorsFromText(v.oracleText));
+    // The face that is up: a Pathway is the one color it was played as.
+    const text = v.oracleText.split('\n//\n')[0];
+    const produced = own(text, manaColorsFromText(text));
     if (produced[0] === 'any') any += 1;
     else for (const color of produced) colors[color as ManaColor] += 1;
   }

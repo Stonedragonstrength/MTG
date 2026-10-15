@@ -389,6 +389,10 @@ function grantsFrom(texts: string[]): Grants {
   return { creatures, nontoken, lands };
 }
 
+/** The rules text of the face that is up (a card on its back reads as its
+ * back already: lib/faces.ts backView). */
+const frontText = (record: Pick<CardRecord, 'oracleText'> | null | undefined) => (record?.oracleText ?? '').split('\n//\n')[0];
+
 /** "Any color in your commander's color identity": the commander's colors,
  * where they are known. A colorless commander's Command Tower makes nothing
  * (its other abilities, Opal Palace's {C}, still do). */
@@ -420,9 +424,7 @@ export function sourcesFrom(
    * Priest of Titania's Elves. null: those read as printed. */
   read: TableRead | null = null,
 ): ManaSource[] {
-  const granted = grantsFrom(
-    battlefield.map((c) => records[c.cardId]?.oracleText ?? '').filter((t) => t !== ''),
-  );
+  const granted = grantsFrom(battlefield.map((c) => frontText(records[c.cardId])).filter((t) => t !== ''));
   // Haste can come from any permanent of the seat, a tracked stack included.
   const texts = permanentTexts(battlefield, records, board);
   // Thousand-Year Elixir: fresh creatures still cannot attack, but they tap.
@@ -446,13 +448,16 @@ export function sourcesFrom(
     if (!record) continue; // unresolved: its text is not readable yet
     // Tapping it by hand stays legal (crew, convoke) — it just floats nothing.
     if (!tapsAtOnce && isSummoningSick(c, record, texts, wears(c.iid))) continue;
-    const creature = /Creature/.test(record.typeLine);
+    // Only the face that is up: a Pathway makes the color it was played as,
+    // and Kazandu Mammoth is no land while its creature face is up.
+    const typeUp = record.typeLine.split(' // ')[0];
+    const creature = /\bCreature\b/.test(typeUp);
     // Gaea's Cradle, Cabal Coffers, Nykthos, Marwyn: the amount as the table stands.
-    const text = manaTextHere(record.oracleText, table, { ...c, name: record.name, typeLine: record.typeLine });
+    const text = manaTextHere(frontText(record), table, { ...c, name: record.name, typeLine: typeUp });
     const own = tapManaFromText(text);
     const produces = inIdentity([...own.produces], text, identity);
     if (creature) widen(produces, granted.nontoken);
-    if (/\bLand\b/.test(record.typeLine)) widen(produces, granted.lands);
+    if (/\bLand\b/.test(typeUp)) widen(produces, granted.lands);
     if (produces.length === 0) continue;
     const total = Math.max(own.amount, 1);
     const amount = c.tapped ? total - (c.spent ?? 0) : total;
