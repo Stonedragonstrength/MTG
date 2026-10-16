@@ -8,6 +8,7 @@ import { tokensMadeBy, type TokenWant } from './deckTokens';
 import { godsOf, notCreature, notHeldBack } from './gods';
 import { isPlaneswalker } from './entering';
 import { adjustLife } from './game';
+import { counterWords, readCounter, type CounterRead } from './counterspells';
 import { searchAsk, type SearchAsk } from './search';
 import { isCreatureCard, shelfOf } from './shelf';
 import type { CardRecord, GameState } from './types';
@@ -66,6 +67,10 @@ export type SpellPrompt = {
   // "Gain control of target creature (until end of turn)": Act of Treason,
   // Threaten (untapped, with haste, for the turn), Confiscate (for good).
   | { kind: 'steal'; until: boolean }
+  // "Counter target noncreature spell unless its controller pays {2}": a
+  // list of its own (components/CounterSheet.tsx) of the spells cast this
+  // turn (lib/counterspells.ts).
+  | ({ kind: 'counter' } & CounterRead)
 );
 
 /** No more buttons than this under one spell. */
@@ -391,6 +396,16 @@ export function spellPrompts(record: Read, opts?: { x?: number }): SpellPrompt[]
         until,
       });
     }
+  }
+
+  // A counterspell: one button, where the text has it.
+  const counter = readCounter(text);
+  const counterAt = counter ? text.search(/\bcounter (?:up to one )?target\b/i) : -1;
+  if (counter && counterAt >= 0) {
+    const mode = options.findIndex((o) => counterAt >= o.from && counterAt < o.to);
+    const label = `Counter ${counterWords(counter.what)}${counter.unless ? ` unless they pay ${counter.unless}` : ''}…`;
+    const prompt: SpellPrompt = { key: `counter:${counter.what}`, label, pick: null, kind: 'counter', ...counter };
+    found.push({ at: counterAt, prompt: mode < 0 ? prompt : { ...prompt, mode } });
   }
 
   // A search of the caster's own library: one button, where the text has it.

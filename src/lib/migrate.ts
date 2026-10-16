@@ -1,5 +1,5 @@
 import { validStory } from './story';
-import type { CardInstance, FeedEntry, GameState, Reveal, SeatCards } from './types';
+import type { CardInstance, FeedEntry, GameState, Reveal, SeatCards, StackSpell } from './types';
 import type { CombatBlock, CombatState } from './types';
 
 function validInstance(c: unknown): c is CardInstance {
@@ -141,9 +141,44 @@ function soundCombat(saved: GameState): GameState {
   return keep ? saved : rest;
 }
 
+const CARD_ZONES = new Set(['library', 'hand', 'battlefield', 'graveyard', 'exile', 'command']);
+
+/** One spell cast this turn, as far as anything reads it. */
+function validSpell(s: unknown, seats: number): s is StackSpell {
+  const v = s as StackSpell | null;
+  return (
+    !!v &&
+    typeof v === 'object' &&
+    typeof v.id === 'string' &&
+    Number.isInteger(v.seat) &&
+    v.seat >= 0 &&
+    v.seat < seats &&
+    typeof v.iid === 'string' &&
+    typeof v.cardId === 'string' &&
+    typeof v.name === 'string' &&
+    CARD_ZONES.has(v.to) &&
+    (v.from === undefined || CARD_ZONES.has(v.from)) &&
+    Number.isInteger(v.turn) &&
+    Number.isInteger(v.active) &&
+    (v.reveal === undefined || typeof v.reveal === 'string') &&
+    (v.countered === undefined || typeof v.countered === 'string')
+  );
+}
+
+/** The spells cast this turn, with any that cannot be read left out (and
+ * the key gone when none can). Never fatal. */
+function soundStack(saved: GameState): GameState {
+  if (!('stack' in saved)) return saved;
+  const { stack, ...rest } = saved;
+  const kept = Array.isArray(stack) ? stack.filter((s) => validSpell(s, saved.players.length)) : [];
+  if (kept.length === 0) return rest;
+  return Array.isArray(stack) && kept.length === stack.length ? saved : { ...rest, stack: kept };
+}
+
 /** Fill in fields added after a save was written (or sent by an older build). */
 export function migrateGame(saved: GameState): GameState {
   saved = soundCombat(saved); // before the spread below copies it along
+  saved = soundStack(saved);
   const { reveal, story, ...rest } = saved;
   return {
     ...rest,

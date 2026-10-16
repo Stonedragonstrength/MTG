@@ -27,6 +27,7 @@ import * as payWithLib from '../lib/payWith';
 import { seatSources } from '../lib/seatMana';
 import type { SpendOn } from '../lib/spendOnly';
 import type { Taken } from '../lib/storedMana';
+import { counteredTo, markCountered, stackNow, withStack, type Casting, type CounteredTo } from '../lib/counterspells';
 import { planEffect, type SpellEffect } from '../lib/spellEffects';
 import { happeningsBetween, unitThing, type Happening } from '../lib/triggers';
 import { dayNightNeeds, turnedDayNight, withCasts } from '../lib/dayNight';
@@ -282,6 +283,13 @@ export interface AppStore {
   /** One effect of a spell that seat cast, picked off the cast banner
    * (lib/spellEffects.ts): damage, life, removal, counters. One move, one Undo. */
   castEffect(seat: number, spellName: string, effect: SpellEffect): Promise<void>;
+  /** Seat's `source` (a counterspell, Mystic Snake) counters a spell cast
+   * this turn (GameState.stack, by id): the card goes to its owner's
+   * graveyard — a commander home — or where `to` says. One move, one Undo. */
+  counterSpell(seat: number, source: string, spellId: string, to?: CounteredTo): void;
+  /** "Unless its controller pays {3}": the spell's controller pays it from
+   * their lands, and the spell stands. */
+  payForSpell(spellId: string, cost: string, source: string): Promise<void>;
   splitItem(playerIdx: number, itemId: string, moveCount: number): void;
   setCounter(playerIdx: number, itemId: string, counterName: string, value: number): void;
   setManaMode(playerIdx: number, itemId: string, mode: BoardItem['manaMode']): void;
@@ -689,15 +697,27 @@ export function createAppStore() {
       describe?: (prev: GameState, next: GameState) => string | null,
       sync?: SyncOpts,
       also: Happening[] = [],
+      /** Cards this move takes off the battlefield that never resolved (a
+       * countered permanent spell): leaving, they did not die. */
+      quiet: string[] = [],
     ) => {
       const game = get().game;
       if (!game) return;
       if (get().online?.status.kind === 'stale-build') return; // refresh first
       // The game's story (lib/story.ts) and the spells cast this turn (for
-      // day and night, lib/dayNight.ts) ride inside every move, so a move
-      // replayed on another base retells its part of them too.
+      // day and night, lib/dayNight.ts; for a counterspell, lib/counterspells.ts)
+      // ride inside every move, so a move replayed on another base retells
+      // its part of them too.
       const castBy = also.flatMap((e) => (e.kind === 'cast' ? [e.seat] : []));
-      const fn = (g: GameState) => withStory(g, withCasts(g, move(g), castBy));
+      const casting: Casting[] = also.flatMap((e) =>
+        e.kind === 'cast' && e.spell.kind === 'card' && e.spell.cardId
+          ? [{ id: `s${cardsLib.newIid()}`, seat: e.seat, iid: e.spell.id, cardId: e.spell.cardId, name: e.spell.name, ...(e.from ? { from: e.from } : {}) }]
+          : [],
+      );
+      const fn = (g: GameState) => {
+        const moved = move(g);
+        return withStory(g, withCasts(g, withStack(g, moved, moved === g ? [] : casting), castBy));
+      };
       const next = fn(game);
       if (next === game) return;
       // Tripwire: the server refuses >512KB; refuse earlier and louder.
@@ -709,7 +729,11 @@ export function createAppStore() {
       // What this move did is noted beside the game, in the same breath:
       // cards that trigger by themselves are set off by it. A cast is said
       // by the move that made it (`also`); the rest is read off the table.
-      const events = [...also, ...happeningsBetween(game, next)];
+      const events = [...also, ...happeningsBetween(game, next)].flatMap((h): Happening[] => {
+        if (h.kind !== 'dies' || quiet.length === 0) return [h];
+        const things = h.things.filter((t) => !(t.kind === 'card' && quiet.includes(t.id)));
+        return things.length > 0 ? [{ ...h, things }] : [];
+      });
       if (events.length > 0) set({ game: next, happened: { id: ++happenedSeq, events } });
       else set({ game: next });
       persistGame(next);
@@ -738,6 +762,8 @@ export function createAppStore() {
       // What the move did that the table cannot see — told with its feed
       // line, where it is to be known by that (an Undo takes the line back).
       also?: Happening[] | ((entry: FeedEntry | null) => Happening[]),
+      /** Cards it takes off the battlefield without their dying (see mutateGame). */
+      quiet?: string[],
     ) => {
       const entry = feedText ? feedEntry(feedText) : null;
       const fn = (g: GameState) => {
@@ -745,7 +771,7 @@ export function createAppStore() {
         if (after === g) return g;
         return entry ? cardsLib.appendFeed(after, entry) : after;
       };
-      mutateGame(fn, undefined, { guard: guard ?? (() => true), maxAgeMs }, typeof also === 'function' ? also(entry) : also);
+      mutateGame(fn, undefined, { guard: guard ?? (() => true), maxAgeMs }, typeof also === 'function' ? also(entry) : also, quiet);
     };
 
     // ---- day and night (lib/dayNight.ts) ----
@@ -2470,6 +2496,67 @@ export function createAppStore() {
         const plan = planEffect(g, seat, spellName, effect, records);
         if (!plan) return;
         cardMutate(plan.apply, plan.text, plan.guard);
+      },
+
+      // A counterspell: the spell's card goes where a countered spell goes,
+      // its showing (and the buttons under it) goes from the table, and it is
+      // marked countered so nothing counters it twice. A permanent taken off
+      // the battlefield this way never resolved: it did not die.
+      counterSpell(seat, source, spellId, to = 'graveyard') {
+        const g = get().game;
+        const spell = g ? stackNow(g).find((s) => s.id === spellId) : undefined;
+        if (!g || !spell || spell.countered) return;
+        const dest = counteredTo(g, spell, to);
+        const whose = spell.seat === seat ? '' : `${seatName(g, spell.seat)}'s `;
+        const where =
+          dest === 'command'
+            ? ' — back to the command zone'
+            : dest === 'exile'
+              ? ' — exiled'
+              : dest === 'hand'
+                ? ' — back to its owner’s hand'
+                : dest === 'library'
+                  ? ' — on top of its owner’s library'
+                  : '';
+        cardMutate(
+          (base) => {
+            const now = stackNow(base).find((s) => s.id === spellId);
+            if (!now || now.countered || !base.players[now.seat]?.cards?.[now.to].some((c) => c.iid === now.iid)) return base;
+            let next = base;
+            if (dest === 'command') next = cardsLib.commanderDied(base, now.seat, now.iid, now.to);
+            else if (dest !== now.to) next = cardsLib.moveCard(base, now.seat, now.iid, now.to, dest, dest === 'library' ? { pos: 'top' } : undefined);
+            if (dest !== now.to && next === base) return base;
+            next = markCountered(next, spellId, source);
+            // The showing of the spell, and what it offered, are over.
+            if (now.reveal && next.reveal?.id === now.reveal) {
+              const { reveal: _r, ...rest } = next;
+              next = rest;
+            }
+            return next;
+          },
+          `${seatName(g, seat)}: ${source} counters ${whose}${spell.name}${where}`,
+          (base) => stackNow(base).some((s) => s.id === spellId && !s.countered),
+          undefined,
+          [],
+          [spell.iid],
+        );
+      },
+
+      async payForSpell(spellId, cost, source) {
+        const g = get().game;
+        const spell = g ? stackNow(g).find((s) => s.id === spellId) : undefined;
+        if (!g || !spell) return;
+        const records = await seatRecords(g, spell.seat);
+        const paidIn = { turn: g.turnNumber, active: g.activePlayerIndex };
+        cardMutate(
+          (base) => {
+            const pay = payFrom(base, spell.seat, [payLib.parseCost(cost)], records, paidIn);
+            // Paid by hand where the lands cannot: what is said is the move.
+            return { ...pay(base) };
+          },
+          `${seatName(g, spell.seat)} pays ${cost} — ${spell.name} is not countered (${source})`,
+          (base) => stackNow(base).some((s) => s.id === spellId && !s.countered),
+        );
       },
 
       sacrificeToken(seat, itemId) {

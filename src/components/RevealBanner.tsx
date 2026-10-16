@@ -4,6 +4,7 @@ import { bestToken } from '../lib/deckTokens';
 import { modesToChoose, spellPrompts, type SpellPrompt, type SpellTarget } from '../lib/spellEffects';
 import type { CardRecord, Reveal } from '../lib/types';
 import { useAppStore } from '../state/store';
+import CounterSheet from './CounterSheet';
 import DiscoverSheet from './DiscoverSheet';
 import LibrarySearchSheet from './LibrarySearchSheet';
 import { shieldBoard } from './Sheet';
@@ -158,6 +159,8 @@ function RevealPanel({ reveal, who, onDone }: PanelProps) {
   const [searching, setSearching] = useState<{ id: string; prompt: SpellPrompt } | null>(null);
   // …or turns cards over for a discover: that sheet is open.
   const [discovering, setDiscovering] = useState<{ id: string; prompt: SpellPrompt } | null>(null);
+  // …or a counterspell asks which spell: that list is open.
+  const [countering, setCountering] = useState<{ id: string; prompt: SpellPrompt } | null>(null);
 
   // The tap that puts it away is often the first half of a double tap, and a
   // finger may be on its way when it times out: either way the board it was
@@ -235,6 +238,7 @@ function RevealPanel({ reveal, who, onDone }: PanelProps) {
     if (performance.now() - up.current.since < SETTLE_MS) return; // aimed at the board it now covers
     if (prompt.kind === 'search') setSearching({ id: reveal.id, prompt });
     else if (prompt.kind === 'discover') setDiscovering({ id: reveal.id, prompt });
+    else if (prompt.kind === 'counter') setCountering({ id: reveal.id, prompt });
     else if (prompt.pick) setAiming({ id: reveal.id, prompt });
     else carryOut(prompt);
   };
@@ -336,6 +340,20 @@ function RevealPanel({ reveal, who, onDone }: PanelProps) {
             if (did) setUsed({ id: reveal.id, keys: [...usedKeys, discovering.prompt.key] });
             setDiscovering(null);
           }}
+        />
+      )}
+      {countering && countering.id === reveal.id && countering.prompt.kind === 'counter' && (
+        <CounterSheet
+          caster={reveal.seat}
+          source={reveal.cards[0].name}
+          revealId={reveal.id}
+          prompt={countering.prompt}
+          {...(reveal.x !== undefined ? { x: reveal.x } : {})}
+          onDone={() => {
+            setUsed({ id: reveal.id, keys: [...usedKeys, countering.prompt.key] });
+            setCountering(null);
+          }}
+          onClose={() => setCountering(null)}
         />
       )}
     </>

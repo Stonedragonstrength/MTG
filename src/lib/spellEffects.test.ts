@@ -49,7 +49,7 @@ describe('reading a spell', () => {
 
   test('drawing is the caster’s unless the card names somebody else', () => {
     expect(labels('Draw two cards.')).toEqual(['Draw 2']); // Divination
-    expect(labels('Counter target spell.\nDraw a card.')).toEqual(['Draw 1']);
+    expect(labels('Counter target spell.\nDraw a card.')).toEqual(['Counter a spell…', 'Draw 1']);
     expect(labels('Each player draws two cards.')).toEqual([]);
     expect(labels('Destroy target creature. Its controller may draw a card.')).toEqual(['Destroy a creature…']);
   });
@@ -128,7 +128,6 @@ describe('reading a spell', () => {
         'Search your library for up to two basic land cards, reveal those cards, put one onto the battlefield tapped and the other into your hand, then shuffle.',
       ),
     ).toEqual(['Search library…']); // Cultivate: its search is a list of its own
-    expect(labels('Counter target spell.')).toEqual([]);
     expect(labels('Tap target creature.')).toEqual([]);
     expect(labels('Target player discards two cards.')).toEqual([]);
     expect(labels('You gain 2 life for each creature you control.')).toEqual([]);
@@ -620,6 +619,15 @@ describe('discover', () => {
     ]);
     expect(labels('Return up to one target permanent card from your graveyard to your hand. Discover 4.')).toEqual(['Discover 4…']);
     expect(spellPrompts(spell("Counter target artifact or creature spell. Discover X, where X is that spell's mana value."))).toEqual([
+      {
+        key: 'counter:artifact or creature spell',
+        label: 'Counter an artifact or creature spell…',
+        pick: null,
+        kind: 'counter',
+        what: 'artifact or creature spell',
+        unless: null,
+        to: 'graveyard',
+      },
       { key: 'discover:X', label: 'Discover X…', pick: null, kind: 'discover', n: null },
     ]);
     // Another player's discover is theirs to carry out.

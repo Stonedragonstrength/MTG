@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
+import CounterSheet from './CounterSheet';
 import DiscoverSheet from './DiscoverSheet';
 import LibrarySearchSheet from './LibrarySearchSheet';
 import { shieldBoard } from './Sheet';
@@ -18,6 +19,7 @@ function TriggerPanel({ shown }: { shown: ShownTrigger[] }) {
   const [aiming, setAiming] = useState<{ key: string; actKey: string } | null>(null);
   const [searching, setSearching] = useState<{ key: string; actKey: string } | null>(null);
   const [discovering, setDiscovering] = useState<{ key: string; actKey: string } | null>(null);
+  const [countering, setCountering] = useState<{ key: string; actKey: string } | null>(null);
 
   // A finger may be on its way when it goes: the board it covered sits out
   // the next moment, as it does behind a closing sheet.
@@ -60,6 +62,7 @@ function TriggerPanel({ shown }: { shown: ShownTrigger[] }) {
     if (!settled()) return;
     if (act.kind === 'prompt' && act.prompt.kind === 'search') setSearching({ key: t.key, actKey: act.key });
     else if (act.kind === 'prompt' && act.prompt.kind === 'discover') setDiscovering({ key: t.key, actKey: act.key });
+    else if (act.kind === 'prompt' && act.prompt.kind === 'counter') setCountering({ key: t.key, actKey: act.key });
     else if (act.kind === 'prompt' && act.prompt.pick) setAiming({ key: t.key, actKey: act.key });
     else useTriggers.getState().carryOut(t.key, act.key);
   };
@@ -73,6 +76,7 @@ function TriggerPanel({ shown }: { shown: ShownTrigger[] }) {
   const aimed = opened(aiming);
   const searched = opened(searching);
   const discovered = opened(discovering);
+  const countered = opened(countering);
 
   return (
     <>
@@ -152,6 +156,19 @@ function TriggerPanel({ shown }: { shown: ShownTrigger[] }) {
             if (did) useTriggers.getState().markDone(discovered.trigger.key, discovered.act.key);
             setDiscovering(null);
           }}
+        />
+      )}
+      {countered && countered.prompt.kind === 'counter' && (
+        <CounterSheet
+          caster={countered.trigger.seat}
+          source={countered.trigger.source.name}
+          sourceIid={countered.trigger.source.iid}
+          prompt={countered.prompt}
+          onDone={() => {
+            useTriggers.getState().markDone(countered.trigger.key, countered.act.key);
+            setCountering(null);
+          }}
+          onClose={() => setCountering(null)}
         />
       )}
     </>

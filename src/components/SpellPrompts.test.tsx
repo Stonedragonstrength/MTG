@@ -42,6 +42,7 @@ const RECORDS: Record<string, CardRecord> = {
   'c-bolt': rec('c-bolt', 'Lightning Bolt', 'Instant', 'Lightning Bolt deals 3 damage to any target.'),
   'c-helix': rec('c-helix', 'Lightning Helix', 'Instant', 'Lightning Helix deals 3 damage to any target and you gain 3 life.'),
   'c-counter': rec('c-counter', 'Counterspell', 'Instant', 'Counter target spell.'),
+  'c-fog': rec('c-fog', 'Fog', 'Instant', 'Prevent all combat damage that would be dealt this turn.'),
   'c-divination': rec('c-divination', 'Divination', 'Sorcery', 'Draw two cards.'),
   'c-alarm': rec('c-alarm', 'Raise the Alarm', 'Instant', 'Create two 1/1 white Soldier creature tokens.'),
   'c-hunt': rec('c-hunt', 'Call of the Hunt', 'Sorcery', 'Create a 2/2 green Wolf creature token.'),
@@ -165,9 +166,9 @@ test('a cast spell offers what it does as buttons; one it cannot read offers non
   await settle();
   expect(labels()).toEqual(['Deal 3 damage…', 'Gain 3 life']);
   cleanup();
-  casts('c-counter');
+  casts('c-fog');
   await settle();
-  expect(banner()).toHaveTextContent('Counterspell');
+  expect(banner()).toHaveTextContent('Fog');
   expect(labels()).toEqual([]);
 });
 
@@ -303,7 +304,7 @@ test('a "choose two" spell closes after the second option', async () => {
 });
 
 test('a spell with nothing to offer still goes after seven', async () => {
-  casts('c-counter');
+  casts('c-fog');
   await settle();
   pass(6_000);
   expect(banner()).not.toBeNull();
@@ -524,4 +525,70 @@ test('a spell that discovers opens its sheet: the card it finds is cast free, an
   await settle();
   expect(game().reveal).toMatchObject({ from: 'cast', cards: [{ name: 'Lightning Bolt' }] });
   expect(labels()).toEqual(['Deal 3 damage…']);
+});
+
+// ---- counterspells: the list of the spells cast this turn ----
+
+/** Sam has just cast a Lightning Bolt (in his graveyard, on the stack), and
+ * Nathan answers with the spell `cardId`, shown on the banner. */
+function answering(cardId: string) {
+  const shown = cast(cardId);
+  const g = table(shown);
+  const stamp = { turn: g.turnNumber, active: g.activePlayerIndex };
+  g.players[1] = { ...g.players[1], cards: { ...g.players[1].cards!, graveyard: [card('sbolt', 'c-bolt')] } };
+  g.players[0] = { ...g.players[0], cards: { ...g.players[0].cards!, graveyard: [card('mine', cardId)] } };
+  const stack = [
+    { id: 's1', seat: 1, iid: 'sbolt', cardId: 'c-bolt', name: 'Lightning Bolt', to: 'graveyard' as const, ...stamp },
+    { id: 's2', seat: 0, iid: 'mine', cardId, name: RECORDS[cardId].name, to: 'graveyard' as const, reveal: shown.id, ...stamp },
+  ];
+  act(() => useAppStore.setState({ game: { ...g, stack } }));
+  render(<RevealBanner />);
+}
+
+test('Counterspell asks which spell, Sam’s Bolt on top; a tap counters it and its button is done', async () => {
+  answering('c-counter');
+  await settle();
+  expect(labels()).toEqual(['Counter a spell…']);
+  pass(400);
+  fireEvent.click(screen.getByRole('button', { name: 'Counter a spell…' }));
+  await settle();
+  const sheet = (document.querySelector('.sheet') as HTMLElement);
+  // Not itself: only the Bolt.
+  expect(within(sheet).getAllByRole('button', { name: /^counter / }).map((b) => b.textContent)).toEqual(['Lightning Bolt Sam’s']);
+  tap(within(sheet).getByRole('button', { name: 'counter Lightning Bolt' }));
+  expect(game().stack!.find((s) => s.id === 's1')?.countered).toBe('Counterspell');
+  expect(feed()).toContain("Nathan: Counterspell counters Sam's Lightning Bolt");
+  expect(document.querySelector('.sheet')).toBeNull();
+  expect(screen.getByRole('button', { name: '✓ Counter a spell' })).toBeDisabled();
+});
+
+test('"unless its controller pays": the list asks whether Sam pays, and No counters it', async () => {
+  RECORDS['c-leak'] = rec('c-leak', 'Mana Leak', 'Instant', 'Counter target spell unless its controller pays {3}.');
+  answering('c-leak');
+  await settle();
+  pass(400);
+  fireEvent.click(screen.getByRole('button', { name: 'Counter a spell unless they pay {3}…' }));
+  await settle();
+  const sheet = (document.querySelector('.sheet') as HTMLElement);
+  tap(within(sheet).getByRole('button', { name: 'counter Lightning Bolt' }));
+  expect(game().stack!.find((s) => s.id === 's1')?.countered).toBeUndefined(); // asked first
+  expect(within(sheet).getByText(/Does Sam pay/)).toBeTruthy();
+  expect(within(sheet).getByText('Their untapped mana can’t cover it.')).toBeTruthy();
+  tap(within(sheet).getByRole('button', { name: 'No — counter Lightning Bolt' }));
+  expect(game().stack!.find((s) => s.id === 's1')?.countered).toBe('Mana Leak');
+});
+
+test('a Negate is no answer to a creature: Sam’s Bears is shown, but not offered', async () => {
+  RECORDS['c-negate'] = rec('c-negate', 'Negate', 'Instant', 'Counter target noncreature spell.');
+  const shown = cast('c-negate');
+  const g = table(shown);
+  const stamp = { turn: g.turnNumber, active: g.activePlayerIndex };
+  const stack = [{ id: 's1', seat: 1, iid: 'sbear', cardId: 'c-bear', name: 'Grizzly Bears', to: 'battlefield' as const, ...stamp }];
+  act(() => useAppStore.setState({ game: { ...g, stack } }));
+  render(<RevealBanner />);
+  await settle();
+  pass(400);
+  fireEvent.click(screen.getByRole('button', { name: 'Counter a noncreature spell…' }));
+  await settle();
+  expect(within((document.querySelector('.sheet') as HTMLElement)).getByRole('button', { name: 'Grizzly Bears — not a noncreature spell' })).toBeDisabled();
 });

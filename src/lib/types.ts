@@ -222,6 +222,34 @@ export interface GameState {
   /** Spells the active player has cast this turn, named like landPlays: a
    * stamp from any other turn counts as none. Written inside every move. */
   casts?: { turn: number; active: number; n: number };
+  /** Every spell cast this turn, by anyone, oldest first: what a
+   * counterspell can answer (lib/counterspells.ts — read it through
+   * stackNow: a stamp from another turn is no spell). Written inside the
+   * move that casts it. Builds that do not know it keep it as it is. */
+  stack?: StackSpell[];
+}
+
+/** A spell cast this turn. The card already lies where the cast put it. */
+export interface StackSpell {
+  /** Minted as it is cast. */
+  id: string;
+  /** Who cast it: its controller, and the card's owner. */
+  seat: number;
+  iid: string;
+  cardId: string;
+  name: string;
+  /** Where the cast put the card: the graveyard (an instant or sorcery), the
+   * battlefield (a permanent), exile (rebound), the hand (bought back). */
+  to: CardZone;
+  /** Where it was cast from, when not the hand: a commander's command zone,
+   * exile (rebound), the library (cascade, discover). */
+  from?: CardZone;
+  turn: number;
+  active: number;
+  /** The showing its cast put up (an instant or sorcery): countered, it goes. */
+  reveal?: string;
+  /** Countered, by the card named. */
+  countered?: string;
 }
 
 /** The story of one game, for the recap when it ends (lib/story.ts). */
