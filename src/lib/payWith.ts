@@ -1,5 +1,6 @@
 import { COLOR_NAMES, type ManaColor } from './mana';
 import { canPay, planPayment, sourcesFor, type ManaSource, type PayCost, type PaymentPlan } from './pay';
+import { countersTaken, type Taken } from './storedMana';
 
 // "Pay with…": the player says which lands pay, instead of the table.
 // What the sheet shows and what the store taps are both worked out here,
@@ -148,7 +149,8 @@ export function tally(cost: PayCost, chosen: ManaSource[]): Tally {
     }
     const spent = plan.spend[s.key] ?? 0;
     if (spent === 0) idle += 1;
-    else spare += (makes.get(s.key) ?? s.amount) - spent;
+    // Counters it did not need stay on the card, not in the pool.
+    else if (!s.stored) spare += (makes.get(s.key) ?? s.amount) - spent;
   }
   for (const [key, n] of Object.entries(copies)) idle += n - (plan.boardTaps[key] ?? 0);
   return { of, paid: of, missing: [], idle, spare, plan };
@@ -179,11 +181,13 @@ export function tallyWords(cost: PayCost, t: Tally): string {
  * pay the cost, each is drawn on as that plan says and a lit source the
  * cost had no use for is only tapped (its mana floats). Where they cannot
  * pay it — a cost the table reads too high, a reducer on the board — they
- * are spent whole: the player said these pay for it. */
+ * are spent whole: the player said these pay for it. Counters a card keeps
+ * mana in come off as far as they are drawn on (`taken`); one the cost had
+ * no use for keeps them. */
 export function payWith(
   costs: PayCost[],
   chosen: ManaSource[],
-): { spend: Record<string, number>; tap: string[]; boardTaps: Record<string, number> } {
+): { spend: Record<string, number>; tap: string[]; boardTaps: Record<string, number>; taken?: Taken[] } {
   let plan: PaymentPlan | null = null;
   for (const cost of costs) {
     const t = tally(cost, chosen);
@@ -194,15 +198,27 @@ export function payWith(
     }
     plan ??= t.plan;
   }
-  const out = { spend: {} as Record<string, number>, tap: [] as string[], boardTaps: {} as Record<string, number> };
+  const taken: Taken[] = [...(plan?.taken ?? [])];
+  const out: { spend: Record<string, number>; tap: string[]; boardTaps: Record<string, number>; taken?: Taken[] } = {
+    spend: {},
+    tap: [],
+    boardTaps: {},
+  };
   for (const s of chosen) {
     if (s.kind === 'board') {
       out.boardTaps[s.key] = (out.boardTaps[s.key] ?? 0) + 1;
       continue;
     }
     const spent = plan ? (plan.spend[s.key] ?? 0) : s.amount;
+    // Mana its counters make without a tap: nothing to tap, only counters to take.
+    const apart = !!s.stored && s.key !== s.stored.iid;
     if (spent > 0) out.spend[s.key] = spent;
-    else if (!s.floating) out.tap.push(s.key);
+    else if (!s.floating && !apart) out.tap.push(s.key);
+    if (!plan && s.stored) {
+      const n = countersTaken(s.stored, s.amount, []);
+      if (n > 0) taken.push({ iid: s.stored.iid, kind: s.stored.kind, n, ...(s.stored.goes ? { goes: true as const } : {}) });
+    }
   }
+  if (taken.length > 0) out.taken = taken;
   return out;
 }

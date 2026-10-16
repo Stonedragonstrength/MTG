@@ -34,14 +34,20 @@ interface Props {
 
 /** The counters that keep time on a card, as its corner says them: a
  * Saga's chapter ("II"), Vanishing's time counters, Fading's, cumulative
- * upkeep's age. The first one it has; null for none. */
-export function tallyOf(counters: CardInstance['counters']): { text: string; label: string } | null {
+ * upkeep's age — and the ones it keeps mana in: a storage land's storage
+ * counters, a Mana Battery's or a Vivid land's charge counters. The first
+ * one it has; null for none. `short`: for a small land on the lands shelf,
+ * where "storage 3" does not fit — the number alone (its label names it). */
+export function tallyOf(counters: CardInstance['counters']): { text: string; short: string; label: string } | null {
   const n = (kind: string) => Math.max(0, Math.floor(counters?.[kind] ?? 0));
   const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
-  if (n('lore') > 0) return { text: ROMAN[n('lore')] ?? `${n('lore')}`, label: `chapter ${ROMAN[n('lore')] ?? n('lore')}` };
-  if (n('time') > 0) return { text: `⏳${n('time')}`, label: `${n('time')} time counter${n('time') === 1 ? '' : 's'}` };
-  if (n('fade') > 0) return { text: `fade ${n('fade')}`, label: `${n('fade')} fade counter${n('fade') === 1 ? '' : 's'}` };
-  if (n('age') > 0) return { text: `age ${n('age')}`, label: `${n('age')} age counter${n('age') === 1 ? '' : 's'}` };
+  if (n('lore') > 0) {
+    const text = ROMAN[n('lore')] ?? `${n('lore')}`;
+    return { text, short: text, label: `chapter ${ROMAN[n('lore')] ?? n('lore')}` };
+  }
+  if (n('time') > 0) return { text: `⏳${n('time')}`, short: `⏳${n('time')}`, label: `${n('time')} time counter${n('time') === 1 ? '' : 's'}` };
+  for (const kind of ['fade', 'age', 'storage', 'charge', 'depletion', 'mining'])
+    if (n(kind) > 0) return { text: `${kind} ${n(kind)}`, short: `${n(kind)}`, label: `${n(kind)} ${kind} counter${n(kind) === 1 ? '' : 's'}` };
   return null;
 }
 

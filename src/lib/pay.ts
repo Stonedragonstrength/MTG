@@ -4,6 +4,7 @@ import { tapManaByUse, tapManaFromText, type ManaColor } from './mana';
 import { spendAllows, spendOnCard, type SpendOn } from './spendOnly';
 import { godsFrom, notHeldBack } from './gods';
 import { manaTable, manaTextHere, type TableRead } from './manaHere';
+import { countersTaken, storedHere, type StoredDraw, type Taken } from './storedMana';
 import { isLandCard } from './turnRules';
 import type { BoardItem, CardInstance, CardRecord } from './types';
 
@@ -40,6 +41,11 @@ export interface ManaSource {
    * for anything else (Cavern of Souls' {C}); left out, nothing. */
   only?: string;
   free?: { produces: (ManaColor | 'any')[]; amount: number };
+  /** Some of its mana comes off the card's own counters (lib/storedMana.ts):
+   * what a payment drawing on it takes off them. A source of only that —
+   * Pentad Prism, a tapped Dreadship Reef — has a key of its own and is not
+   * tapped (`stored.iid` is the card). */
+  stored?: StoredDraw;
 }
 
 /** What the payment does: units to draw from each virtual card (tapping it
@@ -47,6 +53,8 @@ export interface ManaSource {
 export interface PaymentPlan {
   spend: Record<string, number>;
   boardTaps: Record<string, number>;
+  /** Counters the payment takes off cards that keep mana in them. Left out: none. */
+  taken?: Taken[];
 }
 
 const COLOR_SET = new Set(['W', 'U', 'B', 'R', 'G', 'C']);
@@ -284,8 +292,8 @@ export function sourcesFor(sources: ManaSource[], on: SpendOn | undefined): Mana
 /** Lower pays first: mana already floating, then mana kept for just this
  * kind of spell (it pays for nothing else), then colorless-only sources
  * (they can never cover a colored pip), then the least flexible — so duals
- * and any-color lands stay open. Creatures go late, and mana whose "only…"
- * the app cannot read last of all. */
+ * and any-color lands stay open. Creatures go late, mana saved up as
+ * counters later, and mana whose "only…" the app cannot read last of all. */
 function rank(s: ManaSource, on: SpendOn | undefined): number {
   const flexibility = s.produces.includes('any') ? 9 : s.produces.length;
   const onlyColorless = s.produces.length === 1 && s.produces[0] === 'C';
@@ -293,6 +301,7 @@ function rank(s: ManaSource, on: SpendOn | undefined): number {
   return (
     (s.floating ? 0 : kept === true ? 500 : 1000) +
     (kept === null ? 300 : 0) +
+    (s.stored ? 200 : 0) +
     (s.creature ? 100 : 0) +
     (onlyColorless ? 0 : 10) +
     flexibility
@@ -339,26 +348,55 @@ export function planPayment(cost: PayCost, sources: ManaSource[]): PaymentPlan |
     left[s] -= n;
     generic -= n;
   };
+  // Mana saved up as counters pays generic only once nothing else can (step 4).
+  const open = (s: number) => left[s] > 0 && !pool[s].stored;
   // 1) mana that is spent or lost anyway: floating, or left on a source a pip opened
   for (let s = 0; s < pool.length && generic > 0; s++) {
-    if (left[s] > 0 && (pool[s].floating || used[s] > 0)) take(s, Math.min(left[s], generic));
+    if (open(s) && (pool[s].floating || used[s] > 0)) take(s, Math.min(left[s], generic));
   }
   // 2) fresh sources that the remaining cost drains completely
   for (let s = 0; s < pool.length && generic > 0; s++) {
-    if (left[s] > 0 && left[s] <= generic) take(s, left[s]);
+    if (open(s) && left[s] <= generic) take(s, left[s]);
   }
   // 3) whatever is left breaks open one more source
   for (let s = 0; s < pool.length && generic > 0; s++) {
-    if (left[s] > 0) take(s, Math.min(left[s], generic));
+    if (open(s)) take(s, Math.min(left[s], generic));
+  }
+  // 4) one mana at a time from the card it costs the fewest counters: a
+  // Dreadship Reef's own {C} before a counter off Pentad Prism, the Prism's
+  // one counter before the Reef's next two.
+  const held = (s: number) => holder[s].filter((p) => p !== -1).map((p) => cost.pips[p]);
+  while (generic > 0) {
+    let best = -1;
+    let fewest = Infinity;
+    for (let s = 0; s < pool.length; s++) {
+      const stored = pool[s].stored;
+      if (!stored || left[s] <= 0) continue;
+      const more = countersTaken(stored, used[s] + 1, held(s)) - countersTaken(stored, used[s], held(s));
+      if (more < fewest) {
+        best = s;
+        fewest = more;
+      }
+    }
+    if (best < 0) break;
+    take(best, 1);
   }
   if (generic > 0) return null;
 
   const plan: PaymentPlan = { spend: {}, boardTaps: {} };
+  const taken: Taken[] = [];
   pool.forEach((s, i) => {
     if (used[i] === 0) return;
     if (s.kind === 'virtual') plan.spend[s.key] = (plan.spend[s.key] ?? 0) + used[i];
     else plan.boardTaps[s.key] = (plan.boardTaps[s.key] ?? 0) + 1;
+    // Counters come off for what the card's tap alone does not make: the
+    // colored pips its units paid say which that is.
+    if (!s.stored) return;
+    const pips = holder[i].filter((p) => p !== -1).map((p) => cost.pips[p]);
+    const n = countersTaken(s.stored, used[i], pips);
+    if (n > 0) taken.push({ iid: s.stored.iid, kind: s.stored.kind, n, ...(s.stored.goes ? { goes: true as const } : {}) });
   });
+  if (taken.length > 0) plan.taken = taken;
   return plan;
 }
 
@@ -513,18 +551,33 @@ export function sourcesFrom(
         .filter((a) => a.on?.kind === 'card' && a.on.id === iid)
         .flatMap((a) => keywordsGiven(records[a.cardId])),
     );
+  // Mana a card's counters make without its tap: after the rest, each a source of its own.
+  const apart: ManaSource[] = [];
   for (const c of battlefield) {
     const record = records[c.cardId];
     if (!record) continue; // unresolved: its text is not readable yet
-    // Tapping it by hand stays legal (crew, convoke) — it just floats nothing.
     const held = !notHeldBack(gods, { kind: 'card', id: c.iid });
-    if (!tapsAtOnce && !held && isSummoningSick(c, record, texts, wears(c.iid))) continue;
     // Only the face that is up: a Pathway makes the color it was played as,
     // and Kazandu Mammoth is no land while its creature face is up.
     const typeUp = record.typeLine.split(' // ')[0];
     const creature = /\bCreature\b/.test(typeUp) && !held;
+    // Dreadship Reef, a Mana Battery, Pentad Prism: what their counters make now.
+    const stored = storedHere(frontText(record), c, record.name);
+    // No tap, so summoning sickness does not hold them back (Workhorse).
+    for (const s of stored.apart)
+      apart.push({
+        key: `${c.iid}#${s.line}`,
+        kind: 'virtual',
+        produces: s.produces,
+        amount: s.amount,
+        ...(creature ? { creature: true } : {}),
+        ...(s.only ? { only: s.only } : {}),
+        stored: s.draw,
+      });
+    // Tapping it by hand stays legal (crew, convoke) — it just floats nothing.
+    if (!tapsAtOnce && !held && isSummoningSick(c, record, texts, wears(c.iid))) continue;
     // Gaea's Cradle, Cabal Coffers, Nykthos, Marwyn: the amount as the table stands.
-    const text = manaTextHere(frontText(record), table, { ...c, name: record.name, typeLine: typeUp });
+    const text = manaTextHere(stored.text, table, { ...c, name: record.name, typeLine: typeUp });
     const own = tapManaFromText(text);
     const grants: Colors = [];
     if (creature) widen(grants, granted.nontoken);
@@ -535,6 +588,9 @@ export function sourcesFrom(
     const total = Math.max(own.amount, 1);
     const amount = c.tapped ? total - (c.spent ?? 0) : total;
     if (amount <= 0) continue;
+    // What it makes without its counters, what another permanent gives it included (Chromatic Lantern).
+    const plain = stored.draw?.plainColors ?? [];
+    const draw = stored.draw && { ...stored.draw, plainColors: [...plain, ...grants.filter((g) => !plain.includes(g))] };
     out.push({
       key: c.iid,
       kind: 'virtual',
@@ -543,8 +599,10 @@ export function sourcesFrom(
       ...(c.tapped ? { floating: true } : {}),
       ...(creature ? { creature: true } : {}),
       ...keptMana(text, grants, (p) => inIdentity(p, text, identity)),
+      ...(draw ? { stored: draw } : {}),
     });
   }
+  out.push(...apart);
 
   for (const item of board) {
     if (item.manaMode === 'none') continue; // the player silenced it

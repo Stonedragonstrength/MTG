@@ -78,6 +78,15 @@
   left: calc(2px + 1.8em);
 }
 
+/* A land on the lands shelf keeps its tapped count top left: its counters
+   (a storage land's, a Vivid land's) go along the bottom. */
+.land-face .tally-badge,
+.land-face .face-badge ~ .tally-badge {
+  top: auto;
+  bottom: 2px;
+  left: 2px;
+}
+
 /* Someone else's card, taken (Threaten, Control Magic): whose it is, on a
    band across its top — red while it is only borrowed for the turn. */
 .stolen-badge {

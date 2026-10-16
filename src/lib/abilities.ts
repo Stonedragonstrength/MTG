@@ -25,8 +25,9 @@ import type { CardRecord, GameState } from './types';
 export type AbilityEffect =
   /** So many +1/+1 counters ('X': what was paid for X). `once`: Monstrosity —
    * only while it is not monstrous yet, and it becomes so. `ifNone`: Adapt —
-   * only while it has no +1/+1 counters. */
-  | { kind: 'counters'; n: number | 'X'; once?: 'monstrous'; ifNone?: true }
+   * only while it has no +1/+1 counters. `counter`: counters of another kind
+   * — a storage land's storage counter, a Mana Battery's charge counter. */
+  | { kind: 'counters'; n: number | 'X'; once?: 'monstrous'; ifNone?: true; counter?: string }
   /** Until end of turn (lib/boost.ts). */
   | { kind: 'boost'; power: number; toughness: number; keywords: string[] }
   /** Level up: one more level counter. */
@@ -161,6 +162,12 @@ function readLine(line: string, add: (ability: Omit<Ability, 'key'>, kind: strin
   } else if ((m = what.match(/^Put (an?|one|two|three|four|five|\d+) \+1\/\+1 counters? on (?:this creature|~)$/i))) {
     const n = NUMBER[m[1].toLowerCase()] ?? Number(m[1]);
     add({ label: n === 1 ? '+1/+1 counter' : `${n} +1/+1 counters`, cost, tap, ...more, effect: { kind: 'counters', n } }, 'counters');
+  } else if ((m = what.match(/^Put (an?|one|two|three|four|five|\d+) ([a-z]+) counters? on (?:this [a-z]+|~)$/i))) {
+    // "{1}, {T}: Put a storage counter on this land": mana saved up for later (lib/storedMana.ts).
+    const n = NUMBER[m[1].toLowerCase()] ?? Number(m[1]);
+    const counter = counterName(m[2]);
+    const label = `${n === 1 ? '' : `${n} `}${counter} counter${n === 1 ? '' : 's'}`;
+    add({ label: label.charAt(0).toUpperCase() + label.slice(1), cost, tap, ...more, effect: { kind: 'counters', n, counter } }, 'counters');
   } else if ((m = what.match(/^(?:this creature|~) gets ([+-]\d+)\/([+-]\d+)(?: and gains (.+?))? until end of turn$/i))) {
     if (choice(m[3])) return;
     const boost = { power: Number(m[1]), toughness: Number(m[2]), keywords: keywordList(m[3] ?? '') };

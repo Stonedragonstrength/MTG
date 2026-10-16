@@ -3,7 +3,7 @@ import { isCommander, type Host } from './cards';
 import { cascadeGrants, reboundTurn, spellManaValue, type CascadePlan } from './cascade';
 import { liveCombat } from './combat';
 import { readUnit } from './combatEngine';
-import { isSaga } from './entering';
+import { counterName, countersWords, isSaga } from './entering';
 import { godsOf, notCreature, notHeldBack } from './gods';
 import { keywordAmount, keywordCount, keywordList, keywordsOf } from './keywords';
 import { spellPrompts, type SpellPrompt } from './spellEffects';
@@ -635,8 +635,9 @@ export type TriggerAct = { key: string; label: string; auto: boolean } & (
    * `hosts`: which creatures that is on the table, once it is known. */
   | { kind: 'boost'; power: number; toughness: number; keywords: string[]; on: BoostOn; hosts?: Host[] }
   /** Counters on the card itself, or off it (a negative number): a Saga's
-   * lore counter, Vanishing's time counter, cumulative upkeep's age counter. */
-  | { kind: 'counters'; add: Record<string, number> }
+   * lore counter, Vanishing's time counter, cumulative upkeep's age counter.
+   * `ifTapped`: only while the card is tapped (Bottomless Vault's storage counter). */
+  | { kind: 'counters'; add: Record<string, number>; ifTapped?: true }
   /** A player loses so much life: the defending player (Afflict), or the
    * card's own (an upkeep paid in life). `seat`: who, once it is known. */
   | { kind: 'lose'; n: number; who: 'defender' | 'you'; seat?: number }
@@ -795,6 +796,13 @@ export function actsOf(trigger: Trigger, times = 1): TriggerAct[] {
     out.push({ key: 'release', label: 'Return what it exiled', kind: 'release', auto: !trigger.may });
   if (RETURNS.test(bare) || (own && RETURNS_IT.test(bare)))
     out.push({ key: 'return', label: 'Return it to hand', kind: 'return', auto: plain });
+  // "If this land is tapped, put a storage counter on it" (Bottomless Vault,
+  // which may stay tapped through its untap step): judged as it goes off.
+  const stores = bare.match(/^if (?:~|this [a-z]+) is tapped, put (an?|one|two|three|four|five) ([a-z]+) counters? on (?:it|~|this [a-z]+)\.?$/i);
+  if (stores) {
+    const add = { [counterName(stores[2])]: NUMBER[stores[1].toLowerCase()] ?? 1 };
+    out.push({ key: 'stores', label: `Put ${countersWords(add)} on it`, kind: 'counters', add, ifTapped: true, auto: !trigger.may });
+  }
   // Counters whose number is worked out ("for each creature card in your
   // graveyard") are left to the players, sentence by sentence.
   const grows = dead
@@ -942,6 +950,11 @@ export function actsHere(g: GameState, fired: Fired, h: Happening, acts: Trigger
       const kind = effect === 'vanishing' ? 'time' : 'fade';
       if (has(kind) < 1) continue;
       out.push({ ...act, label: `Remove a ${kind} counter (${has(kind) - 1} left)` });
+      continue;
+    }
+    // Bottomless Vault: a storage counter only while it stays tapped.
+    if (act.kind === 'counters' && act.ifTapped) {
+      if (card?.tapped) out.push(act);
       continue;
     }
     if (act.kind === 'cascade') {

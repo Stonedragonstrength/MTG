@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { commanderTax } from '../lib/cards';
+import { countersWords } from '../lib/entering';
 import { COLOR_NAMES, type ManaColor } from '../lib/mana';
 import {
   affordable,
@@ -57,11 +58,13 @@ function Makes({ group }: { group: Pick<PayGroup, 'produces' | 'each'> }) {
     );
   const colors = group.produces as ManaColor[];
   const shown = colors.length === 1 ? new Array<ManaColor>(group.each).fill(colors[0]) : colors;
+  // Three or more (Dreadship Reef's {C}, {U}, {B}): side by side, so the name keeps its room.
+  const or = colors.length === 2;
   return (
     <span className="pay-makes">
       {shown.map((c, i) => (
         <span className="pay-makes" key={i}>
-          {colors.length > 1 && i > 0 && <span className="pay-or">or</span>}
+          {or && i > 0 && <span className="pay-or">or</span>}
           <ManaSymbol symbol={c} label={`makes ${COLOR_NAMES[c]}`} />
         </span>
       ))}
@@ -104,11 +107,15 @@ export default function PayWithSheet({ playerIdx, iid, from, x, extras, onBack, 
   // The face the table would pay: the first it can afford, like the store.
   const cost: PayCost = priced.find((face) => affordable(face, sources)) ?? priced[0] ?? { generic: 0, pips: [] };
 
+  // Mana a card's counters make apart from its tap has a key of its own: `stored.iid` is the card.
   const cardOf = (s: ManaSource): CardInstance | undefined =>
-    s.kind === 'virtual' ? seat.battlefield.find((c) => c.iid === s.key) : undefined;
+    s.kind === 'virtual' ? seat.battlefield.find((c) => c.iid === (s.stored?.iid ?? s.key)) : undefined;
   const stackOf = (s: ManaSource): BoardItem | undefined =>
     s.kind === 'board' ? player.board.find((it) => it.id === s.key) : undefined;
-  const sameAs = (s: ManaSource) => cardOf(s)?.cardId ?? s.key;
+  const sameAs = (s: ManaSource) => {
+    const one = cardOf(s);
+    return one ? (one.iid === s.key ? one.cardId : `${one.cardId}#counters`) : s.key;
+  };
   // Lands first, then rocks, creatures last — the order a player reaches for them.
   const shelf = (group: PayGroup) => {
     if (group.creature) return 2;
@@ -228,13 +235,18 @@ export default function PayWithSheet({ playerIdx, iid, from, x, extras, onBack, 
               : group.each > free.amount
                 ? `${NUMBER_WORDS[group.each] ?? group.each} `
                 : '';
+          // Mana saved up as counters: how many it has (Dreadship Reef, a Mana Battery).
+          const stored = group.members[0].stored;
+          const saved = stored ? countersWords({ [stored.kind]: cardOf(group.members[0])?.counters?.[stored.kind] ?? 0 }) : '';
           const note = only
-            ? `${more}only ${spendWords(only)}`
-            : group.floating
-              ? 'tapped · mana in your pool'
-              : group.creature
-                ? 'creature'
-                : null;
+            ? [`${more}only ${spendWords(only)}`, saved].filter(Boolean).join(' · ')
+            : saved
+              ? saved
+              : group.floating
+                ? 'tapped · mana in your pool'
+                : group.creature
+                  ? 'creature'
+                  : null;
           const tile = ['pay-tile', n > 0 && 'pay-tile--lit', !here && 'pay-tile--kept'].filter(Boolean).join(' ');
           const top = (
             <span className="pay-top">

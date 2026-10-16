@@ -332,3 +332,51 @@ test('the arithmetic sheet under More is called "Combat math", so nobody takes i
   await user.click(screen.getByRole('button', { name: 'combat math' }));
   expect(sheetTitles()).toEqual(['Combat math']);
 });
+
+// ---- the untap step: a storage land its player may leave tapped ----
+
+test('a tapped Bottomless Vault stays tapped as its player’s turn begins; their other lands untap', async () => {
+  const scry = await import('../data/scryfall');
+  const vault = {
+    id: 'c-vault',
+    name: 'Bottomless Vault',
+    nameLower: 'bottomless vault',
+    typeLine: 'Land',
+    oracleText:
+      'This land enters tapped.\nYou may choose not to untap this land during your untap step.\nAt the beginning of your upkeep, if this land is tapped, put a storage counter on it.\n{T}, Remove any number of storage counters from this land: Add {B} for each storage counter removed this way.',
+    manaCost: '',
+    power: null,
+    toughness: null,
+    colors: [],
+    imageNormal: null,
+    imageArtCrop: null,
+    isToken: false,
+    isBasicLand: false,
+  };
+  vi.mocked(scry.getCardById).mockImplementation(async (id: string) => (id === 'c-vault' ? vault : undefined));
+  const g = { ...createGame(config), activePlayerIndex: 0, turnNumber: 5 };
+  const cards = {
+    library: [],
+    hand: [],
+    battlefield: [
+      { iid: 'v1', cardId: 'c-vault', name: 'Bottomless Vault', row: 'lands' as const, tapped: true, counters: { storage: 2 } },
+      { iid: 's1', cardId: 'c-swamp', name: 'Swamp', row: 'lands' as const, tapped: true, spent: 1 },
+    ],
+    graveyard: [],
+    exile: [],
+    command: [],
+    mulligans: 0,
+    deckName: 'Test',
+  };
+  useAppStore.setState({ game: { ...g, players: g.players.map((p, i) => (i === 1 ? { ...p, cards } : p)) } });
+  render(<CenterHub variant="row" seat={0} />);
+  // Its words are read first; then the pass leaves it tapped.
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 20));
+  });
+  fireEvent.click(screen.getByRole('button', { name: /pass turn/i }));
+  const field = useAppStore.getState().game!.players[1].cards!.battlefield;
+  expect(field.find((c) => c.iid === 'v1')).toMatchObject({ tapped: true, counters: { storage: 2 } });
+  expect(field.find((c) => c.iid === 's1')?.tapped).toBeUndefined();
+  vi.mocked(scry.getCardById).mockImplementation(async () => undefined);
+});

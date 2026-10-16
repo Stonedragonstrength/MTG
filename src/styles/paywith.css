@@ -162,6 +162,15 @@ img.mana-sym {
   overflow-wrap: anywhere;
 }
 
+/* A word is never broken letter by letter: the symbols go under the name first. */
+.pay-top:has(.pay-makes > .pay-makes:nth-child(3)) {
+  flex-wrap: wrap;
+}
+
+.pay-top:has(.pay-makes > .pay-makes:nth-child(3)) .pay-name {
+  min-width: 7em;
+}
+
 .pay-name small {
   color: #9a9aa5;
 }

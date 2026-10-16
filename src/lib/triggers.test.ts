@@ -819,3 +819,22 @@ test('an Undo takes the loyalty ability back with its feed line', () => {
   expect(stillHappened({ ...g, feed: [{ id: 'f1', t: 0, text: 'Nathan: Quintorius Kand +1 — Draw a card.' }] }, h)).toBe(true);
   expect(stillHappened({ ...g, feed: [] }, h)).toBe(false);
 });
+
+test('Bottomless Vault: a storage counter at its player’s upkeep while it stays tapped, none once untapped', () => {
+  Object.assign(RECORDS, {
+    vault: rec(
+      'vault',
+      'Bottomless Vault',
+      'Land',
+      'This land enters tapped.\nYou may choose not to untap this land during your untap step.\nAt the beginning of your upkeep, if this land is tapped, put a storage counter on it.\n{T}, Remove any number of storage counters from this land: Add {B} for each storage counter removed this way.',
+    ),
+  });
+  const turn: Happening = { kind: 'turn', ended: 1, began: 0, turn: 3 };
+  const kept = table([{ ...card('v1', 'vault'), tapped: true, counters: { storage: 2 } }]);
+  const [fired] = firedBy(kept, turn, RECORDS);
+  expect(here(kept, fired, turn)).toEqual([
+    { key: 'stores', label: 'Put a storage counter on it', kind: 'counters', add: { storage: 1 }, ifTapped: true, auto: true },
+  ]);
+  const untapped = table([card('v1', 'vault')]);
+  expect(here(untapped, firedBy(untapped, turn, RECORDS)[0], turn)).toEqual([]);
+});

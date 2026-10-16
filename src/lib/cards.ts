@@ -805,13 +805,16 @@ export function setHandHeld(g: GameState, seat: number, held: boolean): GameStat
   });
 }
 
-export function untapAllCards(g: GameState, seat: number): GameState {
+/** `keep`: cards its player leaves tapped (a storage land that may stay
+ * tapped): they stay so, with nothing left in the pool from their tap. */
+export function untapAllCards(g: GameState, seat: number, keep: readonly string[] = []): GameState {
   return updateSeat(g, seat, (cards) => {
     if (!cards.battlefield.some((c) => c.tapped)) return null;
     return {
       ...cards,
       battlefield: cards.battlefield.map((c) => {
         if (!c.tapped) return c;
+        if (keep.includes(c.iid)) return c.spent === USED_UP ? c : { ...c, spent: USED_UP };
         const { tapped: _t, spent: _s, ...rest } = c;
         return rest;
       }),

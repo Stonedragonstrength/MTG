@@ -205,3 +205,15 @@ test('a legendary planeswalker speaks of itself by its first name', () => {
   expect(plus.effect).toEqual({ kind: 'loyalty', text: "Exile the top card of your library. You may cast that card. If you don't, ~ deals 2 damage to each opponent." });
   expect(plus.label).toBe("Exile the top card of your library. You may cast that card. If you don't, Chandra deals 2 damage to each opponent.");
 });
+
+test('storing mana: "{1}, {T}: Put a storage counter on this land", a Mana Battery’s charge counter', () => {
+  expect(abilitiesOf(card('Dreadship Reef', '{T}: Add {C}.\n{1}, {T}: Put a storage counter on this land.\n{1}, Remove X storage counters from this land: Add X mana in any combination of {U} and/or {B}.'))).toMatchObject([
+    { label: 'Storage counter', tap: true, cost: { generic: 1, pips: [] }, effect: { kind: 'counters', n: 1, counter: 'storage' } },
+  ]);
+  expect(abilitiesOf(card('Fountain of Cho', '{T}: Put a storage counter on this land.'))).toMatchObject([{ label: 'Storage counter', tap: true, cost: { generic: 0 } }]);
+  expect(abilitiesOf(card('Black Mana Battery', '{2}, {T}: Put a charge counter on this artifact.'))).toMatchObject([
+    { label: 'Charge counter', tap: true, cost: { generic: 2 }, effect: { counter: 'charge' } },
+  ]);
+  // A note to keep beside it is the players' own.
+  expect(abilitiesOf(card('Jeweled Amulet', '{1}, {T}: Put a charge counter on this artifact. Note the type of mana spent to pay this activation cost. Activate only if there are no charge counters on this artifact.'))).toEqual([]);
+});

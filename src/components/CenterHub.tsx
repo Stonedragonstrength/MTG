@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { liveCombat } from '../lib/combat';
+import { staysTapped } from '../lib/storedMana';
 import { useAppStore } from '../state/store';
 import CombatSheet from './CombatSheet';
 import DiceRoller from './DiceRoller';
@@ -8,6 +9,7 @@ import RulesViewer from './RulesViewer';
 import SettingsSheet from './SettingsSheet';
 import Sheet from './Sheet';
 import StackSheet from './StackSheet';
+import { useCardRecords } from './useCardRecords';
 import { useConfirmTap } from './useConfirmTap';
 
 type SheetName =
@@ -69,6 +71,11 @@ export default function CenterHub({ variant = 'overlay', seat, compact = false }
   const [endWinner, setEndWinner] = useState<number | null>(null);
   const passedAt = useRef<number | null>(null);
   const endPickedAt = useRef<number | null>(null);
+  // Storage lands their player may leave tapped (Bottomless Vault): tapped
+  // ones stay so as the turn passes, saving up their counters.
+  const tapped = (game?.players ?? []).flatMap((p) => (p.cards?.battlefield ?? []).filter((c) => c.tapped));
+  const tappedRecords = useCardRecords(tapped);
+  const keep = tapped.filter((c) => staysTapped(tappedRecords[c.cardId])).map((c) => c.iid);
   // A pinned hub stays mounted while its zone collapses and grows back with the
   // turn: a tray left unfolded must not sit there waiting to reappear.
   useEffect(() => setTrayOpen(false), [compact]);
@@ -100,7 +107,7 @@ export default function CenterHub({ variant = 'overlay', seat, compact = false }
     if (passedAt.current !== null && tap.timeStamp - passedAt.current < STRAY_TAP_MS) return;
     if (fightId !== null && !endsFight.confirms(tap)) return; // armed: the next tap answers
     passedAt.current = tap.timeStamp;
-    passTurn();
+    passTurn(keep.length > 0 ? { keep } : undefined);
   }
 
   function askToEnd(tap: { timeStamp: number }) {

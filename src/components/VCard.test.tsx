@@ -48,3 +48,8 @@ test('a god wears its devotion against its number, and goes grey below it', () =
   expect(screen.getByRole('img', { name: 'devotion to green 5 of 5' })).toHaveClass('devotion-badge--awake');
   expect(screen.getByRole('button')).not.toHaveClass('vcard--dormant');
 });
+
+test('the counters a card keeps mana in are on its corner: a Mana Battery’s charge counters', () => {
+  draw({ charge: 3 });
+  expect(screen.getByRole('img', { name: '3 charge counters' })).toHaveTextContent('charge 3');
+});

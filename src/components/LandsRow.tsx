@@ -23,6 +23,7 @@ import FaceMark from './FaceMark';
 import { useCardRecords } from './useCardRecords';
 import { useLongPress } from './useLongPress';
 import { useSeatTexts } from './useSeatTexts';
+import { tallyOf } from './VCard';
 
 const BASICS: { name: string; color: ManaColor }[] = [
   { name: 'Plains', color: 'W' },
@@ -167,6 +168,8 @@ function VirtualLandStack({
   const press = useLongPress(full ? onUntap : onTap, onDetail);
   const name = stack.cards[0].name;
   const label = name + (tapped > 0 ? `, ${tapped} of ${n} tapped` : '');
+  // A land with counters stands alone: Dreadship Reef's storage counters, a Vivid land's charge counters.
+  const tally = n === 1 ? tallyOf(stack.cards[0].counters) : null;
   return (
     <span
       className={[
@@ -196,6 +199,11 @@ function VirtualLandStack({
         )}
         {/* The land on the back of a spell: a stack holds one card id, so one face. */}
         <FaceMark cardId={stack.cards[0].cardId} />
+        {tally && (
+          <span className="tally-badge" role="img" aria-label={tally.label} title={tally.label}>
+            {tally.short}
+          </span>
+        )}
       </button>
       {tapped > 0 && <TappedBadge tapped={tapped} name={name} onUntap={onUntap} />}
     </span>

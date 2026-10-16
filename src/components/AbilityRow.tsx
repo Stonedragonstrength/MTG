@@ -43,8 +43,12 @@ export default function AbilityRow({
       card.loyaltyUsed?.turn === s.game.turnNumber &&
       card.loyaltyUsed.active === s.game.activePlayerIndex,
   );
-  // A card tapped or sacrificed for its own ability pays nothing towards it.
-  const own = ability.tap || ability.sacrifice ? sources.filter((s) => s.key !== card.iid) : sources;
+  // A card tapped or sacrificed for its own ability pays nothing towards it
+  // (one sacrificed takes the mana in its counters with it).
+  const own =
+    ability.tap || ability.sacrifice
+      ? sources.filter((s) => s.key !== card.iid && !(ability.sacrifice && s.stored?.iid === card.iid))
+      : sources;
   const loyaltyX = ability.loyalty === '-X';
   const [x, setX] = useState(() => (ability.cost.x ? maxX(ability.cost, own) : loyaltyX ? 1 : 0));
   const blocked = abilityBlocked(ability, card, x);

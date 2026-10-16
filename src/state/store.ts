@@ -26,6 +26,7 @@ import * as payLib from '../lib/pay';
 import * as payWithLib from '../lib/payWith';
 import { seatSources } from '../lib/seatMana';
 import type { SpendOn } from '../lib/spendOnly';
+import type { Taken } from '../lib/storedMana';
 import { planEffect, type SpellEffect } from '../lib/spellEffects';
 import { happeningsBetween, unitThing, type Happening } from '../lib/triggers';
 import { dayNightNeeds, turnedDayNight, withCasts } from '../lib/dayNight';
@@ -256,7 +257,9 @@ export interface AppStore {
   canUndo(): boolean;
   adjustLife(playerIdx: number, delta: number): void;
   applyCommanderDamage(defenderIdx: number, attackerProfileId: string, delta: number): void;
-  passTurn(): void;
+  /** `keep`: tapped cards that stay tapped through the untap step — a
+   * storage land whose player may leave it so (lib/storedMana.ts staysTapped). */
+  passTurn(opts?: { keep?: string[] }): void;
   setPlayerCounter(playerIdx: number, counterName: string, value: number): void;
   setCommanderDeaths(playerIdx: number, deaths: number): void;
   claimMonarch(playerIdx: number): void;
@@ -450,16 +453,18 @@ function payFrom(
 ): (moved: GameState) => GameState {
   const sameTurn = isTurn(base, castIn);
   const sources = sameTurn ? seatSources(base, seat, records) : [];
+  // Mana a card's counters make without its tap (Pentad Prism): nothing to tap.
+  const apart = new Set(sources.filter((s) => s.stored && s.key !== s.stored.iid).map((s) => s.key));
   if (using) {
     const chosen = payWithLib.payWith(costs, payWithLib.sourcesUsing(sources, using));
     return (moved) => {
       let next = moved;
       for (const [iid, units] of Object.entries(chosen.spend))
-        next = cardsLib.spendMana(next, seat, iid, units);
+        if (!apart.has(iid)) next = cardsLib.spendMana(next, seat, iid, units);
       for (const iid of chosen.tap) next = cardsLib.tapCard(next, seat, iid, true);
       for (const [itemId, copies] of Object.entries(chosen.boardTaps))
         next = boardLib.tapItem(next, seat, itemId, copies);
-      return next;
+      return takeCounters(next, seat, chosen.taken);
     };
   }
   const plan = sameTurn ? payLib.planAnyFace(costs, sources) : null;
@@ -467,11 +472,26 @@ function payFrom(
     if (!plan) return moved; // nothing can pay it (or it was forced): tap nothing
     let next = moved;
     for (const [iid, units] of Object.entries(plan.spend))
-      next = cardsLib.spendMana(next, seat, iid, units);
+      if (!apart.has(iid)) next = cardsLib.spendMana(next, seat, iid, units);
     for (const [itemId, copies] of Object.entries(plan.boardTaps))
       next = boardLib.tapItem(next, seat, itemId, copies);
-    return next;
+    return takeCounters(next, seat, plan.taken);
   };
+}
+
+/** The counters a payment drew mana from come off their cards (Dreadship
+ * Reef's storage counters, a Vivid land's charge counter); a card that is to
+ * go once it has none left (Gemstone Mine, the depletion lands) goes. */
+function takeCounters(g: GameState, seat: number, taken: Taken[] | undefined): GameState {
+  let next = g;
+  for (const t of taken ?? []) {
+    const card = next.players[seat]?.cards?.battlefield.find((c) => c.iid === t.iid);
+    if (!card) continue;
+    const left = Math.max(0, (card.counters?.[t.kind] ?? 0) - t.n);
+    next = cardsLib.setCardCounter(next, seat, t.iid, t.kind, left);
+    if (t.goes && left === 0) next = cardsLib.moveCard(next, seat, t.iid, 'battlefield', 'graveyard');
+  }
+  return next;
 }
 
 /** Replay guard for a draw or a mill: `iids` are the cards the acting
@@ -1420,6 +1440,8 @@ export function createAppStore() {
         const n = effect.kind === 'counters' ? (effect.n === 'X' ? x : effect.n) : 0;
         const level = (card.counters?.level ?? 0) + 1;
         const monstrous = effect.kind === 'counters' && effect.once === 'monstrous';
+        // A storage land's storage counter, a Mana Battery's charge counter.
+        const kind = effect.kind === 'counters' ? (effect.counter ?? 'p1p1') : 'p1p1';
         const text =
           effect.kind === 'boost'
             ? `${who}: ${card.name} gets ${boostWords(effect)} until end of turn`
@@ -1429,7 +1451,9 @@ export function createAppStore() {
               ? `${who}: ${card.name} becomes monstrous (${n} +1/+1 counter${n === 1 ? '' : 's'})`
               : effect.ifNone
                 ? `${who}: ${card.name} adapts (${n} +1/+1 counter${n === 1 ? '' : 's'})`
-                : `${who}: ${card.name} gets ${n} +1/+1 counter${n === 1 ? '' : 's'}`;
+                : kind !== 'p1p1'
+                  ? `${who}: ${card.name} gets ${countersWords({ [kind]: n })} (${(card.counters?.[kind] ?? 0) + n} now)`
+                  : `${who}: ${card.name} gets ${n} +1/+1 counter${n === 1 ? '' : 's'}`;
         cardMutate(
           (base) => {
             // Gone, or it would do nothing now (monstrous already, tapped…): nothing is paid either.
@@ -1440,7 +1464,7 @@ export function createAppStore() {
             if (effect.kind === 'boost') next = boostCard(next, seat, iid, effect);
             else if (effect.kind === 'level') next = cardsLib.setCardCounter(next, seat, iid, 'level', (now.counters?.level ?? 0) + 1);
             else {
-              next = cardsLib.setCardCounter(next, seat, iid, 'p1p1', (now.counters?.p1p1 ?? 0) + n);
+              next = cardsLib.setCardCounter(next, seat, iid, kind, (now.counters?.[kind] ?? 0) + n);
               if (monstrous) next = cardsLib.setCardCounter(next, seat, iid, 'monstrous', 1);
             }
             return next;
@@ -2243,8 +2267,9 @@ export function createAppStore() {
         );
       },
 
-      passTurn() {
+      passTurn(opts) {
         if (get().settings.soundOn) playTurnChime();
+        const keep = opts?.keep ?? [];
         mutateGame(
           (g) => {
             // Day or night turns as the new turn begins, by the spells cast in the one that ended.
@@ -2255,8 +2280,9 @@ export function createAppStore() {
             const next = passed !== ended && time !== g.dayNight ? { ...passed, dayNight: time } : passed;
             const incoming = next.activePlayerIndex;
             // The incoming player's untap step readies all their permanents —
-            // token stacks and virtual cards alike.
-            const untapped = cardsLib.untapAllCards(boardLib.untapAll(next, incoming), incoming);
+            // token stacks and virtual cards alike — but a storage land its
+            // player may leave tapped stays so.
+            const untapped = cardsLib.untapAllCards(boardLib.untapAll(next, incoming), incoming, keep);
             // Their turn begins: what arrived since their last one is no
             // longer summoning sick. Only theirs — and only here, never on
             // the untap button.
@@ -2264,9 +2290,16 @@ export function createAppStore() {
             // The turn is over, and so is whatever fight there was in it.
             return combatLib.dropCombat(readied);
           },
-          (prev, next) =>
-            `Turn ${next.turnNumber}: ${playerName(next, next.activePlayerIndex)}` +
-            (next.dayNight !== prev.dayNight && next.dayNight ? ` · it becomes ${next.dayNight}` : ''),
+          (prev, next) => {
+            const stays = (next.players[next.activePlayerIndex]?.cards?.battlefield ?? [])
+              .filter((c) => c.tapped && keep.includes(c.iid))
+              .map((c) => c.name);
+            return (
+              `Turn ${next.turnNumber}: ${playerName(next, next.activePlayerIndex)}` +
+              (next.dayNight !== prev.dayNight && next.dayNight ? ` · it becomes ${next.dayNight}` : '') +
+              (stays.length > 0 ? ` · ${stays.join(', ')} ${stays.length === 1 ? 'stays' : 'stay'} tapped` : '')
+            );
+          },
           {
             // Online: if someone else already passed, don't double-advance.
             // And the fight on the table must be the one this device saw

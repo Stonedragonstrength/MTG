@@ -82,14 +82,16 @@ export function tapManaFromText(text: string): {
     const symbols = [...phrase.matchAll(/\{([WUBRGC])\}/g)].map(([, s]) => s as ManaColor);
     // Mana named by a color the text doesn't print — "of any color", "of
     // the chosen color", "of that color", "of different colors", "any
-    // type" — is taken as any color.
-    const unnamed = /\bmana\b[^.]*\b(colou?rs?|types?)\b|any combination/i.test(phrase);
+    // type" — is taken as any color. "Two mana in any combination of {U},
+    // {B}, and/or {R}" is two of those it names.
+    const combination = /\bany combination\b/i.test(phrase);
+    const unnamed = /\bmana\b[^.]*\b(colou?rs?|types?)\b/i.test(phrase) || (combination && symbols.length === 0);
     if (!unnamed && symbols.length === 0) continue;
     if (unnamed && !produces.includes('any')) produces.push('any');
     for (const s of symbols) if (!produces.includes(s)) produces.push(s);
 
     let yielded = 1; // a choice between options is one mana
-    if (unnamed && symbols.length === 0) {
+    if ((unnamed && symbols.length === 0) || combination) {
       // "three mana of any one color"; "12 mana…" as manaHere writes a counted amount.
       const word = phrase.match(/\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/i)?.[1];
       yielded = !word ? 1 : /^\d+$/.test(word) ? Number(word) : NUMBER_WORDS[word.toLowerCase()];

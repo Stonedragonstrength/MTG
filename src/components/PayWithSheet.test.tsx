@@ -288,3 +288,45 @@ test('mana kept for creature spells is no help with a sorcery, and says what it 
   for (const name of ['Forest', 'Cavern of Souls', 'Ancient Ziggurat']) await user.click(screen.getByRole('button', { name: `pay with ${name}` }));
   expect(paid()).toMatch(/^2 of 3 paid/);
 });
+
+test('mana saved up as counters: the Reef says how many it has, and Cast takes off only what it uses', async () => {
+  RECORDS['c-reef'] = rec('c-reef', 'Dreadship Reef', 'Land', {
+    oracleText:
+      '{T}: Add {C}.\n{1}, {T}: Put a storage counter on this land.\n{1}, Remove X storage counters from this land: Add X mana in any combination of {U} and/or {B}.',
+  });
+  RECORDS['c-prism'] = rec('c-prism', 'Pentad Prism', 'Artifact', { oracleText: 'Remove a charge counter from this artifact: Add one mana of any color.' });
+  const g = table();
+  const seat = g.players[0].cards!;
+  useAppStore.setState({
+    game: {
+      ...g,
+      players: [
+        {
+          ...g.players[0],
+          cards: {
+            ...seat,
+            battlefield: [
+              { iid: 'reef', cardId: 'c-reef', name: 'Dreadship Reef', row: 'lands', counters: { storage: 3 } },
+              { iid: 'prism', cardId: 'c-prism', name: 'Pentad Prism', counters: { charge: 2 } },
+              land('f1', 'forest'),
+            ],
+          },
+        },
+        g.players[1],
+      ],
+    },
+  });
+  render(<PayWithSheet playerIdx={0} iid="h-cult" from="hand" onClose={() => {}} />);
+  await screen.findByRole('button', { name: 'pay with Dreadship Reef' });
+  expect(within(tile('Dreadship Reef')).getByText('three storage counters')).toBeTruthy();
+  expect(within(tile('Pentad Prism')).getByText('two charge counters')).toBeTruthy();
+  // Cultivate {2}{G}: the Forest, the Reef's own {C}, and one charge counter off the
+  // Prism — a second mana from the Reef would take two of its storage counters.
+  expect(paid()).toMatch(/^3 of 3 paid/);
+  expect(tile('Dreadship Reef').className).toContain('pay-tile--lit');
+  expect(tile('Pentad Prism').className).toContain('pay-tile--lit');
+  // The Reef lit alone (with the Forest) pays it too, from its counters.
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: 'pay with Pentad Prism' }));
+  expect(paid()).toMatch(/^3 of 3 paid/);
+});
