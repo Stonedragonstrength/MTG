@@ -7,6 +7,7 @@ import type {
   Reveal,
   SeatCards,
 } from './types';
+import { tapItem } from './board';
 import { backId, frontId, isBackId } from './faces';
 
 /** Per-game instance id: 10 chars of base36 randomness. */
@@ -112,7 +113,7 @@ export function seedSeat(g: GameState, seat: number, cards: SeatCards): GameStat
 /** Battlefield-only fields never travel to other zones — and neither does
  * the face that was up: a card that leaves is its front face again. */
 function stripped(c: CardInstance): CardInstance {
-  const { tapped: _t, counters: _c, row: _r, spent: _s, sick: _k, on: _o, boost: _b, held: _h, rebound: _rb, loyaltyUsed: _l, stolen: _st, ...rest } = c;
+  const { tapped: _t, counters: _c, row: _r, spent: _s, sick: _k, on: _o, boost: _b, held: _h, rebound: _rb, loyaltyUsed: _l, stolen: _st, crewed: _cr, ...rest } = c;
   return isBackId(rest.cardId) ? { ...rest, cardId: frontId(rest.cardId) } : rest;
 }
 
@@ -379,6 +380,26 @@ export function releaseHeldBy(g: GameState, by: Holder): GameState {
 }
 
 /** Marks a card in its owner's exile as cast with rebound in that turn. */
+/** Crew, carried out: the Vehicle is a creature through this turn (the
+ * stamp names it), and the creatures that crewed it are tapped — each card
+ * with nothing to float (it was not tapped to attack), each stack's copies
+ * marked paid. Nothing happens unless the Vehicle is there. */
+export function crewCard(
+  g: GameState,
+  seat: number,
+  iid: string,
+  crew: { kind: 'card' | 'stack'; id: string; n: number }[],
+): GameState {
+  const crewed = { turn: g.turnNumber, active: g.activePlayerIndex };
+  let next = mapBattlefieldCard(g, seat, iid, (c) => ({ ...c, crewed }));
+  if (next === g) return g;
+  for (const c of crew) {
+    if (c.kind === 'card') next = tapSpent(next, seat, c.id);
+    else next = tapItem(next, seat, c.id, Math.max(0, c.n), true);
+  }
+  return next;
+}
+
 export function markRebound(g: GameState, seat: number, iid: string, at: { turn: number; active: number }): GameState {
   return updateSeat(g, seat, (cards) => {
     if (!cards.exile.some((c) => c.iid === iid)) return null;

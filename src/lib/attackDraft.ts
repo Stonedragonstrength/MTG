@@ -4,6 +4,7 @@ import { computedPT } from './board';
 import { liveCombat } from './combat';
 import type { CardRecords } from './combatEngine';
 import { godsOf, notHeldBack } from './gods';
+import { asItIs } from './vehicles';
 import { isSummoningSick, permanentTexts, restrictionsOf, sickCopies } from './keywords';
 import type { CombatUnit, GameState } from './types';
 
@@ -45,7 +46,7 @@ export function tappedToAttack(game: GameState, records: CardRecords): DraftPick
   const picks: DraftPick[] = [];
   for (const card of battlefield) {
     if (card.row === 'lands' || !card.tapped || (card.spent ?? 0) > 0) continue;
-    const record = records[card.cardId];
+    const record = asItIs(game, card, records[card.cardId]); // a crewed Vehicle is a creature
     if (!record || !/\bCreature\b/.test(record.typeLine.split(' // ')[0])) continue;
     if (!notHeldBack(gods, { kind: 'card', id: card.iid })) continue;
     if (isSummoningSick(card, record, texts, keywordsNow(game, { seat, kind: 'card', id: card.iid }, records))) continue;

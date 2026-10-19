@@ -11,6 +11,7 @@ import { adjustLife } from './game';
 import { counterWords, readCounter, type CounterRead } from './counterspells';
 import { searchAsk, type SearchAsk } from './search';
 import { isCreatureCard, shelfOf } from './shelf';
+import { asItIs } from './vehicles';
 import type { CardRecord, GameState } from './types';
 
 /** What a spell does, as far as its rules text says it in the usual words.
@@ -594,7 +595,8 @@ export function spellChoices(
   const sizeOf = (read: UnitRead | null) => (read && !read.unread ? `${read.power}/${read.toughness}` : null);
 
   for (const c of player.cards?.battlefield ?? []) {
-    const r = records[c.cardId];
+    // A crewed Vehicle is a creature through the turn.
+    const r = asItIs(g, c, records[c.cardId]);
     // A god below its devotion is an enchantment, not a creature, for now.
     const creature = notHeldBack(seatRead.gods, { kind: 'card', id: c.iid });
     if (r && !typeFits(creature ? frontType(r) : notCreature(frontType(r)), pick.kinds)) continue;
@@ -798,7 +800,7 @@ export function planEffect(
         const stays = (on: Host) =>
           destroy && hasKeyword(readUnit(g, s, { kind: on.kind, id: on.id }, records, seatRead), 'indestructible');
         for (const c of player.cards?.battlefield ?? []) {
-          const r = records[c.cardId];
+          const r = asItIs(g, c, records[c.cardId]);
           const on: Host = { seat: s, kind: 'card', id: c.iid };
           if (!r || stays(on)) continue;
           const creature = isCreatureCard(r) && notHeldBack(seatRead.gods, on) && shelfOf(c, r) !== 'lands';
@@ -858,7 +860,7 @@ export function planEffect(
         const gods = godsOf(g, seat, records);
         const cards = (player?.cards?.battlefield ?? [])
           .filter((c) => {
-            const r = records[c.cardId];
+            const r = asItIs(g, c, records[c.cardId]);
             return (
               !!r &&
               isCreatureCard(r) &&

@@ -59,6 +59,8 @@ export function shelfOf(card: Pick<CardInstance, 'row'>, record: Read): Shelf {
   if (card.row === 'field') return 'field';
   if (!record) return 'field';
   if (isCreatureCard(record)) return 'field';
+  // A Vehicle is a creature-to-be: it waits with the creatures, to be crewed.
+  if (/\bVehicle\b/.test(frontType(record))) return 'field';
   if (isLandCard(record.typeLine) || isManaRock(record)) return 'lands';
   return 'side';
 }

@@ -6,6 +6,7 @@ import { computedPT } from './board';
 import { copiesOf, type CombatOutcome } from './combat';
 import { commanderKey } from './commanders';
 import { godsOf, notHeldBack, type GodRead } from './gods';
+import { asItIs } from './vehicles';
 import {
   combatGrants,
   isSummoningSick,
@@ -169,7 +170,8 @@ function keywordsFor(
 
 function readCard(game: GameState, read: SeatRead, card: CardInstance, records: CardRecords): UnitRead {
   const unit: CombatUnit = { kind: 'card', id: card.iid };
-  const record = records[card.cardId] ?? null;
+  // A Vehicle crewed this turn is an artifact creature (lib/vehicles.ts).
+  const record = asItIs(game, card, records[card.cardId]) ?? null;
   const frontRow = card.row !== 'lands';
   const creature =
     frontRow && (record ? /\bCreature\b/.test(record.typeLine.split(' // ')[0]) && notHeldBack(read.gods, unit) : true);

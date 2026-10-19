@@ -26,12 +26,15 @@ describe('shelfOf', () => {
     expect(shelfOf({ row: 'front' }, rec('Enchantment', 'Whenever an opponent casts a spell…'))).toBe('side');
     expect(shelfOf({ row: 'front' }, rec('Artifact — Equipment', 'Equip {0}'))).toBe('side');
     expect(shelfOf({ row: 'front' }, rec('Legendary Planeswalker — Liliana', '+1: …'))).toBe('side');
-    expect(shelfOf({ row: 'front' }, rec('Artifact — Vehicle', 'Flying\nCrew 1'))).toBe('side');
     // Sacrificed for mana, not tapped for it: no rock.
     expect(shelfOf({ row: 'front' }, rec('Artifact', 'Sacrifice a creature: Add {C}{C}.'))).toBe('side');
     expect(
       shelfOf({}, rec('Artifact', '{T}, Sacrifice this artifact: Add one mana of any color.')),
     ).toBe('side');
+  });
+
+  it('keeps a Vehicle in the field, with the creatures it is crewed by', () => {
+    expect(shelfOf({ row: 'front' }, rec('Artifact — Vehicle', 'Flying\nCrew 1'))).toBe('field');
   });
 
   it('reads the front face only', () => {

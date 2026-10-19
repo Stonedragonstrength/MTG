@@ -8,9 +8,11 @@ import { searchAsk, type SearchAsk } from '../lib/search';
 import { seatSources } from '../lib/seatMana';
 import { shelfOf, type Shelf } from '../lib/shelf';
 import type { CardInstance } from '../lib/types';
+import { crewedNow, crewOf } from '../lib/vehicles';
 import { useAppStore } from '../state/store';
 import AbilityRow, { type AbilityUse } from './AbilityRow';
 import AttachSheet from './AttachSheet';
+import CrewSheet from './CrewSheet';
 import DiscoverSheet from './DiscoverSheet';
 import LibrarySearchSheet from './LibrarySearchSheet';
 import Sheet from './Sheet';
@@ -57,6 +59,7 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose, picks = 
   const mySeat = useAppStore((s) => s.online?.mySeat ?? null);
   const [counterName, setCounterName] = useState('');
   const [attaching, setAttaching] = useState(false);
+  const [crewing, setCrewing] = useState(false);
   // The search this card sends its player on, once asked for: it outlives
   // the card, which may have been sacrificed to pay for it.
   const [searching, setSearching] = useState<{ ask: SearchAsk; source: string } | null>(null);
@@ -105,6 +108,9 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose, picks = 
   if (attaching) return <AttachSheet playerIdx={playerIdx} iid={iid} onClose={onClose} />;
 
   const record = records[card.cardId];
+  // A Vehicle: "Crew 3". Choosing its crew takes this sheet's place.
+  const crew = crewOf(record);
+  if (crewing && crew !== null) return <CrewSheet playerIdx={playerIdx} iid={iid} crew={crew} onClose={onClose} />;
   // Auras and Equipment: what it sits on (if anything), and — for any card —
   // what sits on it, whoever those belong to.
   const host = hostOf(game, card);
@@ -170,6 +176,21 @@ export default function BattlefieldCardSheet({ playerIdx, iid, onClose, picks = 
           </p>
         )}
       </div>
+
+      {crew !== null && (
+        <div className="detail-section">
+          <span className="section-label">Vehicle</span>
+          {crewedNow(game, card) ? (
+            <p className="hint">Crewed — an artifact creature until end of turn.</p>
+          ) : (
+            <div className="chip-row">
+              <button className="chip chip--primary" onClick={() => setCrewing(true)}>
+                Crew {crew}…
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {canAttach && (
         <div className="detail-section">

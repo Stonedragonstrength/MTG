@@ -75,6 +75,10 @@ export interface CardInstance {
    * ability, named by turnNumber and activePlayerIndex (like landPlays). A
    * stamp from any other turn means none used yet; nothing clears it. */
   loyaltyUsed?: { turn: number; active: number };
+  /** Battlefield only: the turn this Vehicle was crewed, named like
+   * loyaltyUsed — through that turn it is an artifact creature
+   * (lib/vehicles.ts). A stamp from any other turn means not crewed. */
+  crewed?: { turn: number; active: number };
   /** Battlefield only: the card arrived since its controller's last turn
    * began. Every card gets it, whatever its type — the reducers do not
    * read cards. Whether it means summoning sickness is for the table and

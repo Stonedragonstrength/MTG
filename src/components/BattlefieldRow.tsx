@@ -10,6 +10,7 @@ import { castPrice, castSources, costTable } from '../lib/costs';
 import { affordable } from '../lib/pay';
 import { shelfOf } from '../lib/shelf';
 import type { CardInstance } from '../lib/types';
+import { asItIs, crewedNow, crewOf } from '../lib/vehicles';
 import { useAppStore } from '../state/store';
 import BattlefieldCardSheet from './BattlefieldCardSheet';
 import CommanderSheet from './CommanderSheet';
@@ -173,9 +174,14 @@ export default function BattlefieldRow({ playerIdx, picks = true, corner = null 
               art={records[c.cardId]?.imageNormal ?? null}
               sick={
                 god?.creature !== false &&
-                isSummoningSick(c, records[c.cardId], texts, keywordsNow(game, { seat: playerIdx, kind: 'card', id: c.iid }, tableRecords))
+                // A crewed Vehicle is a creature: one that came in this turn cannot attack.
+                isSummoningSick(c, asItIs(game, c, records[c.cardId]), texts, keywordsNow(game, { seat: playerIdx, kind: 'card', id: c.iid }, tableRecords))
               }
               god={god}
+              vehicle={(() => {
+                const crew = crewOf(records[c.cardId]);
+                return crew === null ? null : { crew, crewed: crewedNow(game, c) };
+              })()}
               look={combat?.look({ kind: 'card', id: c.iid }) ?? null}
               names={names}
               worn={plusSize(

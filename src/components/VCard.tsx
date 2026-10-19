@@ -28,6 +28,8 @@ interface Props {
   /** A Theros god (lib/gods.ts): its devotion against its number, on the
    * corner where its size is printed. Below the number it is no creature. */
   god?: GodRead | null;
+  /** A Vehicle (lib/vehicles.ts): its crew number, and whether it is crewed this turn. */
+  vehicle?: { crew: number; crewed: boolean } | null;
   onTap: () => void;
   onDetail: () => void;
 }
@@ -59,7 +61,7 @@ export function tallyOf(counters: CardInstance['counters']): { text: string; sho
  * a tap picks it (or is ignored, dimmed, when it cannot fight — the hold
  * still opens the sheet, where "Attack anyway" and a plain Tap live).
  * Anything that is no creature keeps its ordinary tap. */
-export default function VCard({ card, art, sick, look, names, attached = 0, worn, use, god, onTap, onDetail }: Props) {
+export default function VCard({ card, art, sick, look, names, attached = 0, worn, use, god, vehicle, onTap, onDetail }: Props) {
   const picks = look?.picks === true;
   const press = useLongPress(picks ? look.tap : onTap, onDetail);
   // +1/+1 counters, less -1/-1 counters.
@@ -133,10 +135,22 @@ export default function VCard({ card, art, sick, look, names, attached = 0, worn
           </span>
         </span>
       )}
+      {vehicle && (
+        // Keyed: it lights up as the Vehicle is crewed.
+        <span
+          key={String(vehicle.crewed)}
+          className={vehicle.crewed ? 'devotion-badge devotion-badge--awake crew-badge' : 'devotion-badge crew-badge'}
+          role="img"
+          aria-label={vehicle.crewed ? 'crewed, a creature this turn' : `crew ${vehicle.crew}`}
+          title={vehicle.crewed ? 'Crewed — an artifact creature until end of turn' : `Crew ${vehicle.crew} — hold to crew it`}
+        >
+          {vehicle.crewed ? 'Crewed' : `Crew ${vehicle.crew}`}
+        </span>
+      )}
       {(change.power !== 0 || change.toughness !== 0) && (
         <span
           className={
-            loyalty !== undefined || god ? 'count-badge vcard-counter vcard-counter--beside' : 'count-badge vcard-counter'
+            loyalty !== undefined || god || vehicle ? 'count-badge vcard-counter vcard-counter--beside' : 'count-badge vcard-counter'
           }
         >
           {sizeWords(change)}

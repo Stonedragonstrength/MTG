@@ -205,6 +205,13 @@
   min-width: 1.15em;
 }
 
+/* A Vehicle: "Crew 3" in the god's badge shape, gold once crewed. */
+.crew-badge {
+  padding: 0 6px;
+  font-family: var(--font-body);
+  letter-spacing: 0.02em;
+}
+
 .devotion-badge--awake {
   background: rgba(40, 28, 4, 0.9);
   border-color: rgba(230, 192, 90, 0.95);

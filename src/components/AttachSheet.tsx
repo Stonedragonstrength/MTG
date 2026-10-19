@@ -1,13 +1,17 @@
 import { useEffect, useState } from 'react';
 import { hostChoices, hostKind, hostOf, isEquipment, sizeGiven, sizeWords } from '../lib/attach';
+import { stackNow } from '../lib/counterspells';
 import { comesAttached, equipHost, equipWay, equipWays } from '../lib/equip';
 import { affordable } from '../lib/pay';
 import { seatSources } from '../lib/seatMana';
+import type { Host } from '../lib/cards';
+import { wardOf, wardWords, type Ward } from '../lib/ward';
 import { useAppStore } from '../state/store';
 import { CostSymbols } from './ManaSymbol';
 import Sheet from './Sheet';
 import { useTableRecords } from './useCombat';
 import { useSettleTaps } from './useSettleTaps';
+import WardSheet from './WardSheet';
 
 interface Props {
   /** The seat that controls the Aura or Equipment. */
@@ -36,6 +40,8 @@ export default function AttachSheet({ playerIdx, iid, onClose }: Props) {
   // the table reads it (paid — but for an Equipment that attaches itself as
   // it comes in).
   const [unpaid, setUnpaid] = useState<boolean | null>(null);
+  // An Aura spell pointed at somebody else's permanent with ward: its price first.
+  const [warded, setWarded] = useState<{ on: Host; name: string; ward: Ward; spellId: string } | null>(null);
   // After playing an Aura it opens under the finger that played it: the
   // rest of that tap must not pick a row.
   useSettleTaps();
@@ -69,6 +75,33 @@ export default function AttachSheet({ playerIdx, iid, onClose }: Props) {
   const arriving = comesAttached(record) && card.sick === true && !current;
   const free = unpaid ?? arriving;
   const canPayAny = ways.some((way) => affordable(way.cost, sources));
+  // The Aura was just cast (it is this turn's spell, not countered): it targets what it goes on.
+  const auraSpell = !equipment && !current ? stackNow(game).find((s) => s.iid === iid && s.seat === playerIdx && !s.countered) : undefined;
+  const wardOn = (on: Host): Ward | null => (auraSpell && on.seat !== playerIdx ? wardOf(game, on, records) : null);
+  const attachAura = (on: Host) => {
+    attachVirtualCard(playerIdx, iid, on);
+    // "You control enchanted creature" (Control Magic): the creature comes
+    // over, held by the Aura while it stays.
+    if (controlsHost && on.kind === 'card' && on.seat !== playerIdx) takeControl(playerIdx, on.seat, on.id, { by: iid });
+  };
+
+  if (warded)
+    return (
+      <WardSheet
+        caster={playerIdx}
+        name={warded.name}
+        ward={warded.ward}
+        spell={card.name}
+        spellId={warded.spellId}
+        holderSeat={warded.on.seat}
+        onPaid={() => {
+          attachAura(warded.on);
+          onClose();
+        }}
+        onBack={() => setWarded(null)}
+        onClose={onClose}
+      />
+    );
 
   return (
     <Sheet
@@ -155,6 +188,7 @@ export default function AttachSheet({ playerIdx, iid, onClose }: Props) {
             // dimmed and refuses, like a card in hand.
             const way = equipment && !free && !here ? equipWay(record, equipHost(game, host, records)) : null;
             const short = way !== null && !affordable(way.cost, sources);
+            const ward = wardOn({ seat: host.seat, kind: host.kind, id: host.id });
             return (
               <li key={`${host.kind}:${host.id}`}>
                 <button
@@ -166,13 +200,11 @@ export default function AttachSheet({ playerIdx, iid, onClose }: Props) {
                   onClick={() => {
                     if (short) return;
                     const on = { seat: host.seat, kind: host.kind, id: host.id };
-                    if (!equipment) {
-                      attachVirtualCard(playerIdx, iid, on);
-                      // "You control enchanted creature" (Control Magic): the
-                      // creature comes over, held by the Aura while it stays.
-                      if (controlsHost && on.kind === 'card' && on.seat !== playerIdx)
-                        takeControl(playerIdx, on.seat, on.id, { by: iid });
+                    if (ward && auraSpell) {
+                      setWarded({ on, name: host.name, ward, spellId: auraSpell.id });
+                      return;
                     }
+                    if (!equipment) attachAura(on);
                     // On it already: nothing moves, nothing is owed.
                     else if (!here) void (free ? equipCard(playerIdx, iid, on, { free: true }) : equipCard(playerIdx, iid, on));
                     onClose();
@@ -185,6 +217,7 @@ export default function AttachSheet({ playerIdx, iid, onClose }: Props) {
                   )}
                   <span className="pile-name">{host.name}</span>
                   {host.size && <span className="attach-size">{host.size}</span>}
+                  {ward && <span className="ward-tag">ward {wardWords(ward)}</span>}
                   {/* Two equip abilities on one card: each row says which it pays. */}
                   {way && ways.length > 1 && (
                     <span className="attach-cost">

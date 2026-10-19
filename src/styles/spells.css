@@ -201,6 +201,24 @@
   }
 }
 
+/* ---- ward: what pointing at it costs ---- */
+.ward-tag {
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  border: 1px solid rgba(150, 170, 210, 0.6);
+  border-radius: 999px;
+  color: #c9d3ea;
+  font-family: var(--font-body);
+  font-size: 0.74rem;
+  white-space: nowrap;
+}
+
+.ward-ask {
+  margin: 4px 0 8px;
+  font-family: var(--font-body);
+  font-size: 1rem;
+}
+
 /* ---- CounterSheet: what a counterspell answers ---- */
 .counter-whose {
   color: #9a9aa5;

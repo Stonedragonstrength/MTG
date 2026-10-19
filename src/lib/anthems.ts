@@ -1,6 +1,7 @@
 import type { Host } from './cards';
 import { godsOf, notHeldBack } from './gods';
 import { keywordNames, keywordsOf } from './keywords';
+import { asItIs } from './vehicles';
 import type { CardRecord, GameState } from './types';
 
 type Records = Record<string, CardRecord | null | undefined>;
@@ -251,7 +252,8 @@ function targetOf(g: GameState, host: Host, records: Records): AnthemTarget | nu
   if (!notHeldBack(godsOf(g, host.seat, records), host)) return null;
   if (host.kind === 'card') {
     const card = player.cards?.battlefield.find((c) => c.iid === host.id);
-    const record = card ? records[card.cardId] : undefined;
+    // A crewed Vehicle is a creature through the turn: "creatures you control" reach it.
+    const record = card ? asItIs(g, card, records[card.cardId]) : undefined;
     if (!card || !record) return null;
     return { typeLine: record.typeLine, colors: record.colors ?? [], token: !!record.isToken, text: record.oracleText };
   }

@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
+import { stackNow } from '../lib/counterspells';
 import { opponentsOf, spellChoices, type SpellPrompt, type SpellTarget } from '../lib/spellEffects';
+import { wardOf, wardWords, type Ward } from '../lib/ward';
 import { useAppStore } from '../state/store';
 import Sheet from './Sheet';
 import { useTableRecords } from './useCombat';
 import { useSettleTaps } from './useSettleTaps';
+import WardSheet from './WardSheet';
 
 interface Props {
   /** Whose effect it is: "you" in its text. */
@@ -24,12 +27,17 @@ interface Props {
  * hurts opens on the first opponent's side, what helps on the caster's
  * own. Where players can be hit, the player is the first row; then that
  * side's permanents of the kinds the card names. A tap on a row does it.
- * No picking on the board: the list is the whole of it. */
+ * No picking on the board: the list is the whole of it. Somebody else's
+ * permanent with ward (lib/ward.ts) asks its price first: paid, it is
+ * done; not paid, the spell is countered (an ability's effect simply
+ * does not happen). */
 export default function SpellTargetSheet({ caster, spell, revealId, prompt, onPick, onClose }: Props) {
   const game = useAppStore((s) => s.game);
   const helps =
     prompt.kind === 'counters' || prompt.kind === 'draw' || (prompt.kind === 'pump' && prompt.power + prompt.toughness >= 0);
   const [tab, setTab] = useState(() => (helps || !game ? caster : (opponentsOf(game, caster)[0] ?? caster)));
+  // A target with ward, picked: its price is asked before anything happens.
+  const [warded, setWarded] = useState<{ target: SpellTarget; name: string; ward: Ward } | null>(null);
   // It opens under the finger that pressed the banner's button: the rest
   // of that tap must not pick a row.
   useSettleTaps();
@@ -45,6 +53,25 @@ export default function SpellTargetSheet({ caster, spell, revealId, prompt, onPi
   const seats = game.players.map((_, i) => (caster + i) % game.players.length);
   const shown = seats.includes(tab) ? tab : caster;
   const choices = spellChoices(game, shown, prompt, caster, records);
+  // Ward is for what an opponent points at it: not the caster's own permanents.
+  const wardOn = (t: SpellTarget): Ward | null => (t.kind === 'player' || t.seat === caster ? null : wardOf(game, t, records));
+
+  if (warded) {
+    const { target, name, ward } = warded;
+    return (
+      <WardSheet
+        caster={caster}
+        name={name}
+        ward={ward}
+        spell={spell}
+        spellId={revealId ? stackNow(game).find((s) => s.reveal === revealId && !s.countered)?.id : undefined}
+        holderSeat={target.seat}
+        onPaid={() => onPick(target)}
+        onBack={() => setWarded(null)}
+        onClose={onClose}
+      />
+    );
+  }
 
   return (
     <Sheet
@@ -77,12 +104,13 @@ export default function SpellTargetSheet({ caster, spell, revealId, prompt, onPi
         <ul className="attach-list">
           {choices.map((choice) => {
             const t = choice.target;
+            const ward = wardOn(t);
             return (
               <li key={t.kind === 'player' ? 'player' : `${t.kind}:${t.id}`}>
                 <button
                   className={t.kind === 'player' ? 'attach-row spell-row--player' : 'attach-row'}
                   aria-label={choice.fate ? `${choice.name} — ${choice.fate}` : choice.name}
-                  onClick={() => onPick(t)}
+                  onClick={() => (ward ? setWarded({ target: t, name: choice.name, ward }) : onPick(t))}
                 >
                   {choice.art ? (
                     <img className="pile-art" src={choice.art} alt="" loading="lazy" />
@@ -91,6 +119,7 @@ export default function SpellTargetSheet({ caster, spell, revealId, prompt, onPi
                   )}
                   <span className="pile-name">{choice.name}</span>
                   {choice.size && <span className="attach-size">{choice.size}</span>}
+                  {ward && <span className="ward-tag">ward {wardWords(ward)}</span>}
                   {choice.fate && <span className={`spell-fate spell-fate--${choice.fate}`}>{choice.fate}</span>}
                 </button>
               </li>

@@ -310,6 +310,13 @@ export interface AppStore {
   /** "Unless its controller pays {3}": the spell's controller pays it from
    * their lands, and the spell stands. */
   payForSpell(spellId: string, cost: string, source: string): Promise<void>;
+  /** Crew: the creatures (cards; so many copies of a stack) tap and the
+   * Vehicle is an artifact creature until end of turn — one move. */
+  crewVehicle(seat: number, iid: string, crew: { kind: 'card' | 'stack'; id: string; n: number }[]): void;
+  /** Ward, paid by the player pointing something at a permanent that has it:
+   * `mana` generic from their lands and `life`, in one move. `holder` and
+   * `spell` name the warded permanent and what pointed at it, for the feed. */
+  payWard(seat: number, cost: { mana: number; life: number }, holder: string, spell: string): Promise<void>;
   splitItem(playerIdx: number, itemId: string, moveCount: number): void;
   setCounter(playerIdx: number, itemId: string, counterName: string, value: number): void;
   setManaMode(playerIdx: number, itemId: string, mode: BoardItem['manaMode']): void;
@@ -2667,6 +2674,40 @@ export function createAppStore() {
           undefined,
           [],
           [spell.iid],
+        );
+      },
+
+      crewVehicle(seat, iid, crew) {
+        const g = get().game;
+        const player = g?.players[seat];
+        const vehicle = player?.cards?.battlefield.find((c) => c.iid === iid);
+        if (!g || !player || !vehicle) return;
+        const names = crew.flatMap((c) => {
+          if (c.kind === 'card') return player.cards?.battlefield.find((x) => x.iid === c.id)?.name ?? [];
+          const item = player.board.find((it) => it.id === c.id);
+          return item ? (c.n > 1 ? `${c.n} ${item.name}` : item.name) : [];
+        });
+        cardMutate(
+          (base) => cardsLib.crewCard(base, seat, iid, crew),
+          `${seatName(g, seat)} crews ${vehicle.name}${names.length > 0 ? ` with ${names.join(', ')}` : ''}`,
+          (base) => !!base.players[seat]?.cards?.battlefield.some((c) => c.iid === iid),
+        );
+      },
+
+      async payWard(seat, cost, holder, spell) {
+        const g = get().game;
+        if (!g) return;
+        const records = await seatRecords(g, seat);
+        const paidIn = { turn: g.turnNumber, active: g.activePlayerIndex };
+        const said = [cost.mana > 0 ? `{${cost.mana}}` : '', cost.life > 0 ? `${cost.life} life` : ''].filter(Boolean).join(' and ');
+        cardMutate(
+          (base) => {
+            const pay = cost.mana > 0 ? payFrom(base, seat, [{ generic: cost.mana, pips: [] }], records, paidIn) : (x: GameState) => x;
+            const paid = pay(base);
+            // Paid by hand where the lands cannot: what is said is the move.
+            return cost.life > 0 ? gameLib.adjustLife(paid, seat, -cost.life) : { ...paid };
+          },
+          `${seatName(g, seat)} pays ${said || 'the ward'} for ${holder}'s ward (${spell})`,
         );
       },
 
