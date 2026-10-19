@@ -131,25 +131,34 @@ export function killCopies(
   );
 }
 
+/** `paid`: the copies were tapped to pay for something (mana, convoke) —
+ * they are not attacking (lib/attackDraft.ts). */
 export function tapItem(
   s: GameState,
   playerIdx: number,
   itemId: string,
   delta: number,
+  paid = false,
 ): GameState {
   return updateBoard(s, playerIdx, (board) =>
-    board.map((it) =>
-      it.id === itemId
-        ? { ...it, tapped: Math.min(it.count, Math.max(0, (it.tapped ?? 0) + delta)) }
-        : it,
-    ),
+    board.map((it) => {
+      if (it.id !== itemId) return it;
+      const tapped = Math.min(it.count, Math.max(0, (it.tapped ?? 0) + delta));
+      const spent = Math.min(tapped, (it.spent ?? 0) + (paid ? tapped - (it.tapped ?? 0) : 0));
+      const { spent: _s, ...rest } = it;
+      return { ...rest, tapped, ...(spent > 0 ? { spent } : {}) };
+    }),
   );
 }
 
 /** The untap step: readies every permanent that player controls. */
 export function untapAll(s: GameState, playerIdx: number): GameState {
   return updateBoard(s, playerIdx, (board) =>
-    board.map((it) => (it.tapped ? { ...it, tapped: 0 } : it)),
+    board.map((it) => {
+      if (!it.tapped && !it.spent) return it;
+      const { spent: _s, ...rest } = it;
+      return { ...rest, tapped: 0 };
+    }),
   );
 }
 

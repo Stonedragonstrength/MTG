@@ -53,7 +53,9 @@ export type SpellPrompt = {
   | { kind: 'draw'; n: number; who: 'you' | 'target' }
   | { kind: 'tokens'; n: number; want: TokenWant }
   | { kind: 'remove'; how: 'destroy' | 'exile' | 'bounce' }
-  | { kind: 'sweep'; how: 'destroy' | 'exile' }
+  // "Destroy all creatures"; an overloaded spell's "Return each nonland
+  // permanent you don't control to its owner's hand" (`kinds`, `theirs`).
+  | { kind: 'sweep'; how: 'destroy' | 'exile' | 'bounce'; kinds?: PermKind[]; theirs?: boolean }
   | { kind: 'counters'; n: number }
   // "Until end of turn": one creature (picked) or all of its caster's
   // (`team`; `other`: but the card that said so).
@@ -123,6 +125,13 @@ const CREATE = new RegExp(`\\bcreate ${N} `, 'i');
 const REMOVE = new RegExp(`\\b(destroy|exile) (?:up to one )?(?:another )?target ${THING}`, 'gi');
 const BOUNCE = new RegExp(`\\breturn (?:up to one )?(?:another )?target ${THING} to (?:its|their) owner['’]s hand\\b`, 'gi');
 const SWEEP = /\b(destroy|exile) all creatures(?=\s*(?:,|$))/gi;
+// What an overloaded spell says (lib/costs.ts overloaded): "Destroy each
+// artifact you don't control", "Return each nonland permanent you don't
+// control to its owner's hand". Nothing but "nonland" may narrow it.
+const EACH = new RegExp(
+  `\\b(destroy|exile|return) each (nonland )?${KIND}(?: or ${KIND})?( you don['’]t control)?(?: to (?:its|their) owner['’]s hand)?(?=\\s*(?:,|$))`,
+  'gi',
+);
 const COUNTERS = new RegExp(`\\bput ${N} \\+1\\/\\+1 counters? on target creature\\b`, 'gi');
 // "Gain control of target creature until end of turn" (Act of Treason),
 // "Untap target creature and gain control of it until end of turn" (Threaten),
@@ -334,6 +343,24 @@ export function spellPrompts(record: Read, opts?: { x?: number }): SpellPrompt[]
         how: 'bounce',
       });
     }
+    for (const m of sentence.matchAll(EACH)) {
+      const verb = m[1].toLowerCase();
+      // "Return each…" without "to its owner's hand" goes somewhere this does not read.
+      if (verb === 'return' && !/owner['’]s hand/i.test(m[0])) continue;
+      const how = verb === 'return' ? 'bounce' : (verb as 'destroy' | 'exile');
+      const kinds = kindsOf(m[2] ?? '', m[3], m[4]);
+      const theirs = !!m[5];
+      const said = kinds.map((k) => (k === 'nonland' ? 'nonland permanent' : k)).join(' or ');
+      add(m, {
+        key: `sweep:${how}:${kinds.join('+')}${theirs ? ':theirs' : ''}`,
+        label: `${how === 'destroy' ? 'Destroy' : how === 'exile' ? 'Exile' : 'Return'} each ${said}${theirs ? ' you don’t control' : ''}`,
+        pick: null,
+        kind: 'sweep',
+        how,
+        kinds,
+        ...(theirs ? { theirs } : {}),
+      });
+    }
     for (const m of sentence.matchAll(SWEEP)) {
       const how = m[1].toLowerCase() as 'destroy' | 'exile';
       add(m, {
@@ -438,7 +465,7 @@ export type SpellEffect =
   | { kind: 'life'; n: number; gain: boolean; on: number | 'opponents' }
   /** `holdFor`: exiled "until" that permanent leaves the battlefield. */
   | { kind: 'remove'; how: 'destroy' | 'exile' | 'bounce'; on: Host; holdFor?: Holder }
-  | { kind: 'sweep'; how: 'destroy' | 'exile' }
+  | { kind: 'sweep'; how: 'destroy' | 'exile' | 'bounce'; kinds?: PermKind[]; theirs?: boolean }
   | { kind: 'counters'; n: number; on: Host }
   /** `except`: the one creature of the team that does not get it ("other"). */
   | { kind: 'pump'; power: number; toughness: number; keywords: string[]; on: Host | 'team'; except?: string }
@@ -474,7 +501,7 @@ export function effectOf(
         ...(holds && sourceIid && prompt.how === 'exile' ? { holdFor: { seat: caster, iid: sourceIid } } : {}),
       };
     case 'sweep':
-      return { kind: 'sweep', how: prompt.how };
+      return { kind: 'sweep', how: prompt.how, ...(prompt.kinds ? { kinds: prompt.kinds } : {}), ...(prompt.theirs ? { theirs: true } : {}) };
     case 'counters':
       return target && target.kind !== 'player' ? { kind: 'counters', n: prompt.n, on: target } : null;
     case 'pump': {
@@ -758,32 +785,55 @@ export function planEffect(
     case 'sweep': {
       // Every creature the app can see is one: a card it has read, a stack
       // with a size. What it cannot read stays, for the players to clear.
+      // An overloaded spell names its kinds (every nonland permanent, every
+      // artifact) and maybe only the ones its caster does not control.
       const destroy = effect.how === 'destroy';
+      const kinds = effect.kinds ?? ['creature'];
+      const creatures = kinds.length === 1 && kinds[0] === 'creature';
       const swept: Host[] = [];
       let count = 0;
       g.players.forEach((player, s) => {
+        if (effect.theirs && s === seat) return;
         const seatRead = readSeat(g, s, records);
         const stays = (on: Host) =>
           destroy && hasKeyword(readUnit(g, s, { kind: on.kind, id: on.id }, records, seatRead), 'indestructible');
         for (const c of player.cards?.battlefield ?? []) {
           const r = records[c.cardId];
           const on: Host = { seat: s, kind: 'card', id: c.iid };
-          if (!r || !isCreatureCard(r) || shelfOf(c, r) === 'lands' || !notHeldBack(seatRead.gods, on) || stays(on)) continue;
+          if (!r || stays(on)) continue;
+          const creature = isCreatureCard(r) && notHeldBack(seatRead.gods, on) && shelfOf(c, r) !== 'lands';
+          const fits = creatures
+            ? creature
+            : typeFits(creature ? frontType(r) : notCreature(frontType(r)), kinds);
+          if (!fits) continue;
           swept.push(on);
           count += 1;
         }
         for (const it of player.board) {
           const on: Host = { seat: s, kind: 'stack', id: it.id };
           const sized = computedPT({ ...it, counters: it.counters ?? {} }) !== null;
-          if (!sized || it.zone === 'lands' || !notHeldBack(seatRead.gods, on) || stays(on)) continue;
+          const isLand = it.zone === 'lands' || /\bLand\b/i.test(it.typeLine);
+          const fits = kinds.some((kind) =>
+            kind === 'creature'
+              ? sized && it.zone !== 'lands' && notHeldBack(seatRead.gods, on)
+              : kind === 'nonland'
+                ? !isLand
+                : kind === 'land'
+                  ? isLand
+                  : typeFits(it.typeLine, [kind]),
+          );
+          if (!fits || stays(on)) continue;
           swept.push(on);
           count += Math.max(0, it.count);
         }
       });
       if (count === 0) return null;
-      const to = destroy ? 'graveyard' : 'exile';
+      const to = destroy ? 'graveyard' : effect.how === 'exile' ? 'exile' : 'hand';
+      const said = creatures && !effect.theirs
+        ? 'all creatures'
+        : `each ${kinds.map((k) => (k === 'nonland' ? 'nonland permanent' : k)).join(' or ')}${effect.theirs ? ` ${nameOf(seat)} doesn’t control` : ''}`;
       return {
-        text: `${lead} ${destroy ? 'destroys' : 'exiles'} all creatures (${count})`,
+        text: `${lead} ${destroy ? 'destroys' : effect.how === 'exile' ? 'exiles' : 'returns'} ${said}${to === 'hand' ? ' to their owners’ hands' : ''} (${count})`,
         apply: (base) =>
           swept.reduce(
             (next, on) =>

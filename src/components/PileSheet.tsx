@@ -1,18 +1,21 @@
 import { useState } from 'react';
 import { abilitiesOf, type Ability } from '../lib/abilities';
 import { isCommander } from '../lib/cards';
+import { castPrice, castSources, costTable, wayOf } from '../lib/costs';
 import { reboundTurn } from '../lib/cascade';
 import { asksLife, entryLife } from '../lib/lands';
-import { castCosts, hasX } from '../lib/pay';
+import { affordable, castCosts, hasX } from '../lib/pay';
 import { seatSources } from '../lib/seatMana';
 import { isLandCard } from '../lib/turnRules';
 import type { CardInstance, CardZone } from '../lib/types';
 import { useAppStore } from '../state/store';
 import AbilityRow, { type AbilityUse } from './AbilityRow';
+import { CostSymbols } from './ManaSymbol';
 import DiscoverSheet from './DiscoverSheet';
 import LandLifeSheet from './LandLifeSheet';
 import Sheet from './Sheet';
 import { useCardRecords } from './useCardRecords';
+import { useCastRecords } from './useCastRecords';
 import { useTableRecords } from './useCombat';
 import XCostSheet from './XCostSheet';
 
@@ -35,6 +38,7 @@ export default function PileSheet({ playerIdx, zone, short = NONE, onClose }: Pr
   const castCommander = useAppStore((s) => s.castCommander);
   const commanderReturned = useAppStore((s) => s.commanderReturned);
   const castFromExile = useAppStore((s) => s.castFromExile);
+  const castFromGraveyard = useAppStore((s) => s.castFromGraveyard);
   const activateAbility = useAppStore((s) => s.activateAbility);
   const [xFor, setXFor] = useState<string | null>(null); // the commander being cast for X
   // A Discover from a card's graveyard ability (Buried Treasure), in this sheet's place.
@@ -47,6 +51,17 @@ export default function PileSheet({ playerIdx, zone, short = NONE, onClose }: Pr
   const shown = zone === 'graveyard' ? [...cards].reverse() : cards;
   const records = useCardRecords(shown);
   const tableRecords = useTableRecords();
+  const castRecords = useCastRecords(playerIdx);
+  // Flashback: cast from here for that cost, then exiled (lib/costs.ts).
+  const flashback = (c: CardInstance) => (zone === 'graveyard' ? wayOf(records[c.cardId], 'flashback') : null);
+  const flashbackShort = (c: CardInstance): boolean => {
+    if (!game) return false;
+    const record = records[c.cardId];
+    const all = { ...castRecords, ...records };
+    const price = castPrice(record, { from: 'graveyard', way: 'flashback' }, costTable(game, playerIdx, all));
+    const sources = castSources(game, playerIdx, all, record, c.iid);
+    return !price.faces.some((cost) => affordable(cost, sources));
+  };
   // "{5}, Exile this card from your graveyard: Discover 5": used from here.
   const graveAbilities = (c: CardInstance) => (zone === 'graveyard' ? abilitiesOf(records[c.cardId]).filter((a) => a.graveyard) : []);
   const sources =
@@ -107,7 +122,7 @@ export default function PileSheet({ playerIdx, zone, short = NONE, onClose }: Pr
       ) : (
         <ul className="pile-list">
           {shown.map((c) => (
-            <li key={c.iid} className={graveAbilities(c).length > 0 ? 'pile-row pile-row--abilities' : 'pile-row'}>
+            <li key={c.iid} className={graveAbilities(c).length > 0 || flashback(c) ? 'pile-row pile-row--abilities' : 'pile-row'}>
               {records[c.cardId]?.imageNormal ? (
                 <img className="pile-art" src={records[c.cardId]!.imageNormal!} alt="" loading="lazy" />
               ) : (
@@ -188,6 +203,21 @@ export default function PileSheet({ playerIdx, zone, short = NONE, onClose }: Pr
                   </>
                 )}
               </span>
+              {flashback(c) && (
+                // Flashback: cast from here for its cost, on a line of its own under the card.
+                <div className="pile-cast">
+                  <button
+                    className="pile-flashback"
+                    aria-label={`${flashbackShort(c) ? 'flashback anyway' : 'flashback'} ${c.name}`}
+                    onClick={() => {
+                      void castFromGraveyard(playerIdx, c.iid);
+                      onClose();
+                    }}
+                  >
+                    {flashbackShort(c) ? 'Flashback anyway' : 'Flashback'} <CostSymbols cost={flashback(c)!.cost} />
+                  </button>
+                </div>
+              )}
               {graveAbilities(c).map((ability) => (
                 <AbilityRow
                   key={ability.key}

@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { commanderTax } from '../lib/cards';
-import { affordable, castCosts, hasX } from '../lib/pay';
-import { seatSources } from '../lib/seatMana';
+import { castPrice, castSources, changesWords, costTable } from '../lib/costs';
+import { affordable, hasX } from '../lib/pay';
 import { useAppStore } from '../state/store';
 import { PrintedCost } from './ManaSymbol';
 import PayWithSheet from './PayWithSheet';
 import Sheet from './Sheet';
 import { useCardRecords } from './useCardRecords';
+import { useCastRecords } from './useCastRecords';
 import { useSettleTaps } from './useSettleTaps';
 import XCostSheet from './XCostSheet';
 
@@ -31,7 +32,8 @@ export default function CommanderSheet({ playerIdx, iid, onClose }: Props) {
   const player = game?.players[playerIdx];
   const seat = player?.cards;
   const card = seat?.command.find((c) => c.iid === iid);
-  const records = useCardRecords([...(card ? [card] : []), ...(seat?.battlefield ?? [])]);
+  const own = useCardRecords(card ? [card] : []);
+  const table = useCastRecords(playerIdx);
   // Cast from another device meanwhile: really close, or the sheet would
   // come back by itself the next time the commander goes home.
   const gone = !card;
@@ -53,13 +55,16 @@ export default function CommanderSheet({ playerIdx, iid, onClose }: Props) {
       />
     );
 
+  const records = { ...table, ...own };
   const record = records[card.cardId];
   const tax = commanderTax(player, card.iid);
-  // The same reading of the cost and of the mana as the store's payment.
-  // An unread record never blocks.
-  const costs = record ? castCosts(record, 'command', tax) : null;
-  const sources = seatSources(game, playerIdx, records);
+  // The same reading of the cost and of the mana as the store's payment:
+  // what it costs on this table (Emerald Medallion, Thalia). An unread record never blocks.
+  const price = record ? castPrice(record, { from: 'command', tax }, costTable(game, playerIdx, records)) : null;
+  const costs = price?.faces ?? null;
+  const sources = castSources(game, playerIdx, records, record, card.iid);
   const poor = !!costs && !costs.some((cost) => affordable(cost, sources));
+  const changed = price ? changesWords(price.changes) : '';
 
   function cast() {
     if (costs && hasX(costs)) {
@@ -113,9 +118,9 @@ export default function CommanderSheet({ playerIdx, iid, onClose }: Props) {
         )}
         {record?.oracleText && <p className="oracle-text">{record.oracleText}</p>}
       </div>
-      {(tax > 0 || poor) && (
+      {(tax > 0 || poor || changed) && (
         <p className={poor ? 'x-cost x-cost--short' : 'x-cost'}>
-          {[tax > 0 ? `Commander tax +${tax}` : '', poor ? 'not enough mana ready' : '']
+          {[tax > 0 ? `Commander tax +${tax}` : '', changed, poor ? 'not enough mana ready' : '']
             .filter(Boolean)
             .join(' · ')}
         </p>

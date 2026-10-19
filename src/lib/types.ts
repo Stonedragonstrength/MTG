@@ -158,6 +158,8 @@ export interface Reveal {
   /** 'cast' only: the X the spell was cast for, when its cost has one. The
    * effects the banner offers are read with it (lib/spellEffects.ts). */
   x?: number;
+  /** 'cast' only: it was overloaded — its "target" reads "each" (lib/costs.ts). */
+  overload?: true;
 }
 
 export interface BoardItem {
@@ -175,6 +177,9 @@ export interface BoardItem {
   color: string | null; // custom tokens only
   zone: 'board' | 'lands';
   tapped?: number; // mana sources marked used this turn (≤ count)
+  /** Of the tapped copies, how many a payment tapped (mana, convoke): those
+   * are not attacking. Omitted when none; the untap step clears it. */
+  spent?: number;
   /** Copies that arrived since their controller's turn began (≤ count).
    * Omitted when none did. */
   sick?: number;

@@ -1,21 +1,12 @@
 import { useEffect, useState } from 'react';
 import { commanderTax } from '../lib/cards';
-import {
-  affordable,
-  availableMana,
-  castCosts,
-  extraCosts,
-  extraTimes,
-  hasX,
-  maxX,
-  priceExtras,
-  priceX,
-} from '../lib/pay';
-import { seatSources } from '../lib/seatMana';
+import { castPrice, castSources, changesWords, costTable, wayOf } from '../lib/costs';
+import { affordable, availableMana, extraCosts, extraTimes, hasX, maxX } from '../lib/pay';
 import { useAppStore } from '../state/store';
 import PayWithSheet from './PayWithSheet';
 import Sheet from './Sheet';
 import { useCardRecords } from './useCardRecords';
+import { useCastRecords } from './useCastRecords';
 import { useSettleTaps } from './useSettleTaps';
 
 interface Props {
@@ -34,15 +25,18 @@ const TIMES_CEILING = 20;
 
 /** The cast sheet: what a spell has to be told before it is cast. A card
  * with {X} in its cost asks how much; a card with a kicker (or a
- * multikicker, a buyback, …) asks whether it is paid. Every way of playing
- * such a card opens this instead of playing it; closing it casts nothing.
- * Extra costs are asked from the hand only. */
+ * multikicker, a buyback, …) asks whether it is paid; one with overload
+ * whether it is overloaded. Every way of playing such a card opens this
+ * instead of playing it; closing it casts nothing. Extra costs and
+ * overload are asked from the hand only. What it costs is what it costs on
+ * this table (lib/costs.ts), and the line under it says what changed it. */
 export default function XCostSheet({ playerIdx, iid, from, onClose }: Props) {
   const game = useAppStore((s) => s.game);
   const playCard = useAppStore((s) => s.playCard);
   const castCommander = useAppStore((s) => s.castCommander);
   const [x, setX] = useState(0);
   const [asked, setAsked] = useState<number[]>([]);
+  const [over, setOver] = useState(false); // overloaded
   const [choosing, setChoosing] = useState(false); // "Pay with…" has this sheet's place
   // It opens under the finger, on the tap that plays a hand card: the rest
   // of that tap must not land on Cast, on the stepper or on the backdrop.
@@ -50,7 +44,8 @@ export default function XCostSheet({ playerIdx, iid, from, onClose }: Props) {
   const player = game?.players[playerIdx];
   const seat = player?.cards;
   const card = seat?.[from].find((c) => c.iid === iid);
-  const records = useCardRecords([...(card ? [card] : []), ...(seat?.battlefield ?? [])]);
+  const own = useCardRecords(card ? [card] : []);
+  const table = useCastRecords(playerIdx);
   // Cast from another device, discarded, drawn away: really close — a
   // sheet left mounted would reopen by itself and squat on the back button.
   const gone = !card;
@@ -59,28 +54,42 @@ export default function XCostSheet({ playerIdx, iid, from, onClose }: Props) {
   }, [gone, onClose]);
   if (!player || !seat || !card) return null;
 
-  const record = records[card.cardId];
+  const record = own[card.cardId];
+  const records = { ...table, ...own };
   const tax = from === 'command' ? commanderTax(player, card.iid) : 0;
+  // Overload: another cost, and the spell does it to each instead of one.
+  const overload = from === 'hand' ? wayOf(record, 'overload') : null;
+  const way = over && overload ? ('overload' as const) : undefined;
   // The same reading of the cost and of the mana as the store's payment.
-  const faces = castCosts(record, from, tax);
-  const asksX = hasX(faces);
-  const extras = from === 'hand' ? extraCosts(record) : [];
+  const extras = from === 'hand' && !way ? extraCosts(record) : [];
   const times = extraTimes(extras, asked);
-  const sources = seatSources(game, playerIdx, records);
+  const here = costTable(game, playerIdx, records);
+  const ask = { from, tax, extras: times, ...(way ? { way } : {}) };
+  const faces = castPrice(record, { ...ask, x: 0 }, here).faces;
+  const asksX = hasX(faces);
+  const sources = castSources(game, playerIdx, records, record, card.iid);
   const ready = availableMana(sources);
-  const priced = priceExtras(priceX(faces, x), extras, times);
+  const price = castPrice(record, { ...ask, x }, here);
+  const priced = price.faces;
   // What will be paid: the first face the seat can afford, as in the store.
   const paying = priced.find((cost) => affordable(cost, sources));
   const shown = paying ?? priced[0];
   const total = shown ? shown.generic + shown.pips.length : 0;
   // The largest X that still pays with the extras chosen.
-  const max = Math.max(0, ...priceExtras(faces, extras, times).map((cost) => maxX(cost, sources)));
+  const max = Math.max(0, ...faces.map((cost) => maxX(cost, sources)));
+  // Medallions, affinity, Thalia: what made it cost what it does.
+  const changed = changesWords(price.changes);
   const setTimes = (i: number, n: number) =>
     setAsked(extras.map((_, k) => (k === i ? Math.max(0, n) : times[k])));
 
   function cast() {
     if (from === 'command') castCommander(playerIdx, iid, { x });
-    else void playCard(playerIdx, iid, { ...(asksX ? { x } : {}), ...(extras.length > 0 ? { extras: times } : {}) });
+    else
+      void playCard(playerIdx, iid, {
+        ...(asksX ? { x } : {}),
+        ...(extras.length > 0 ? { extras: times } : {}),
+        ...(way ? { way } : {}),
+      });
     onClose();
   }
 
@@ -102,6 +111,7 @@ export default function XCostSheet({ playerIdx, iid, from, onClose }: Props) {
         from={from}
         {...(asksX ? { x } : {})}
         extras={times}
+        {...(way ? { way } : {})}
         onBack={() => setChoosing(false)}
         onClose={onClose}
       />
@@ -140,6 +150,21 @@ export default function XCostSheet({ playerIdx, iid, from, onClose }: Props) {
           </div>
           <button className="ghost x-max" disabled={x === max} onClick={() => setX(max)}>
             Max
+          </button>
+        </div>
+      )}
+      {overload && (
+        // Overloaded or not: one switch, off until the player says so.
+        <div className="x-row extra-row">
+          <span className="extra-label">{overload.label}</span>
+          <button
+            role="switch"
+            aria-checked={over}
+            aria-label={overload.label}
+            className={over ? 'extra-switch extra-switch--on' : 'extra-switch'}
+            onClick={() => setOver(!over)}
+          >
+            {over ? 'Overloaded' : 'Not overloaded'}
           </button>
         </div>
       )}
@@ -185,6 +210,11 @@ export default function XCostSheet({ playerIdx, iid, from, onClose }: Props) {
       <p className={paying ? 'x-cost' : 'x-cost x-cost--short'}>
         {`Costs ${total} · ${ready} ready${tax > 0 ? ` · tax +${tax} included` : ''}`}
       </p>
+      {(price.free || changed) && (
+        <p className="x-cost x-changes">
+          {[price.free && `Free: ${price.free}`, changed].filter(Boolean).join(' · ')}
+        </p>
+      )}
     </Sheet>
   );
 }

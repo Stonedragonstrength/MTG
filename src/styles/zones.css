@@ -5123,6 +5123,10 @@ input[type='checkbox'] {
 .pile-row--abilities { flex-wrap: wrap; }
 .pile-row--abilities .ability-row { flex: 1 0 100%; padding-left: 50px; }
 .pile-actions button { padding: 4px 8px; font-size: 0.72rem; }
+/* Flashback: cast from the graveyard, on a line of its own under the card. */
+.pile-cast { flex: 1 0 100%; padding-left: 50px; }
+.pile-flashback { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; font-size: 0.78rem; white-space: nowrap; }
+.pile-flashback .mana-sym { width: 16px; height: 16px; }
 
 /* ---- library: look at the top N (scry, surveil) ---- */
 .library-actions { flex-wrap: wrap; }

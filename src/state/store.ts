@@ -25,9 +25,19 @@ import * as gameLib from '../lib/game';
 import * as payLib from '../lib/pay';
 import * as payWithLib from '../lib/payWith';
 import { seatSources } from '../lib/seatMana';
-import type { SpendOn } from '../lib/spendOnly';
+import { spendOnCard, type SpendOn } from '../lib/spendOnly';
 import type { Taken } from '../lib/storedMana';
 import { counteredTo, markCountered, stackNow, withStack, type Casting, type CounteredTo } from '../lib/counterspells';
+import {
+  castPrice,
+  costTable,
+  cycleWays,
+  fromGraveKey,
+  helperSources,
+  helpsOf,
+  wayOf,
+  type Help,
+} from '../lib/costs';
 import { planEffect, type SpellEffect } from '../lib/spellEffects';
 import { happeningsBetween, unitThing, type Happening } from '../lib/triggers';
 import { dayNightNeeds, turnedDayNight, withCasts } from '../lib/dayNight';
@@ -120,11 +130,21 @@ export interface AppStore {
   /** `landEntry`: a shock land's answer — 'life' pays the life it asks for
    * (2, or 3: lands.entryLife) for it to come in untapped; anything else, it
    * comes in tapped. Other lands come in as their own words say (lib/lands.ts). */
+  /** `way`: cast another way its card allows — 'overload' pays that cost,
+   * and the spell's "target" reads "each" (lib/costs.ts). */
   playCard(
     seat: number,
     iid: string,
-    opts?: { x?: number; asLand?: true; extras?: number[]; using?: Record<string, number>; landEntry?: 'tapped' | 'life' },
+    opts?: { x?: number; asLand?: true; extras?: number[]; using?: Record<string, number>; landEntry?: 'tapped' | 'life'; way?: 'overload' },
   ): Promise<void>;
+  /** Cycling from the hand (lib/costs.ts cycleWays, by its place in that
+   * list): its cost is paid, the card is discarded and a card is drawn — one
+   * move. A typecycling card ("Swampcycling {2}") draws nothing: its player
+   * goes through the library for the card it finds (the search sheet). */
+  cycleCard(seat: number, iid: string, way: number): Promise<void>;
+  /** Flashback: the card is cast from its owner's graveyard for its
+   * flashback cost and exiled — one move. `x`, `using` as for playCard. */
+  castFromGraveyard(seat: number, iid: string, opts?: { x?: number; using?: Record<string, number> }): Promise<void>;
   tapVirtualCard(seat: number, iid: string, wantTapped?: boolean): void;
   /** Turns a double-faced card on the battlefield over, onto whichever
    * face is down, and tells the table what it has become. */
@@ -381,6 +401,26 @@ export async function tableRecords(g: GameState): Promise<SeatRecords> {
   return records;
 }
 
+/** What a cast's price reads (lib/costs.ts): every battlefield's cards, and —
+ * where `record` asks for them — the tokens on the board (convoke pays a
+ * token's color) and the caster's graveyard ("for each creature card in
+ * your graveyard"). */
+async function castRecords(g: GameState, seat: number, record: CardRecord | undefined): Promise<SeatRecords> {
+  const records = await tableRecords(g);
+  const text = record?.oracleText ?? '';
+  const more: { cardId: string; name: string }[] = [];
+  if (/\bgraveyard\b/i.test(text)) more.push(...(g.players[seat]?.cards?.graveyard ?? []));
+  if (/\bconvoke\b/i.test(text))
+    for (const it of g.players[seat]?.board ?? []) if (it.cardId) more.push({ cardId: it.cardId, name: it.name });
+  if (more.length === 0) return records;
+  const m = await import('../data/scryfall');
+  for (const c of more) {
+    if (c.cardId in records) continue;
+    records[c.cardId] = await m.getCardById(c.cardId).catch(() => undefined);
+  }
+  return records;
+}
+
 /** How a land being played comes in, judged on the table it lands on
  * (lib/lands.ts): its player's other permanents, their hand for a land that
  * asks for a reveal, the other players. A land that never comes in tapped
@@ -458,20 +498,34 @@ function payFrom(
   records: SeatRecords,
   castIn: TurnStamp,
   using?: Record<string, number>,
+  /** What the spell's own words let pay besides mana (convoke, improvise,
+   * delve), and the card being cast — it never pays for itself. */
+  help?: { helps: Help[]; casting?: string },
 ): (moved: GameState) => GameState {
   const sameTurn = isTurn(base, castIn);
-  const sources = sameTurn ? seatSources(base, seat, records) : [];
+  const mana = sameTurn ? seatSources(base, seat, records) : [];
+  const sources = help && sameTurn ? [...mana, ...helperSources(base, seat, records, mana, help.helps, help.casting)] : mana;
   // Mana a card's counters make without its tap (Pentad Prism): nothing to tap.
   const apart = new Set(sources.filter((s) => s.stored && s.key !== s.stored.iid).map((s) => s.key));
+  // A creature tapped for convoke, an artifact for improvise: tapped, and no mana in the pool.
+  const helpers = new Set(sources.filter((s) => s.helps && s.kind === 'virtual').map((s) => s.key));
+  const spend = (next: GameState, iid: string, units: number) => {
+    const exiled = fromGraveKey(iid);
+    if (exiled) return cardsLib.moveCard(next, seat, exiled, 'graveyard', 'exile');
+    if (apart.has(iid)) return next;
+    return helpers.has(iid) ? cardsLib.tapSpent(next, seat, iid) : cardsLib.spendMana(next, seat, iid, units);
+  };
   if (using) {
     const chosen = payWithLib.payWith(costs, payWithLib.sourcesUsing(sources, using));
     return (moved) => {
       let next = moved;
-      for (const [iid, units] of Object.entries(chosen.spend))
-        if (!apart.has(iid)) next = cardsLib.spendMana(next, seat, iid, units);
-      for (const iid of chosen.tap) next = cardsLib.tapCard(next, seat, iid, true);
+      for (const [iid, units] of Object.entries(chosen.spend)) next = spend(next, iid, units);
+      for (const iid of chosen.tap) {
+        if (fromGraveKey(iid)) continue; // a card the payment had no use for stays in the graveyard
+        next = helpers.has(iid) ? cardsLib.tapSpent(next, seat, iid) : cardsLib.tapCard(next, seat, iid, true);
+      }
       for (const [itemId, copies] of Object.entries(chosen.boardTaps))
-        next = boardLib.tapItem(next, seat, itemId, copies);
+        next = boardLib.tapItem(next, seat, itemId, copies, true);
       return takeCounters(next, seat, chosen.taken);
     };
   }
@@ -479,10 +533,9 @@ function payFrom(
   return (moved) => {
     if (!plan) return moved; // nothing can pay it (or it was forced): tap nothing
     let next = moved;
-    for (const [iid, units] of Object.entries(plan.spend))
-      if (!apart.has(iid)) next = cardsLib.spendMana(next, seat, iid, units);
+    for (const [iid, units] of Object.entries(plan.spend)) next = spend(next, iid, units);
     for (const [itemId, copies] of Object.entries(plan.boardTaps))
-      next = boardLib.tapItem(next, seat, itemId, copies);
+      next = boardLib.tapItem(next, seat, itemId, copies, true);
     return takeCounters(next, seat, plan.taken);
   };
 }
@@ -1143,8 +1196,10 @@ export function createAppStore() {
         const isSpell = !isLand && /Instant|Sorcery/.test(typeLine) && !/Creature/.test(typeLine);
         const verb = isSpell ? 'casts' : 'plays';
         // Auto-payment: the table pays the cost as the card lands. No plan
-        // (cost-reducers, treasures, bare trust) = play, tap nothing.
-        const costs = isLand ? [] : payLib.castCosts(record, 'hand'); // a land has none
+        // (treasures, bare trust) = play, tap nothing.
+        // Overloaded, a spell pays its overload cost instead (lib/costs.ts).
+        const way = !isLand && opts?.way ? wayOf(record, opts.way) : null;
+        const costs = isLand ? [] : way ? [way.cost] : payLib.castCosts(record, 'hand'); // a land has none
         // A card with {X} is paid for the X it was cast for (zero when no
         // one asked), and its feed line says which.
         const asksX = payLib.hasX(costs);
@@ -1152,16 +1207,21 @@ export function createAppStore() {
         // Kicker and its relatives: what the cast was made with goes on top
         // of the cost, and into the feed line. Only the paying is done here —
         // what a kicked spell does differently stays with the players.
-        const extras = isLand ? [] : payLib.extraCosts(record);
+        const extras = isLand || way ? [] : payLib.extraCosts(record);
         const times = payLib.extraTimes(extras, opts?.extras);
-        const priced = payLib.priceExtras(payLib.priceX(costs, x), extras, times);
+        const records = await castRecords(g, seat, record);
+        // What it costs on this table: its own words (affinity, "costs {1}
+        // less for each…", free with a commander out), the permanents around
+        // it (Ruby Medallion, Thalia), and what pays besides mana (convoke…).
+        const price = isLand ? null : castPrice(record, { from: 'hand', x, extras: times, ...(way ? { way: way.kind } : {}) }, costTable(g, seat, records));
+        const priced = price?.faces ?? [];
+        const help = isLand ? undefined : { helps: helpsOf(record), casting: iid };
         // Bought back, a spell returns to its owner's hand instead of going
         // to the graveyard: it simply never leaves.
         const boughtBack = isSpell && extras.some((e, i) => e.kind === 'buyback' && times[i] > 0);
         const counters = !isSpell && x > 0 && payLib.entersWithX(record?.oracleText ?? '');
         // "Enters with two +1/+1 counters", a Saga's first lore counter: on as it lands.
         const brings = isSpell ? {} : entryCounters(record);
-        const records = await seatRecords(g, seat);
         const castIn = { turn: g.turnNumber, active: g.activePlayerIndex };
         // How a land comes in: tapped (a guildgate, a temple), untapped (a
         // check land with its type out), or — a shock land — as its player answered.
@@ -1171,7 +1231,8 @@ export function createAppStore() {
         // Rebound (its own, or given by a permanent like Cast Through Time):
         // the spell goes to exile instead, marked with this turn, and comes up
         // again as its player's next turn begins (lib/triggers.ts).
-        const rebound = isSpell && !boughtBack && castsWithRebound(record, Object.values(records));
+        const own = (g.players[seat]?.cards?.battlefield ?? []).map((c) => records[c.cardId]);
+        const rebound = isSpell && !boughtBack && castsWithRebound(record, own);
         // An instant or sorcery is gone to the graveyard the moment it is
         // cast, and used to vanish there unseen. So the cast is SHOWN to the
         // table the way a reveal is — on every device, until it is tapped
@@ -1188,11 +1249,13 @@ export function createAppStore() {
               t: Date.now(),
               // What it was cast for: the banner reads "deals X damage" with it.
               ...(asksX ? { x } : {}),
+              // Overloaded: the banner reads its "target" as "each".
+              ...(way?.kind === 'overload' ? { overload: true as const } : {}),
             }
           : null;
         cardMutate(
           (base) => {
-            const pay = payFrom(base, seat, priced, records, castIn, opts?.using);
+            const pay = payFrom(base, seat, priced, records, castIn, opts?.using, help);
             if (!base.players[seat]?.cards?.hand.some((c) => c.iid === iid)) return base;
             let moved = boughtBack
               ? base
@@ -1217,7 +1280,7 @@ export function createAppStore() {
             if (!boughtBack) moved = cardsLib.addCardCounters(moved, seat, iid, brings);
             return pay(moved);
           },
-          `${seatName(g, seat)} ${verb} ${card.name}${asksX ? ` (X=${x})` : ''}${payLib.extrasWords(extras, times)}${rebound ? ' — exiled with rebound' : ''}${comesTapped ? ' (tapped)' : paysLife ? ` (paying ${paysLife} life)` : ''}`,
+          `${seatName(g, seat)} ${verb} ${card.name}${way ? ` (${way.kind})` : ''}${asksX ? ` (X=${x})` : ''}${payLib.extrasWords(extras, times)}${price?.free ? ' without paying its mana cost' : ''}${rebound ? ' — exiled with rebound' : ''}${comesTapped ? ' (tapped)' : paysLife ? ` (paying ${paysLife} life)` : ''}`,
           (base) => !!base.players[seat]?.cards?.hand.some((c) => c.iid === iid),
           undefined,
           // Cast, not played: cards waiting for a spell are set off by it.
@@ -1665,6 +1728,70 @@ export function createAppStore() {
         );
       },
 
+      async cycleCard(seat, iid, at) {
+        const g = get().game;
+        const card = g?.players[seat]?.cards?.hand.find((c) => c.iid === iid);
+        if (!g || !card) return;
+        const record = await readRecord(card);
+        const way = cycleWays(record)[at];
+        if (!record || !way) return;
+        const records = await seatRecords(g, seat);
+        const paidIn = { turn: g.turnNumber, active: g.activePlayerIndex };
+        // An ability of the card: mana kept for spells does not pay it.
+        const cost: payLib.PayCost = { ...way.cost, on: spendOnCard(record, 'ability') };
+        const kind = way.label.replace(/ ?[{—].*$/, '');
+        cardMutate(
+          (base) => {
+            const pay = payFrom(base, seat, [cost], records, paidIn);
+            let next = cardsLib.moveCard(base, seat, iid, 'hand', 'graveyard');
+            if (next === base) return base;
+            if (way.life) next = gameLib.adjustLife(next, seat, -way.life);
+            next = pay(next);
+            // Cycling draws the top card of the library as it happens; a
+            // typecycling card's player goes looking instead (the search sheet).
+            const top = next.players[seat]?.cards?.library[0];
+            return !way.find && top ? cardsLib.draw(next, seat, [top.iid]) : next;
+          },
+          `${seatName(g, seat)} cycles ${card.name}${way.find ? ` (${kind})` : ' and draws a card'}${way.life ? `, paying ${way.life} life` : ''}`,
+          (base) => !!base.players[seat]?.cards?.hand.some((c) => c.iid === iid),
+        );
+      },
+
+      async castFromGraveyard(seat, iid, opts) {
+        const g = get().game;
+        const card = g?.players[seat]?.cards?.graveyard.find((c) => c.iid === iid);
+        if (!g || !card) return;
+        const record = await readRecord(card);
+        const way = wayOf(record, 'flashback');
+        if (!record || !way || !isSpellCard(record.typeLine)) return;
+        const asksX = !!way.cost.x;
+        const x = asksX ? wholeX(opts?.x) : 0;
+        const records = await castRecords(g, seat, record);
+        const priced = castPrice(record, { from: 'graveyard', way: 'flashback', x }, costTable(g, seat, records)).faces;
+        const castIn = { turn: g.turnNumber, active: g.activePlayerIndex };
+        // Shown to the table like any spell cast; then it is exiled for good.
+        const shown: Reveal = {
+          id: `r${cardsLib.newIid()}`,
+          seat,
+          from: 'cast',
+          cards: [{ cardId: card.cardId, name: card.name }],
+          t: Date.now(),
+          ...(asksX ? { x } : {}),
+        };
+        cardMutate(
+          (base) => {
+            const pay = payFrom(base, seat, priced, records, castIn, opts?.using, { helps: helpsOf(record), casting: iid });
+            const moved = cardsLib.moveCard(base, seat, iid, 'graveyard', 'exile');
+            if (moved === base) return base;
+            return pay(cardsLib.setReveal(moved, shown));
+          },
+          `${seatName(g, seat)} casts ${card.name} with flashback${asksX ? ` (X=${x})` : ''}`,
+          (base) => !!base.players[seat]?.cards?.graveyard.some((c) => c.iid === iid),
+          undefined,
+          [{ kind: 'cast', seat, spell: { seat, kind: 'card', id: iid, cardId: card.cardId, name: card.name, n: 1 }, from: 'graveyard', ...(asksX ? { x } : {}) }],
+        );
+      },
+
       millCards(seat, n) {
         const g = get().game;
         const lib = g?.players[seat]?.cards?.library;
@@ -1862,14 +1989,15 @@ export function createAppStore() {
           const costs = payLib.castCosts(record, 'command', tax);
           const asksX = payLib.hasX(costs);
           const x = asksX ? wholeX(opts?.x) : 0;
-          const priced = payLib.priceX(costs, x);
+          // On this table: Emerald Medallion, Thalia, its own affinity (lib/costs.ts).
+          const records = await castRecords(g, seat, record);
+          const priced = castPrice(record, { from: 'command', tax, x }, costTable(g, seat, records)).faces;
           const counters = x > 0 && payLib.entersWithX(record?.oracleText ?? '');
           const brings = entryCounters(record);
-          const records = await seatRecords(g, seat);
           const castIn = { turn: g.turnNumber, active: g.activePlayerIndex };
           cardMutate(
             (base) => {
-              const pay = payFrom(base, seat, priced, records, castIn, opts?.using);
+              const pay = payFrom(base, seat, priced, records, castIn, opts?.using, { helps: helpsOf(record), casting: cmd.iid });
               let moved = cardsLib.moveCard(base, seat, cmd.iid, 'command', 'battlefield', {
                 row: 'front',
               });

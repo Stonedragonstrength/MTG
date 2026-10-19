@@ -1,20 +1,9 @@
 import { useEffect, useState } from 'react';
 import { commanderTax } from '../lib/cards';
+import { castPrice, castSources, changesWords, costTable } from '../lib/costs';
 import { countersWords } from '../lib/entering';
 import { COLOR_NAMES, type ManaColor } from '../lib/mana';
-import {
-  affordable,
-  castCosts,
-  extraCosts,
-  extraTimes,
-  hasX,
-  planPayment,
-  priceExtras,
-  priceX,
-  sourcesFor,
-  type ManaSource,
-  type PayCost,
-} from '../lib/pay';
+import { affordable, extraCosts, extraTimes, hasX, planPayment, sourcesFor, type ManaSource, type PayCost } from '../lib/pay';
 import {
   chosenSources,
   groupSources,
@@ -32,6 +21,7 @@ import { useAppStore } from '../state/store';
 import ManaSymbol, { CostSymbols } from './ManaSymbol';
 import Sheet from './Sheet';
 import { useCardRecords } from './useCardRecords';
+import { useCastRecords } from './useCastRecords';
 
 interface Props {
   playerIdx: number;
@@ -41,6 +31,8 @@ interface Props {
   /** What the cast sheet was already told: X, and the extra costs paid. */
   x?: number;
   extras?: number[];
+  /** Cast overloaded (the cast sheet's switch). */
+  way?: 'overload';
   /** Back to the sheet this one took the place of; left out, Back closes. */
   onBack?: () => void;
   onClose: () => void;
@@ -50,6 +42,13 @@ const NUMBER_WORDS: Record<number, string> = { 2: 'two', 3: 'three', 4: 'four', 
 
 /** What one of them taps for: "G", "G or U", two colorless for a Sol Ring. */
 function Makes({ group }: { group: Pick<PayGroup, 'produces' | 'each'> }) {
+  // A card exiled for delve, an artifact tapped for improvise: one generic each.
+  if (group.produces.length === 0)
+    return (
+      <span className="pay-makes">
+        <ManaSymbol symbol={String(group.each)} label={`pays ${group.each} generic`} />
+      </span>
+    );
   if (group.produces.includes('any'))
     return (
       <span className="pay-makes">
@@ -78,7 +77,7 @@ function Makes({ group }: { group: Pick<PayGroup, 'produces' | 'each'> }) {
  * what taps — no more and no less, also where that is not what the card
  * says it costs (a cost reducer on the board, mana left floating on
  * purpose). */
-export default function PayWithSheet({ playerIdx, iid, from, x, extras, onBack, onClose }: Props) {
+export default function PayWithSheet({ playerIdx, iid, from, x, extras, way, onBack, onClose }: Props) {
   const game = useAppStore((s) => s.game);
   const playCard = useAppStore((s) => s.playCard);
   const castCommander = useAppStore((s) => s.castCommander);
@@ -87,7 +86,8 @@ export default function PayWithSheet({ playerIdx, iid, from, x, extras, onBack, 
   const player = game?.players[playerIdx];
   const seat = player?.cards;
   const card = seat?.[from].find((c) => c.iid === iid);
-  const records = useCardRecords([...(card ? [card] : []), ...(seat?.battlefield ?? [])]);
+  const own = useCardRecords(card ? [card] : []);
+  const table = useCastRecords(playerIdx);
   // Cast from another device, discarded, drawn away: really close.
   const gone = !card;
   useEffect(() => {
@@ -95,15 +95,19 @@ export default function PayWithSheet({ playerIdx, iid, from, x, extras, onBack, 
   }, [gone, onClose]);
   if (!player || !seat || !card) return null;
 
-  const record = records[card.cardId];
+  const record = own[card.cardId];
+  const records = { ...table, ...own };
   const tax = from === 'command' ? commanderTax(player, card.iid) : 0;
   // The same reading of the cost and of the mana as the store's payment.
-  const faces = castCosts(record, from, tax);
-  const asksX = hasX(faces);
-  const kinds = from === 'hand' ? extraCosts(record) : [];
+  const kinds = from === 'hand' && !way ? extraCosts(record) : [];
   const times = extraTimes(kinds, extras);
-  const priced = priceExtras(priceX(faces, asksX ? (x ?? 0) : 0), kinds, times);
-  const sources = seatSources(game, playerIdx, records);
+  const here = costTable(game, playerIdx, records);
+  const ask = { from, tax, extras: times, ...(way ? { way } : {}) };
+  const asksX = hasX(castPrice(record, ask, here).faces);
+  const price = castPrice(record, { ...ask, x: asksX ? (x ?? 0) : 0 }, here);
+  const priced = price.faces;
+  // Convoke's creatures, improvise's artifacts, delve's graveyard pay too.
+  const sources = castSources(game, playerIdx, records, record, card.iid);
   // The face the table would pay: the first it can afford, like the store.
   const cost: PayCost = priced.find((face) => affordable(face, sources)) ?? priced[0] ?? { generic: 0, pips: [] };
 
@@ -113,11 +117,13 @@ export default function PayWithSheet({ playerIdx, iid, from, x, extras, onBack, 
   const stackOf = (s: ManaSource): BoardItem | undefined =>
     s.kind === 'board' ? player.board.find((it) => it.id === s.key) : undefined;
   const sameAs = (s: ManaSource) => {
+    if (s.helps === 'delve') return 'delve'; // the graveyard is one tile: so many of its cards
     const one = cardOf(s);
     return one ? (one.iid === s.key ? one.cardId : `${one.cardId}#counters`) : s.key;
   };
   // Lands first, then rocks, creatures last — the order a player reaches for them.
   const shelf = (group: PayGroup) => {
+    if (group.members[0].helps === 'delve') return 3;
     if (group.creature) return 2;
     const first = group.members[0];
     const typeLine = stackOf(first)?.typeLine ?? records[cardOf(first)?.cardId ?? '']?.typeLine ?? '';
@@ -152,6 +158,12 @@ export default function PayWithSheet({ playerIdx, iid, from, x, extras, onBack, 
 
   const face = (group: PayGroup) => {
     const first = group.members[0];
+    if (first.helps === 'delve') {
+      // The graveyard's top card stands for it.
+      const top = seat.graveyard[seat.graveyard.length - 1];
+      const read = top ? records[top.cardId] : null;
+      return { name: 'Graveyard', art: read?.imageArtCrop ?? read?.imageNormal ?? null };
+    }
     const one = cardOf(first);
     const stack = stackOf(first);
     const read = one ? records[one.cardId] : null;
@@ -170,6 +182,7 @@ export default function PayWithSheet({ playerIdx, iid, from, x, extras, onBack, 
       void playCard(playerIdx, iid, {
         ...(asksX ? { x: x ?? 0 } : {}),
         ...(kinds.length > 0 ? { extras: times } : {}),
+        ...(way ? { way } : {}),
         using,
       });
     onClose();
@@ -204,6 +217,9 @@ export default function PayWithSheet({ playerIdx, iid, from, x, extras, onBack, 
         <span className="pay-cost">
           costs <CostSymbols cost={cost} />
           {tax > 0 && <span className="pay-or">tax +{tax} included</span>}
+          {(price.free || price.changes.length > 0) && (
+            <span className="pay-or">{[price.free && `free: ${price.free}`, changesWords(price.changes)].filter(Boolean).join(' · ')}</span>
+          )}
         </span>
         {mine !== null && (
           <button className="chip" onClick={() => setMine(null)}>
@@ -238,15 +254,21 @@ export default function PayWithSheet({ playerIdx, iid, from, x, extras, onBack, 
           // Mana saved up as counters: how many it has (Dreadship Reef, a Mana Battery).
           const stored = group.members[0].stored;
           const saved = stored ? countersWords({ [stored.kind]: cardOf(group.members[0])?.counters?.[stored.kind] ?? 0 }) : '';
+          // What a spell's own words let pay: tapped for convoke or improvise, exiled for delve.
+          const helps = group.members[0].helps;
           const note = only
             ? [`${more}only ${spendWords(only)}`, saved].filter(Boolean).join(' · ')
             : saved
               ? saved
-              : group.floating
-                ? 'tapped · mana in your pool'
-                : group.creature
-                  ? 'creature'
-                  : null;
+              : helps === 'delve'
+                ? 'delve: exile one for each {1}'
+                : helps
+                  ? `${helps}: tap it`
+                  : group.floating
+                    ? 'tapped · mana in your pool'
+                    : group.creature
+                      ? 'creature'
+                      : null;
           const tile = ['pay-tile', n > 0 && 'pay-tile--lit', !here && 'pay-tile--kept'].filter(Boolean).join(' ');
           const top = (
             <span className="pay-top">

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type MouseEvent } from 'react';
 import { REVEAL_FRESH_MS } from '../lib/cards';
+import { overloaded } from '../lib/costs';
 import { bestToken } from '../lib/deckTokens';
 import { modesToChoose, spellPrompts, type SpellPrompt, type SpellTarget } from '../lib/spellEffects';
 import type { CardRecord, Reveal } from '../lib/types';
@@ -138,7 +139,9 @@ function RevealPanel({ reveal, who, onDone }: PanelProps) {
   // caster's own device at an online table.
   const mySeat = useAppStore((s) => s.online?.mySeat);
   const asks = cast && (mySeat == null || mySeat === reveal.seat);
-  const spell = records[reveal.cards[0].cardId];
+  const card = records[reveal.cards[0].cardId];
+  // Overloaded, its "target" reads "each" (Cyclonic Rift returns them all).
+  const spell = card && reveal.overload ? { ...card, oracleText: overloaded(card.oracleText.split('\n//\n')[0]) } : card;
   const read = asks ? spellPrompts(spell, { x: reveal.x }) : [];
   const tokenCards = useTokenCards(read);
   const prompts = read.filter((p) => p.kind !== 'tokens' || tokenCards[p.key]);

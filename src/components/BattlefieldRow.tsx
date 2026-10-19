@@ -6,8 +6,8 @@ import { boostOf, plusSize, withBoost } from '../lib/boost';
 import { commanderTax, owesDraw } from '../lib/cards';
 import { godKey, godsOf } from '../lib/gods';
 import { isSummoningSick, permanentTexts } from '../lib/keywords';
-import { affordable, castCosts } from '../lib/pay';
-import { seatSources } from '../lib/seatMana';
+import { castPrice, castSources, costTable } from '../lib/costs';
+import { affordable } from '../lib/pay';
 import { shelfOf } from '../lib/shelf';
 import type { CardInstance } from '../lib/types';
 import { useAppStore } from '../state/store';
@@ -136,11 +136,14 @@ export default function BattlefieldRow({ playerIdx, picks = true, corner = null 
   // One pedestal per commander still at home (a partner pair has two), each
   // behind the mana gate with its own tax. An unread record never blocks.
   const player = game.players[playerIdx];
-  const sources = seatSources(game, playerIdx, records);
+  const priced = { ...tableRecords, ...records };
+  const table = costTable(game, playerIdx, priced);
   const pedestals = seat.command.map((card) => {
     const record = records[card.cardId];
     const tax = commanderTax(player, card.iid);
-    const costs = record ? castCosts(record, 'command', tax) : null;
+    // What it costs on this table: Emerald Medallion, Thalia (lib/costs.ts).
+    const costs = record ? castPrice(record, { from: 'command', tax }, table).faces : null;
+    const sources = castSources(game, playerIdx, priced, record, card.iid);
     return {
       card,
       art: record?.imageNormal ?? null,

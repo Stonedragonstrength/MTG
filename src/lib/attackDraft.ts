@@ -66,7 +66,8 @@ export function tappedToAttack(game: GameState, records: CardRecords): DraftPick
       ...(item.count === 1 ? keywordsWorn(game, { seat, kind: 'stack', id: item.id }, records) : []),
       ...(boostOf(game, item)?.keywords ?? []),
     ]);
-    const n = Math.min(item.tapped ?? 0, item.count - sickCopies(item, texts, worn));
+    // Copies a payment tapped (mana, convoke) are not attacking.
+    const n = Math.min((item.tapped ?? 0) - (item.spent ?? 0), item.count - sickCopies(item, texts, worn));
     if (n > 0) picks.push({ unit: { kind: 'stack', id: item.id }, n, name: item.name });
   }
   return picks;

@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
+import { cycleWays } from '../lib/costs';
 import { backView, faceNames } from '../lib/faces';
 import { asksLife, entryLife } from '../lib/lands';
 import { asksAtCast } from '../lib/pay';
+import { searchAsk, type SearchAsk } from '../lib/search';
 import { hasLandBack, isLandCard } from '../lib/turnRules';
 import { useAppStore } from '../state/store';
 import LandLifeSheet from './LandLifeSheet';
@@ -16,17 +18,21 @@ interface Props {
   /** Why a tap would not play this card: the land rule, or the mana gate.
    * Said here, with the way around it — "Play anyway" — right below. */
   why?: string | null;
+  /** A typecycling card was cycled: its player goes through the library for
+   * what it finds (the search sheet, opened where it outlives this one). */
+  onSearch?: (ask: SearchAsk, source: string) => void;
   onClose: () => void;
 }
 
 /** Hold on a hand card: everything that isn't playing it. */
-export default function HandCardSheet({ playerIdx, iid, why = null, onClose }: Props) {
+export default function HandCardSheet({ playerIdx, iid, why = null, onSearch, onClose }: Props) {
   const game = useAppStore((s) => s.game);
   // A build behind the table cannot write, so its reveal could not announce itself.
   const stale = useAppStore((s) => s.online?.status.kind === 'stale-build');
   const revealCards = useAppStore((s) => s.revealCards);
   const moveVirtualCard = useAppStore((s) => s.moveVirtualCard);
   const playCard = useAppStore((s) => s.playCard);
+  const cycleCard = useAppStore((s) => s.cycleCard);
   const [askX, setAskX] = useState(false);
   const [paying, setPaying] = useState(false);
   // A land that asks for life as it comes in (a shock land; the land on the
@@ -130,6 +136,26 @@ export default function HandCardSheet({ playerIdx, iid, why = null, onClose }: P
             Play as land
           </button>
         )}
+        {cycleWays(record).map((way, i) => (
+          // Cycling: pay, discard it, draw a card — or find the card a
+          // typecycling card names ("Swampcycling {2}").
+          <button
+            key={way.label}
+            className="chip"
+            onClick={() => {
+              const find = way.find
+                ? searchAsk({ name: '', typeLine: 'Sorcery', oracleText: `Search your library for ${way.find}, reveal it, put it into your hand, then shuffle.` })
+                : null;
+              void cycleCard(playerIdx, iid, i).then(() => {
+                const hand = useAppStore.getState().game?.players[playerIdx]?.cards?.hand;
+                if (find && hand && !hand.some((h) => h.iid === iid)) onSearch?.(find, card.name);
+              });
+              onClose();
+            }}
+          >
+            {way.find ? way.label : way.label.replace(/^cycling\b/i, 'Cycle')}
+          </button>
+        ))}
         <button className="chip" onClick={go('graveyard')}>Discard</button>
         <button className="chip" onClick={go('exile')}>Exile</button>
         <button

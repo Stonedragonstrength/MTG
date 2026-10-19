@@ -46,6 +46,11 @@ export interface ManaSource {
    * Pentad Prism, a tapped Dreadship Reef — has a key of its own and is not
    * tapped (`stored.iid` is the card). */
   stored?: StoredDraw;
+  /** Not mana at all, but what a spell's own words let pay for it
+   * (lib/costs.ts helperSources): a creature tapped for convoke, an
+   * artifact tapped for improvise, a card exiled from the graveyard for
+   * delve. Improvise and delve pay generic mana only (`produces` is empty). */
+  helps?: 'convoke' | 'improvise' | 'delve';
 }
 
 /** What the payment does: units to draw from each virtual card (tapping it
@@ -239,14 +244,18 @@ export function extrasWords(extras: ExtraCost[], times: number[]): string {
 }
 
 /** Does casting this card from there have something to ask first — how
- * much X is, or whether an extra cost is paid? Then it opens the cast
- * sheet instead of casting at once. (Extras are asked from the hand only.) */
+ * much X is, whether an extra cost is paid, whether it is overloaded? Then
+ * it opens the cast sheet instead of casting at once. (Extras and overload
+ * are asked from the hand only.) */
 export function asksAtCast(
   record: Pick<CardRecord, 'typeLine' | 'manaCost' | 'oracleText'> | null | undefined,
   from: 'hand' | 'command',
   tax = 0,
 ): boolean {
-  return hasX(castCosts(record, from, tax)) || (from === 'hand' && extraCosts(record).length > 0);
+  return (
+    hasX(castCosts(record, from, tax)) ||
+    (from === 'hand' && (extraCosts(record).length > 0 || /^Overload \{/im.test(record?.oracleText.split('\n//\n')[0] ?? '')))
+  );
 }
 
 /** "Hydra enters with X +1/+1 counters on it": the one consequence of X
@@ -295,6 +304,8 @@ export function sourcesFor(sources: ManaSource[], on: SpendOn | undefined): Mana
  * and any-color lands stay open. Creatures go late, mana saved up as
  * counters later, and mana whose "only…" the app cannot read last of all. */
 function rank(s: ManaSource, on: SpendOn | undefined): number {
+  // Delve: the graveyard pays before a land is tapped, as players delve.
+  if (s.helps === 'delve') return 50;
   const flexibility = s.produces.includes('any') ? 9 : s.produces.length;
   const onlyColorless = s.produces.length === 1 && s.produces[0] === 'C';
   const kept = s.only ? keptFor(s, on) : undefined;
@@ -303,6 +314,7 @@ function rank(s: ManaSource, on: SpendOn | undefined): number {
     (kept === null ? 300 : 0) +
     (s.stored ? 200 : 0) +
     (s.creature ? 100 : 0) +
+    (s.helps === 'improvise' ? 150 : 0) +
     (onlyColorless ? 0 : 10) +
     flexibility
   );

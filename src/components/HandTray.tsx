@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { isAura } from '../lib/attach';
 import { boardSeat } from '../lib/combat';
 import { shareInSight } from '../lib/fit';
-import { affordable, asksAtCast, castCosts } from '../lib/pay';
+import { castPrice, castSources, costTable } from '../lib/costs';
+import { affordable, asksAtCast } from '../lib/pay';
 import { asksLife, entryLife } from '../lib/lands';
 import { searchAsk, type SearchAsk } from '../lib/search';
 import { seatSources } from '../lib/seatMana';
@@ -14,6 +15,7 @@ import HandCardSheet from './HandCardSheet';
 import LandLifeSheet from './LandLifeSheet';
 import LibrarySearchSheet from './LibrarySearchSheet';
 import { useCardRecords } from './useCardRecords';
+import { useCastRecords } from './useCastRecords';
 import { useLongPress } from './useLongPress';
 import { useSeatTexts } from './useSeatTexts';
 import XCostSheet from './XCostSheet';
@@ -136,15 +138,18 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
 
   const seat = game?.players[playerIdx]?.cards;
   const records = useCardRecords(seat?.hand ?? []);
-  const bfRecords = useCardRecords(seat?.battlefield ?? []);
+  const castRecords = useCastRecords(playerIdx);
   const texts = useSeatTexts(playerIdx);
   if (!game || !seat) return null;
 
   // The gates: a spell lights up only while the untapped table can pay it,
   // a land only while the seat has a land drop left on its own turn. An
   // unread record never blocks; "Play anyway" lives in the hold sheet for
-  // cost-reducers, treasure math and every rule the gates can't see.
-  const sources = seatSources(game, playerIdx, bfRecords);
+  // treasure math and every rule the gates can't see. What a spell costs
+  // is what it costs on this table (lib/costs.ts): Ruby Medallion, affinity,
+  // free with a commander out, convoke's creatures.
+  const table = costTable(game, playerIdx, castRecords);
+  const mana = seatSources(game, playerIdx, castRecords);
   /** Why a tap will not play this card right now — null when it will. */
   const refusal = (c: CardInstance): string | null => {
     const r = records[c.cardId];
@@ -156,7 +161,8 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
     // Either face will do: a split card needs one half, an adventure
     // creature its own cost — never the two added together. A card with
     // {X} lights up as soon as X = 0 is payable.
-    return castCosts(r, 'hand').some((cost) => affordable(cost, sources))
+    const sources = castSources(game, playerIdx, castRecords, r, c.iid, mana);
+    return castPrice(r, { from: 'hand' }, table).faces.some((cost) => affordable(cost, sources))
       ? null
       : 'Not enough mana ready.';
   };
@@ -328,6 +334,7 @@ export default function HandTray({ playerIdx, forceFanned = false }: Props) {
         <HandCardSheet
           playerIdx={playerIdx}
           iid={detail}
+          onSearch={(ask, source) => setSearchFor({ ask, source })}
           why={(() => {
             const c = seat.hand.find((x) => x.iid === detail);
             return c ? refusal(c) : null;

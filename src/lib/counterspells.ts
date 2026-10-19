@@ -159,6 +159,8 @@ export function counterTargets(g: GameState, records: Records, what: string, by:
 export function counteredTo(g: GameState, spell: StackSpell, to: CounteredTo): CardZone {
   const seat = g.players[spell.seat]?.cards;
   const commander = spell.from === 'command' || (!!seat && isCommander(seat, spell.iid) === true);
+  // Cast with flashback, it is exiled "instead of putting it anywhere else".
+  if (!commander && spell.from === 'graveyard' && spell.to === 'exile') return 'exile';
   return commander ? 'command' : to;
 }
 
